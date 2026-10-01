@@ -1,0 +1,235 @@
+"""OpenAI API client manager with retry logic and error handling."""
+
+import logging
+from typing import Any
+
+import httpx
+from openai import AsyncOpenAI
+from openai.types.images_response import ImagesResponse
+
+from ..config.settings import OpenAISettings
+from ..providers.openai import (
+    GPT_IMAGE_TOKEN_PRICING,
+    OpenAIProvider,
+    _gpt_image_2_tokens_per_image,
+)
+
+logger = logging.getLogger(__name__)
+
+
+
+class OpenAIClientManager:
+    """Manages OpenAI API client with retry logic and error handling."""
+
+    def __init__(self, settings: OpenAISettings):
+        self.settings = settings
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = self._create_client()
+        return self._client
+
+    def _create_client(self):
+        return AsyncOpenAI(
+            api_key=self.settings.api_key,
+            organization=self.settings.organization,
+            base_url=self.settings.base_url,
+            timeout=self.settings.timeout,
+            max_retries=self.settings.max_retries,
+        )
+
+    async def generate_image(
+        self,
+        prompt: str,
+        model: str = "gpt-image-2",
+        quality: str = "auto",
+        size: str = "1536x1024",
+        style: str = "vivid",
+        moderation: str = "auto",
+        output_format: str = "png",
+        compression: int = 100,
+        background: str = "auto",
+        n: int = 1,
+    ) -> ImagesResponse:
+        """Generate an image using OpenAI's Images API."""
+
+        request_params = {
+            "model": model,
+            "prompt": prompt,
+            "n": n,
+            "quality": quality,
+            "size": size,
+            "moderation": moderation,
+        }
+
+        # Add gpt-image-1 family specific parameters
+        if model.startswith("gpt-image-"):
+            request_params.update(
+                {
+                    "style": style,
+                    "output_format": output_format,
+                    # Downgrade model-incompatible background values
+                    # (e.g. transparent on gpt-image-2) via the same
+                    # resolver used by OpenAIProvider.
+                    "background": OpenAIProvider._resolve_background(
+                        background, model
+                    ),
+                }
+            )
+
+            # Add compression for JPEG/WebP
+            if output_format in ["jpeg", "webp"] and compression < 100:
+                request_params["output_compression"] = compression
+
+        try:
+            logger.info(f"Generating image with prompt: {prompt[:100]}...")
+            logger.debug(f"Request parameters: {list(request_params.keys())}")
+            response = await self.client.images.generate(**request_params)
+
+            logger.info(f"Successfully generated {len(response.data)} image(s)")
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generating image: {e}")
+            raise
+
+    async def edit_image(
+        self,
+        image_data: str | bytes,
+        prompt: str,
+        mask_data: str | bytes | None = None,
+        model: str = "gpt-image-2",
+        quality: str = "auto",
+        size: str = "1536x1024",
+        output_format: str = "png",
+        compression: int = 100,
+        background: str = "auto",
+        n: int = 1,
+    ) -> ImagesResponse:
+        """Edit an image using OpenAI's Images API."""
+
+        from . import prepare_image_upload
+
+        # Decode inputs and build SDK upload tuples.
+        _, _, image_file = prepare_image_upload(image_data)
+
+        mask_file = None
+        if mask_data:
+            _, _, mask_file = prepare_image_upload(mask_data)
+
+        # Normalize size against the model's capabilities so invalid custom
+        # sizes (e.g. "9999x9999") fall back locally instead of failing at
+        # the remote API.
+        capabilities = OpenAIProvider.SUPPORTED_MODELS.get(model)
+        if capabilities is not None:
+            size = OpenAIProvider._resolve_size(size, capabilities, model)
+
+        request_params = {
+            "model": model,
+            "image": image_file,
+            "prompt": prompt,
+            "n": n,
+            "size": size,
+        }
+
+        if mask_file:
+            request_params["mask"] = mask_file
+
+        # Add gpt-image-1 family specific parameters
+        if model.startswith("gpt-image-"):
+            request_params["quality"] = quality
+            request_params["output_format"] = output_format
+            # Same background downgrade as generate_image / OpenAIProvider
+            # so transparent on gpt-image-2 never hits the real API.
+            request_params["background"] = OpenAIProvider._resolve_background(
+                background, model
+            )
+            if output_format in ["jpeg", "webp"] and compression < 100:
+                request_params["output_compression"] = compression
+
+        try:
+            logger.info(f"Editing image with prompt: {prompt[:100]}...")
+            logger.debug(f"Request parameters: {list(request_params.keys())}")
+            logger.debug("API client configured for image editing")
+            response = await self.client.images.edit(**request_params)
+
+            logger.info(
+                f"Successfully edited image, generated {len(response.data)} result(s)"
+            )
+            return response
+
+        except Exception as e:
+            logger.error(f"Error editing image: {e}")
+            raise
+
+    def estimate_cost(
+        self,
+        prompt: str,
+        image_count: int = 1,
+        model: str = "gpt-image-2",
+        quality: str = "auto",
+        size: str = "1024x1024",
+    ) -> dict[str, Any]:
+        """Estimate the cost of image generation.
+
+        For gpt-image-2 the per-image token count is approximated by
+        quality tier scaled to pixel count (see OpenAIProvider). Results
+        are rough — use OpenAIProvider.estimate_cost on the active
+        provider instance for the authoritative per-model breakdown.
+        """
+
+        pricing = GPT_IMAGE_TOKEN_PRICING.get(model)
+        if pricing is None:
+            # Non-gpt-image models (e.g. dall-e-*) use per-image pricing that
+            # this helper doesn't know about. Return a zero estimate rather
+            # than silently reporting gpt-image-2 rates, and log so callers
+            # notice. For accurate per-model cost data, use
+            # OpenAIProvider.estimate_cost.
+            logger.warning(
+                "estimate_cost called with unsupported model %r; "
+                "returning zero cost. Use OpenAIProvider.estimate_cost for "
+                "non-gpt-image models.",
+                model,
+            )
+            return {
+                "estimated_cost_usd": 0.0,
+                "text_input_tokens": 0,
+                "image_output_tokens": 0,
+                "breakdown": {
+                    "text_input_cost": 0.0,
+                    "image_output_cost": 0.0,
+                },
+            }
+        if model in ("gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"):
+            tokens_per_image = _gpt_image_2_tokens_per_image(quality, size)
+        else:
+            tokens_per_image = pricing["tokens_per_image"]
+
+        # Rough token estimation (actual tokenization may vary)
+        text_tokens = len(prompt.split()) * 1.3
+        text_input_cost = (
+            text_tokens / 1_000_000
+        ) * pricing["text_input_per_1m_tokens"]
+        image_output_cost = (
+            image_count * tokens_per_image / 1_000_000
+        ) * pricing["image_output_per_1m_tokens"]
+        total_cost = text_input_cost + image_output_cost
+
+        return {
+            "estimated_cost_usd": round(total_cost, 4),
+            "text_input_tokens": int(text_tokens),
+            "image_output_tokens": int(tokens_per_image * image_count),
+            "breakdown": {
+                "text_input_cost": round(text_input_cost, 4),
+                "image_output_cost": round(image_output_cost, 4),
+            },
+        }
+
+    async def download_image(self, image_url: str) -> bytes:
+        """Download image from URL (for dall-e models that return URLs)."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(image_url)
+            response.raise_for_status()
+            return response.content

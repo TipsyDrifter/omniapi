@@ -1,0 +1,49 @@
+# --- secrets ---
+.env
+.env.local
+.env.production
+*-key.json
+*-service-account.json
+service-account-*.json
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.cache/
+
+# --- node / gui ---
+node_modules/
+gui/dist/
+
+# --- runtime data ---
+/mcp/storage/
+/logs/
+*.log
+/monitoring/
+redis.conf
+
+# --- legacy (kept on disk, not versioned) ---
+archive/
+
+# --- os / editor / session tooling ---
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+.sync/
+docs/research/.done-*
+docs/research/.dsk-*
+
+# headless-chrome scratch profiles left by design agents
+prototypes/**/.chrome-tmp/
+prototypes/**/_chrome/
+prototypes/**/chrome-profile/
+prototypes/**/_full.png
+prototypes/**/_review/
+prototypes/**/_tmp/
+/dist/

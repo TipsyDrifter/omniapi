@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="d3">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1440" />
+    <title>OmniAPI 派工中心</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- D3 主題字型（THEME.md §2.1）：Bricolage Grotesque／IBM Plex Mono／LXGW WenKai TC／Noto Sans TC／Noto Serif TC -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..800&family=IBM+Plex+Mono:wght@400;500;600&family=LXGW+WenKai+TC:wght@300;400;700&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;900&display=swap"
+      rel="stylesheet"
+    />
+    <!-- I2 候選主題字型：Shippori Mincho B1／Iansui／Cormorant Garamond／JetBrains Mono -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@400;500;700&family=Iansui&family=Cormorant+Garamond:ital,wght@0,500;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // 主題在 React 掛載前就套上，避免閃一下預設主題
+      try {
+        // ?theme=i2 可指定主題（分享連結、截圖用），指定過的會記住
+        var q = new URLSearchParams(location.search).get("theme");
+        var t = q || localStorage.getItem("omniapi.theme");
+        if (t) document.documentElement.setAttribute("data-theme", t);
+        if (q) localStorage.setItem("omniapi.theme", q);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

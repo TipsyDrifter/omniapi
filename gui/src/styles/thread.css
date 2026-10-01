@@ -1,0 +1,93 @@
+/* M5 追問串（/runs/:id 的續接）與中止按鈕的 CSS。只吃語意 token（themes/d3.css），不得出現 hex／rgba。 */
+
+/* ============ 中止鈕（共用） ============
+   墨框直角小鈕；框與字取 currentColor：在油墨票券上跟著票面字色（--run-on），在紙上就是墨。
+   不用油墨、不用紅表達危險；停用改虛線框，不降透明度。 */
+.cancel { display: inline-flex; align-items: center; gap: 8px; flex: none; min-width: 0; }
+.cancel-btn {
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); letter-spacing: 0.04em;
+  color: inherit; background: transparent; border: 1.5px solid currentColor; padding: 2px 10px 1px; line-height: 1.4;
+  transition: box-shadow var(--t-pick);
+}
+.cancel.m .cancel-btn { font-size: var(--fs-base); padding: 3px 12px 2px; border-width: 2px; }
+.cancel-btn:hover:not(:disabled) { box-shadow: 2px 2px 0 currentColor; }
+.cancel-btn:disabled { border-style: dashed; }
+.cancel-err { font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.4; color: inherit; max-width: 28em; }
+/* 票券第一列：run id 已 margin-left:auto 推到右側，中止鈕接在它右邊 */
+.ticket .row .cancel, .fhead .cancel { margin-left: 4px; }
+.fhead .cancel { align-self: center; }
+/* 歷史詳情 .dt .actions 已有按鈕樣式（墨框 label 700），這裡只讓錯誤字維持墨 70 */
+.dt .actions .cancel-err { color: var(--ink-70); }
+
+/* ============ 追問串 ============ */
+/* 右欄：表頭＋單一捲動區＋底部追問框，整塊撐滿視窗高 */
+/* .hero-r .feedbox 是 flex:1（basis 0），會蓋掉 height；這裡改 flex:none 讓固定高度生效 */
+/* 高度＝視窗扣掉頂欄 76、狀態列 34、頁面上緣 22、下緣留 24：追問列貼著狀態列上方，其餘全給閱讀區。
+   下緣留 24 而不是 12：視窗比 1440 窄時會多一條橫向捲軸（約 15px），留白要吃得下它，追問列才不會被狀態列蓋到。 */
+.runpage:has(.feedbox.thread) { --thread-h: calc(100vh - 76px - 34px - 22px - 24px); padding-bottom: 24px; min-height: 0; }
+.runpage .feedbox.thread { flex: none; height: var(--thread-h); min-height: 420px; }
+/* 左欄（麵包屑＋票券）不准把整頁撐高：比閱讀區高就在欄內捲，頁面本身不出現直向捲軸 */
+.runpage:has(.feedbox.thread) > div:first-child { max-height: max(var(--thread-h), 420px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent; }
+.runpage:has(.feedbox.thread) .ticket { position: static; }
+.runpage .thread .thread-feed { max-height: none; position: relative; padding-top: 0; }
+.thread .feedhead .tag { flex: none; }
+
+/* 一段＝一筆 run */
+.seg { position: relative; padding-bottom: 18px; }
+.seg + .seg { border-top: 2px solid var(--ink); }
+
+/* 分段表頭：捲動時黏在頂端，隨時知道正在看哪一段 */
+.seg-head {
+  position: sticky; top: 0; z-index: 2; background: var(--paper);
+  display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px;
+  padding: 10px 0 9px; border-bottom: 1px dashed var(--ink-25);
+}
+.seg-no { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); letter-spacing: 0.04em; color: var(--ink); white-space: nowrap; }
+.seg-no .resu { vertical-align: 1px; }
+/* 網址指到的那段：段號加墨色底線 */
+.seg.target .seg-no { box-shadow: inset 0 -2px 0 var(--ink); padding-bottom: 1px; }
+.seg-head .live-stamp { font-size: var(--fs-s); padding: 1px 8px 0; border-width: 1.5px; transform: rotate(-2deg); }
+.seg-id { font-family: var(--font-mono); font-size: var(--fs-m11); letter-spacing: 0.06em; color: var(--ink); overflow-wrap: anywhere; }
+.seg-meta { font-family: var(--font-mono); font-size: var(--fs-m11); color: var(--ink); white-space: nowrap; }
+.seg-meta .k { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); letter-spacing: 0; }
+.seg-meta .na { font-family: var(--font-label); font-weight: 700; color: var(--ink-70); }
+.seg-cancel { margin-left: auto; color: var(--ink); }
+
+/* 該段的 prompt（THEME §2.5 使用者訊息：楷 400 16/1.6，墨 100）；長的收成約 6 行 */
+.seg-prompt { border: 2px solid var(--ink); background: var(--paper); padding: 10px 14px 10px; margin: 12px 0 6px; }
+.seg-prompt h4 { margin: 0 0 4px; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); text-transform: uppercase; }
+.seg-prompt .prompt { font-family: var(--font-kai); font-weight: 400; font-size: var(--fs-l); line-height: 1.6; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9.6em; overflow: hidden; }
+.seg-prompt.open .prompt { max-height: none; }
+.seg-more { margin-top: 6px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink-45); }
+.seg-more:hover { box-shadow: inset 0 -1.5px 0 var(--ink); }
+.seg-body .feed-empty { padding: 14px 0 6px; }
+
+/* ============ 追問輸入框 ============ */
+/* 精簡版（2026-09-29 主人回饋）：貼底的一列，平常一行高、打字才往上長；高度讓給閱讀區。
+   一個 2px 墨框裡由左到右：提示符 › ｜輸入｜追問鈕（鈕與框同高、用墨線隔開）。 */
+.composer { flex: none; padding: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.composer-row { display: flex; align-items: stretch; border: 2px solid var(--ink); background: var(--paper); }
+.composer-row:focus-within { box-shadow: 3px 3px 0 var(--ink); }
+/* 提示符與輸入文字同字級、同行高，第一行基線對齊 */
+.composer-mark { flex: none; font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-l); line-height: 1.6; color: var(--ink); padding: 6px 0 0 12px; }
+.composer-input {
+  flex: 1; min-width: 0; box-sizing: border-box; resize: none; overflow-y: hidden;
+  font-family: var(--font-kai); font-weight: 400; font-size: var(--fs-l); line-height: 1.6; color: var(--ink);
+  background: transparent; border: 0; border-radius: 0; padding: 6px 10px 6px 6px; outline: none;
+  scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent;
+}
+.composer-input::placeholder { color: var(--ink-70); }
+.composer-input:disabled { color: var(--ink-70); cursor: progress; }
+.composer-send {
+  flex: none; align-self: stretch; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-base); letter-spacing: 0.04em; color: var(--ink);
+  background: var(--paper); border: 0; border-left: 2px solid var(--ink); padding: 0 20px;
+}
+.composer-send:hover:not(:disabled) { background: var(--paper-deep); }
+.composer-send:disabled { border-left-style: dashed; color: var(--ink-70); }
+/* 不能追問：同一列的位置只留一行原因（墨虛線框） */
+.composer-reason {
+  margin: 0; display: flex; align-items: baseline; gap: 6px; border: 1.5px dashed var(--ink-45); padding: 6px 12px 6px 0;
+  font-family: var(--font-sans); font-size: var(--fs-s); line-height: 1.6; color: var(--ink-70);
+}
+.composer-reason .composer-mark { font-size: var(--fs-s); padding: 0 0 0 12px; color: var(--ink-70); }
+.composer .warn { margin-top: 0; }

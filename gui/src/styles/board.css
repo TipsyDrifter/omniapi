@@ -1,0 +1,387 @@
+/* =====================================================================
+   看板元件 CSS — 從 prototypes/board-styles/d3-final/index.html 移植（定版檔為準）。
+   只吃 d3.css 定義的語意 token；不得出現 hex／rgba（材質在主題檔）。
+   與原型的差異：
+   · body.m3 → .hero.m3（模式掛在 hero 上，不掛 body）
+   · 所有 tabular-nums 集中到 .num-tab；.no-print 可關掉事件進場動畫（歷史還原大量事件時用）
+   ===================================================================== */
+
+.big, .num, .seq, .rid, .date, .n, .tk-nums b, .brk .v, .resultcard .nums, .chips button i, td.t, .num-tab { font-variant-numeric: tabular-nums; }
+
+/* ============ 頂欄 ============ */
+.top {
+  height: 76px; display: grid; align-items: center;
+  grid-template-columns: auto 1fr auto; column-gap: 48px;
+  border-bottom: 2px solid var(--ink);
+  position: relative;
+}
+.logo { font-family: var(--font-display); font-weight: 800; font-size: var(--fs-logo); letter-spacing: -0.035em; line-height: 1; font-variation-settings: "wdth" var(--display-wdth); }
+.logo small { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.14em; color: var(--ink-70); vertical-align: top; margin-left: 6px; position: relative; top: 4px; }
+.top nav { display: flex; gap: 6px; }
+.top nav a {
+  font-family: var(--font-kai); font-size: var(--fs-lead); font-weight: 700; color: var(--ink); text-decoration: none;
+  padding: 6px 14px 4px; position: relative;
+}
+.top nav a span { font-family: var(--font-label); font-size: var(--fs-m10); font-weight: 600; color: var(--ink-70); margin-left: 6px; letter-spacing: 0.08em; }
+.top nav a[aria-current] { box-shadow: inset 0 -3px 0 var(--ink); }
+.top nav a:not([aria-current]):hover { box-shadow: inset 0 -1.5px 0 var(--ink-45); }
+.top nav a[aria-disabled="true"] { color: var(--ink-70); cursor: not-allowed; }
+.top nav a[aria-disabled="true"]:hover { box-shadow: none; }
+.top-r { display: flex; align-items: center; gap: 22px; }
+.date { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-70); letter-spacing: 0.06em; }
+.stamp-btn {
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-l); color: var(--ink);
+  border: 2px solid var(--ink); padding: 6px 16px 5px; transform: rotate(-2.2deg);
+  box-shadow: 3px 3px 0 var(--ink); transition: transform var(--t-pick), box-shadow var(--t-pick);
+}
+.stamp-btn:hover { transform: rotate(0); box-shadow: 5px 5px 0 var(--ink); }
+.stamp-btn:disabled { border-style: dashed; box-shadow: none; transform: none; color: var(--ink-70); }
+.stamp-btn b { font-family: var(--font-display); font-weight: 700; margin-right: 4px; }
+
+/* 切換鈕群（模式／篩選／主題）：選中＝紙深底＋墨框 */
+.sim { display: flex; align-items: center; gap: 4px; }
+.sim .k { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); margin-right: 4px; }
+.sim button, .chips button { font-family: var(--font-label); font-size: var(--fs-base); font-weight: 700; padding: 3px 10px 2px; border: 1.5px solid var(--ink-25); color: var(--ink-70); }
+.sim button[aria-pressed="true"], .chips button[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); background: var(--paper-deep); }
+.sim button:not([aria-pressed="true"]):hover, .chips button:not([aria-pressed="true"]):hover { border-color: var(--ink); color: var(--ink); }
+
+/* ============ 主角：執行中 ============ */
+.hero { display: grid; grid-template-columns: 432px 1fr; column-gap: var(--g); padding-top: 22px; height: calc(900px - 76px - 34px); }
+.ticket {
+  background: var(--halftone), var(--run-ink); color: var(--run-on); position: relative;
+  padding: 22px 26px 20px; display: flex; flex-direction: column;
+}
+.ticket .row { display: flex; align-items: center; gap: 10px; }
+/* 狀態章：執行中＝紙底實框；完成＝空心 */
+.live-stamp {
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-l); letter-spacing: 0.1em; color: var(--ink);
+  border: 2px solid var(--ink); padding: 2px 10px 1px; transform: rotate(-3deg); background: var(--paper);
+}
+.live-stamp.done { background: transparent; color: inherit; border-color: currentColor; }
+/* 錯誤章＝墨底反白 */
+.live-stamp.error { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.drum { width: 22px; height: 22px; border-radius: 50%; border: 2px solid currentColor;
+  background: repeating-conic-gradient(currentColor 0 12deg, transparent 12deg 45deg); animation: var(--drum-anim); }
+.drum.stop { animation: none; opacity: 0.45; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.rid { font-family: var(--font-mono); font-size: var(--fs-m11); letter-spacing: 0.06em; margin-left: auto; opacity: 0.8; }
+.replay-note { font-family: var(--font-sans); font-size: var(--fs-m11); letter-spacing: 0.04em; margin-top: 10px; opacity: 0.78; }
+.ticket h1 {
+  font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-title); line-height: 1.08; margin: 16px 0 18px; letter-spacing: 0.01em;
+}
+.meta { display: grid; grid-template-columns: 78px 1fr; row-gap: 7px; margin: 0; font-size: var(--fs-s); }
+.meta dt { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; text-transform: uppercase; padding-top: 2px; opacity: 0.72; }
+.meta dd { margin: 0; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.meta dd.cwd { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400; }
+.meta dd.id, .meta dd.num { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 500; }
+.perf { height: 18px; margin: 18px -26px 14px; position: relative;
+  background: radial-gradient(circle at 0 50%, var(--paper) 9px, transparent 9.5px), radial-gradient(circle at 100% 50%, var(--paper) 9px, transparent 9.5px); }
+.perf::before { content: ""; position: absolute; left: 18px; right: 18px; top: 50%; border-top: 2px dashed currentColor; opacity: 0.55; }
+.counters { display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; }
+.ctr label { display: flex; gap: 8px; align-items: baseline; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-l); }
+.ctr label i { font-style: normal; font-family: var(--font-label); font-size: var(--fs-m10); font-weight: 600; letter-spacing: 0.06em; opacity: 0.75; }
+.big { font-family: var(--font-display); font-weight: 800; font-size: var(--fs-hero); line-height: var(--lh-num); letter-spacing: -0.045em; font-variation-settings: "wdth" var(--num-wdth); color: inherit; }
+.big small { font-size: 0.42em; letter-spacing: -0.02em; margin-right: 2px; }
+.big .na { font-family: var(--font-label); font-size: var(--fs-h2); letter-spacing: 0; font-weight: 700; color: var(--ink-70); }
+.ctr .sub { font-family: var(--font-sans); font-size: var(--fs-m11); opacity: 0.75; margin-top: 4px; }
+.now { margin-top: 20px; border-top: 2px solid currentColor; padding-top: 10px; }
+.now .k { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m11); letter-spacing: 0.12em; opacity: 0.8; }
+.now .v { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-lead); line-height: 1.45; margin-top: 4px; max-height: 5.8em; overflow: hidden; overflow-wrap: anywhere; }
+/* NOW 是跑馬摘要位：代號可換行，最多兩行（唯一允許截斷的代號位，全文以活動流為準） */
+.now .v code { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-top: 3px; overflow: hidden; overflow-wrap: anywhere; }
+/* 錯誤＝墨底反白 */
+.now .v mark { background: var(--ink); color: var(--paper); padding: 0 5px; }
+.bars { display: flex; gap: 2px; height: 38px; align-items: flex-end; margin-top: auto; }
+.bars i { flex: 1; height: 8px; background: var(--ink-25); transition: height var(--t-bar); }
+.bars i.on { background: var(--ink); }
+.bars i.t-text { height: 100%; }
+.bars i.t-tool_call { height: 70%; }
+.bars i.t-tool_result { height: 48%; }
+.bars i.t-thinking { height: 28%; background: var(--ink-45); }
+.bars i.t-status { height: 18%; background: var(--ink-45); }
+.bars i.t-result { height: 100%; }
+.bars i.t-session_start { height: 100%; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.bars i.err, .bars i.t-error { background: var(--err-stripe-solid); box-shadow: inset 0 0 0 1px var(--ink); }
+.bars-leg { display: flex; justify-content: space-between; font-family: var(--font-sans); font-size: var(--fs-m11); margin-top: 7px; opacity: 0.85; }
+
+/* ============ 多張執行中：堆疊小票券 ============ */
+.hero-r { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.hero-r .feedbox { flex: 1; }
+.stack, .focus { display: none; }
+.hero.m3 .ticket { display: none; }
+.hero.m3 .stack { display: flex; }
+.hero.m3 .focus { display: block; }
+.stack { flex-direction: column; gap: 16px; min-height: 0; }
+.stack-list { display: flex; flex-direction: column; gap: 16px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent; }
+.stack-h { display: flex; align-items: baseline; gap: 10px; border-top: 2px solid var(--ink); padding-top: 10px; }
+.stack-h b { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-lead); }
+.stack-h span { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m11); letter-spacing: 0.08em; color: var(--ink-70); }
+.stack-h span:last-child { margin-left: auto; }
+.tk {
+  display: block; width: 100%; text-align: left; position: relative;
+  padding: 14px 18px 12px; color: var(--run-on); background: var(--halftone), var(--run-ink);
+  transition: transform var(--t-pick), box-shadow var(--t-pick);
+}
+.tk:hover { box-shadow: 4px 4px 0 var(--ink-45); }
+.tk[aria-pressed="true"] { transform: translate(-3px, -3px); box-shadow: 7px 7px 0 var(--ink); }
+.tk[aria-pressed="true"]::after { content: ""; position: absolute; right: -19px; top: 50%; margin-top: -10px; border: 10px solid transparent; border-left-color: var(--ink); }
+.tk .row { display: flex; align-items: center; gap: 10px; }
+.tk .live-stamp { font-size: var(--fs-s); padding: 1px 8px 0; }
+.tk .drum { width: 16px; height: 16px; }
+.tk-title { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h3); line-height: 1.2; margin: 9px 0 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tk-title .resu { vertical-align: 5px; }
+.tk-meta { font-size: var(--fs-s); font-weight: 500; display: flex; gap: 8px; align-items: baseline; }
+.tk-meta .m { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400; opacity: 0.85; }
+.tk .perf { margin: 10px -18px 8px; height: 14px; background: radial-gradient(circle at 0 50%, var(--paper) 7px, transparent 7.5px), radial-gradient(circle at 100% 50%, var(--paper) 7px, transparent 7.5px); }
+.tk .perf::before { left: 14px; right: 14px; }
+.tk-nums { display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; }
+.tk-nums label { display: flex; gap: 6px; align-items: baseline; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); }
+.tk-nums label i { font-style: normal; font-family: var(--font-label); font-size: var(--fs-m10); font-weight: 600; letter-spacing: 0.06em; opacity: 0.8; }
+.tk-nums b { display: block; font-family: var(--font-display); font-weight: 800; font-size: var(--fs-num-m); line-height: 1; letter-spacing: -0.04em; font-variation-settings: "wdth" var(--num-wdth); }
+.tk-nums b small { font-size: 0.5em; letter-spacing: -0.02em; margin-right: 1px; }
+.tk-nums b .na { font-family: var(--font-label); font-size: var(--fs-h4); letter-spacing: 0; font-weight: 700; }
+.stack-note { font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.6; color: var(--ink-70); margin-top: auto; border-top: 1px dashed var(--ink-25); padding-top: 8px; }
+/* 右側：選中 run 的細節帶 */
+.focus { border-top: 2px solid var(--ink); padding: 12px 0 14px; }
+.fhead { display: flex; align-items: baseline; gap: 14px; }
+.fhead h3 { margin: 0; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h2); line-height: var(--lh-title); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fhead .hm { flex: none; font-size: var(--fs-s); font-weight: 700; }
+.fhead .rid { flex: none; font-family: var(--font-mono); font-size: var(--fs-m11); color: var(--ink-70); margin-left: auto; letter-spacing: 0.06em; }
+.fbody { display: grid; grid-template-columns: 1fr 360px; column-gap: 32px; margin-top: 12px; align-items: start; }
+.focus .meta { grid-template-columns: 64px 1fr; row-gap: 5px; }
+.focus .meta dt { color: var(--ink-70); opacity: 1; }
+.focus .counters .big { font-size: var(--fs-num-l); }
+.focus .ctr label i, .focus .ctr .sub { color: var(--ink-70); opacity: 1; }
+.focus .now { margin-top: 12px; border-top-color: var(--ink); padding-top: 8px; }
+.focus .now .v { font-size: var(--fs-l); max-height: 2.9em; }
+.focus .bars { margin-top: 10px; height: 30px; }
+.focus .bars-leg { color: var(--ink-70); opacity: 1; }
+/* 樣本／示意章：紙底加墨虛線 */
+.sample { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); color: var(--ink); background: var(--paper); border: 1.5px dashed var(--ink); padding: 1px 8px 0; transform: rotate(-2deg); display: inline-block; white-space: nowrap; }
+/* 沒有執行中的 run：空票位＝墨虛線框 */
+.idle {
+  border: 2px dashed var(--ink-45); padding: 22px 26px; display: flex; flex-direction: column; gap: 10px; color: var(--ink-70);
+}
+.idle h1 { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h2); margin: 0; color: var(--ink); }
+.idle .code { color: var(--ink); }
+
+/* ============ 活動流 ============ */
+.feedbox { display: flex; flex-direction: column; min-height: 0; border-top: 2px solid var(--ink); }
+.feedhead { display: flex; align-items: flex-end; gap: 18px; padding: 12px 0 10px; border-bottom: 1px solid var(--ink-25); }
+.feedhead h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: var(--fs-h2); letter-spacing: -0.03em; line-height: 1; }
+.feedhead h2 em { font-style: normal; font-family: var(--font-kai); font-size: var(--fs-lead); letter-spacing: 0; color: var(--ink); margin-left: 10px; font-weight: 700; }
+/* 執行中＝油墨面積＋動態：色點取本 run 的 harness 油墨 */
+.onair { font-family: var(--font-label); font-size: var(--fs-m11); letter-spacing: 0.14em; display: flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.onair::before { content: ""; width: 9px; height: 9px; background: var(--run-ink); border-radius: 50%; box-shadow: inset 0 0 0 1px var(--ink-25); animation: blink 1s steps(2) infinite; }
+.onair.off { color: var(--ink-70); } .onair.off::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-45); animation: none; }
+@keyframes blink { 50% { opacity: 0.15; } }
+.chips { margin-left: auto; display: flex; gap: 4px; }
+.chips button i { font-style: normal; font-family: var(--font-mono); font-size: var(--fs-m10); margin-left: 4px; opacity: 0.7; }
+.feed { overflow-y: auto; flex: 1; min-height: 0; padding: 6px 0 30px; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent; }
+.ev { display: grid; grid-template-columns: 48px 34px 1fr; column-gap: 12px; padding: 9px 6px 9px 0; border-bottom: 1px dashed var(--ink-25); position: relative; }
+/* 事件進場＝滾筒印出：一片紙色遮罩分 3 格往下退，內容由上而下「印」出來（動 height，不走合成層） */
+.ev::after, .resultcard::after, .dt::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--paper); pointer-events: none; animation: print var(--t-print) both; }
+.no-print .ev::after, .no-print .resultcard::after, .no-print .gl { animation: none; }
+@keyframes print { from { height: 100%; } to { height: 0; } }
+.seq { font-family: var(--font-mono); font-size: var(--fs-m11); color: var(--ink-70); padding-top: 7px; text-align: right; letter-spacing: 0.04em; }
+.gl { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-l); margin-top: 1px; position: relative; animation: stamp var(--t-stamp) both; }
+@keyframes stamp { from { transform: scale(1.5) rotate(-18deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.gl.t-text { background: var(--ink); color: var(--paper); }
+.gl.t-thinking { border: 1.5px dotted var(--ink-45); color: var(--ink-45); }
+.gl.t-tool_call { background: var(--run-ink); color: var(--run-on); box-shadow: inset 0 0 0 1px var(--ink-25); }
+.gl.t-tool_result { border: 1.5px solid var(--ink); color: var(--ink); width: 26px; height: 26px; font-size: var(--fs-base); margin: 3px 2px 0; }
+.gl.t-session_start, .gl.t-result { border: 1.5px solid var(--ink); border-radius: 0; color: var(--ink); width: 28px; height: 28px; }
+.gl.t-status { border: 1.5px dotted var(--ink-45); border-radius: 0; color: var(--ink-70); width: 26px; height: 26px; font-size: var(--fs-base); margin: 3px 2px 0; }
+.gl.t-error { background: var(--ink); color: var(--paper); border-radius: 0; width: 28px; height: 28px; }
+.ev .body { min-width: 0; }
+.ev.t-text .body p { margin: 2px 0 0; font-family: var(--font-kai); font-size: var(--fs-lead); line-height: 1.5; color: var(--ink); font-weight: 400; white-space: pre-wrap; }
+/* thinking 傍注：無襯線小字、墨 70，不用斜體（中文假斜體會歪） */
+.ev.t-thinking .body p { margin: 5px 0 0; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.55; color: var(--ink-70); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ev.t-thinking.open .body p { display: block; -webkit-line-clamp: unset; }
+.ev.t-status .body p { margin: 4px 0 0; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.55; color: var(--ink-70); }
+.tag { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-70); }
+.tool { display: flex; align-items: baseline; gap: 8px; padding-top: 4px; }
+.tool b { font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-s); color: var(--ink); }
+.tool .srv { font-family: var(--font-mono); font-size: var(--fs-m10); color: var(--ink-70); border: 1px solid var(--ink-25); padding: 0 5px; letter-spacing: 0.06em; }
+.sum { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-70); white-space: normal; overflow-wrap: anywhere; margin-top: 2px; }
+.ev.t-tool_result { padding-top: 5px; padding-bottom: 7px; }
+.ev.t-tool_result .body, .ev.t-thinking .body { cursor: pointer; }
+.res-h { display: flex; gap: 8px; align-items: center; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); padding-top: 5px; }
+.res-h .tog { margin-left: auto; color: var(--ink-70); }
+.out { font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-70); white-space: pre-wrap; word-break: break-all; margin: 3px 0 0; max-height: 3em; overflow: hidden; position: relative; }
+.open .out { max-height: none; }
+/* 錯誤＝墨色斜紋底＋墨底反白章 */
+.ev.err .body { background: var(--err-stripe); padding: 0 8px 4px; box-shadow: inset 2px 0 0 var(--ink), inset -2px 0 0 var(--ink); }
+.ev.err .out { color: var(--ink); }
+.errstamp { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-xs); color: var(--paper); background: var(--ink); padding: 0 6px; transform: rotate(-4deg); display: inline-block; letter-spacing: 0.1em; }
+.sess { font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); padding-top: 4px; }
+.sess .code, .sess .n { color: var(--ink); }
+/* 完成＝墨色空心（結果卡） */
+.resultcard { margin: 14px 0 4px 94px; border: 2px solid var(--ink); padding: 16px 18px; position: relative; background: var(--paper); box-shadow: 6px 6px 0 var(--ink-25); }
+.resultcard h3 { margin: 0 0 8px; font-family: var(--font-kai); font-size: var(--fs-h3); }
+.resultcard .nums { display: flex; gap: 32px; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h2); letter-spacing: -0.03em; }
+.resultcard .nums small { display: block; font-family: var(--font-label); font-size: var(--fs-m10); font-weight: 600; letter-spacing: 0.1em; color: var(--ink-70); }
+.resultcard .note { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); margin-top: 10px; }
+.resultcard .text { font-family: var(--font-kai); font-size: var(--fs-l); line-height: 1.6; white-space: pre-wrap; margin-top: 10px; max-height: 14em; overflow: auto; }
+.resultcard.open .text { max-height: none; }
+.resultcard button { position: absolute; right: 16px; top: 14px; font-family: var(--font-label); font-weight: 700; border: 1.5px solid var(--ink); padding: 3px 12px; }
+.resultcard button:hover { background: var(--paper-deep); }
+.resultcard.error { box-shadow: 6px 6px 0 var(--ink); }
+.resultcard.error h3 { display: inline-block; background: var(--ink); color: var(--paper); padding: 0 8px; }
+.feed-empty { font-family: var(--font-sans); font-size: var(--fs-s); color: var(--ink-70); padding: 24px 0; }
+
+/* ============ 下半：歷史＋費用 ============ */
+.lower { display: grid; grid-template-columns: 1fr 392px; column-gap: 40px; padding-top: 34px; padding-bottom: 40px; border-top: 2px solid var(--ink); margin-top: 0; }
+.sechead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+.sechead h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: var(--fs-sec); letter-spacing: -0.045em; line-height: var(--lh-num); font-variation-settings: "wdth" var(--display-wdth); }
+.sechead .zh { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h4); }
+.sechead .aside { margin-left: auto; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); }
+/* 篩選列（歷史表） */
+.filters { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.filters .sim { gap: 4px; }
+.filters input[type="search"], .filters select {
+  font: var(--fs-s) / 1.4 var(--font-sans); color: var(--ink); background: var(--paper); border: 1.5px solid var(--ink-25); padding: 3px 8px; min-width: 200px;
+}
+.filters input[type="search"]:focus, .filters select:focus { outline: none; border-color: var(--ink); background: var(--paper-deep); }
+.filters input::placeholder { color: var(--ink-70); }
+table.runs { width: 100%; border-collapse: collapse; }
+table.runs thead th { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-70); text-align: left; padding: 0 8px 8px; border-bottom: 2px solid var(--ink); white-space: nowrap; }
+table.runs thead th.r, table.runs td.r { text-align: right; }
+table.runs tbody tr.run { cursor: pointer; }
+table.runs tbody tr.run td { padding: 9px 8px; border-bottom: 1px dashed var(--ink-25); vertical-align: middle; white-space: nowrap; }
+table.runs tbody tr.run:hover td { background: var(--paper-deep); }
+table.runs tbody tr.run.sel td { background: var(--paper-deep); box-shadow: inset 0 2px 0 var(--ink); }
+td.t { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-70); }
+td.num { font-family: var(--font-mono); font-size: var(--fs-xs); }
+td.title { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-l); white-space: normal !important; max-width: 230px; }
+td.disp { font-size: var(--fs-xs); color: var(--ink-70); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+/* 模型名＝代號：不換行也不截斷（整段顯示，同名模型才分得清） */
+td.model { font-family: var(--font-mono); font-size: var(--fs-xs); }
+/* 狀態：完成＝空心圓；錯誤＝墨底反白；執行中＝油墨實心點（跟 harness）；死亡／取消＝虛線圓 */
+.st { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); line-height: 1.5; }
+.st::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink); box-sizing: border-box; }
+.st.error { background: var(--ink); color: var(--paper); padding: 0 7px 0 6px; gap: 5px; }
+.st.error::before { border: 0; border-radius: 0; width: 7px; height: 7px; background: var(--paper); }
+.st.running::before, .st.starting::before { background: var(--run-ink); box-shadow: inset 0 0 0 1px var(--ink-25); border: 0; animation: blink 1s steps(2) infinite; }
+.st.dead::before, .st.cancelled::before { border-style: dashed; border-color: var(--ink-45); }
+.st.dead, .st.cancelled { color: var(--ink-70); }
+/* harness 標記：唯一合法的小面積油墨 */
+.hm { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-s); font-weight: 500; }
+.hm::before { content: ""; width: 12px; height: 12px; background: var(--run-ink); box-shadow: inset 0 0 0 1px var(--ink-25); flex: none; }
+.hm.h-gemini::before { box-shadow: inset 0 0 0 1px var(--ink); }
+/* 續接＝墨色框線小標 */
+.resu { font-family: var(--font-label); font-size: var(--fs-m10); color: inherit; border: 1px solid currentColor; padding: 0 4px; margin-right: 6px; vertical-align: 2px; letter-spacing: 0.04em; line-height: 1.4; }
+/* 未計價 */
+.nil { color: var(--ink-70); font-family: var(--font-label); font-size: var(--fs-xs); }
+tr.detail td { padding: 0; border-bottom: 2px solid var(--ink); }
+.dt { display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; padding: 18px 16px 20px; background: var(--paper-deep); position: relative; }
+.dt h4 { margin: 0 0 6px; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); text-transform: uppercase; }
+.dt .prompt { font-family: var(--font-kai); font-size: var(--fs-l); line-height: 1.6; white-space: pre-wrap; max-height: 9.6em; overflow: auto; }
+.dt dl { display: grid; grid-template-columns: 80px 1fr; gap: 4px 10px; margin: 12px 0 0; font-size: var(--fs-xs); }
+.dt dt { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); color: var(--ink-70); letter-spacing: 0.08em; padding-top: 2px; }
+.dt dd { margin: 0; font-family: var(--font-mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.strip { display: flex; gap: 1.5px; height: 44px; align-items: flex-end; margin: 4px 0 8px; }
+.strip i { flex: 1; background: var(--ink); }
+.strip i.t-text { height: 100%; background: var(--ink); }
+.strip i.t-tool_call { height: 72%; background: var(--run-ink); box-shadow: inset 0 0 0 1px var(--ink-25); }
+.strip i.t-tool_result { height: 46%; background: var(--ink-70); }
+.strip i.t-tool_result.err, .strip i.t-error { background: var(--err-stripe-solid); box-shadow: inset 0 0 0 1px var(--ink); }
+.strip i.t-thinking { height: 26%; background: var(--ink-25); }
+.strip i.t-status { height: 16%; background: var(--ink-25); }
+.strip i.t-result { height: 100%; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.strip i.t-session_start { height: 100%; background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.dt .mini { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); }
+.dt .mini li { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.dt .mini ol { margin: 6px 0 0; padding-left: 34px; }
+.dt .actions { display: flex; gap: 8px; margin-top: 12px; }
+.dt .actions a, .dt .actions button { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); border: 1.5px solid var(--ink); padding: 3px 12px; text-decoration: none; color: var(--ink); }
+.dt .actions a:hover, .dt .actions button:hover { background: var(--paper); }
+.warn { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); border: 1px dashed var(--ink-45); padding: 6px 8px; margin-top: 10px; line-height: 1.5; }
+.warn b { color: var(--ink); font-weight: 600; box-shadow: inset 0 -2px 0 var(--ink); }
+.pager { display: flex; justify-content: center; gap: 8px; padding: 14px 0 0; }
+.pager button { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); border: 1.5px solid var(--ink-25); padding: 3px 12px; color: var(--ink-70); }
+.pager button:hover { border-color: var(--ink); color: var(--ink); }
+
+/* ============ 費用（兩本帳） ============ */
+.costs { position: sticky; top: 16px; align-self: start; }
+.ledger { border: 2px solid var(--ink); padding: 16px 18px 16px; position: relative; margin-bottom: 18px; background: var(--paper); }
+/* 帳本的影子＝墨色網點，不用油墨 */
+.ledger::before { content: ""; position: absolute; left: 6px; top: 6px; right: -8px; bottom: -8px; z-index: -1; background: var(--ledger-shadow); }
+.ledger .lh { display: flex; align-items: baseline; gap: 10px; }
+.ledger h3 { margin: 0; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h4); }
+.ledger .src { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-m10); color: var(--ink-70); }
+.ledger .def { font-size: var(--fs-xs); color: var(--ink-70); margin: 3px 0 10px; line-height: 1.5; }
+.ledger .total { display: flex; align-items: baseline; gap: 12px; }
+.ledger .total .big { font-size: var(--fs-num-l); color: var(--ink); }
+.ledger .total .tn { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); line-height: 1.4; }
+.days { display: grid; grid-template-columns: repeat(30, 1fr); gap: 2px; height: 30px; align-items: end; margin: 14px 0 4px; }
+.days i { height: 100%; border: 1px dotted var(--ink-45); border-bottom: 1.5px solid var(--ink-45); }
+.days i.has { border: 0; background: var(--ink); }
+.days-leg { display: flex; justify-content: space-between; font-family: var(--font-sans); font-size: var(--fs-m10); color: var(--ink-70); }
+.brk { margin: 12px 0 0; padding: 0; list-style: none; }
+.brk li { display: grid; grid-template-columns: 130px 1fr 74px; align-items: center; gap: 10px; padding: 4px 0; font-size: var(--fs-xs); border-top: 1px dashed var(--ink-25); }
+.brk .lb { font-family: var(--font-mono); font-size: var(--fs-m11); overflow-wrap: anywhere; line-height: 1.35; }
+.brk .lb.hm { font-family: var(--font-sans); font-size: var(--fs-xs); gap: 6px; }
+.brk .lb.hm::before { width: 9px; height: 9px; flex: none; }
+.brk .bar { height: 9px; background: var(--paper-deep); position: relative; }
+.brk .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+/* 派工帳依 harness 拆：長條＝該 harness 油墨（合法面積用） */
+.brk .bar i[class^="h-"], .brk .bar i[class*=" h-"] { background: var(--run-ink); }
+.brk .bar i.h-gemini { box-shadow: inset 0 0 0 1px var(--ink); }
+.brk .v { font-family: var(--font-mono); font-size: var(--fs-m11); text-align: right; }
+.brk .v small { display: block; font-size: var(--fs-m10); color: var(--ink-70); }
+.split { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-l); text-align: center; margin: 0 0 18px; display: flex; align-items: center; gap: 10px; color: var(--ink); }
+.split::before, .split::after { content: ""; flex: 1; border-top: 2px dashed var(--ink); }
+.foot-note { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); line-height: 1.6; }
+
+/* ============ 費用頁（/costs）：兩本帳並排＋日／模型分布 ============ */
+.costs-page { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; padding-top: 22px; padding-bottom: 40px; }
+.costs-page .costs { position: static; }
+.dayrows { margin: 10px 0 0; padding: 0; list-style: none; }
+.dayrows li { display: grid; grid-template-columns: 90px 1fr 74px; gap: 10px; align-items: center; padding: 3px 0; border-top: 1px dashed var(--ink-25); font-size: var(--fs-xs); }
+.dayrows .bar { height: 9px; background: var(--paper-deep); position: relative; }
+.dayrows .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+
+/* ============ 單筆頁（/runs/:id） ============ */
+.runpage { padding-top: 22px; padding-bottom: 40px; display: grid; grid-template-columns: 432px 1fr; column-gap: var(--g); min-height: calc(100vh - 76px - 34px); }
+.runpage .feedbox { min-height: 60vh; }
+.runpage .feed { max-height: calc(100vh - 76px - 34px - 120px); }
+.runpage .ticket { align-self: start; position: sticky; top: 16px; }
+.runpage .ticket .bars { margin-top: 18px; }
+.crumbs { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m11); letter-spacing: 0.1em; color: var(--ink-70); margin-bottom: 8px; }
+.crumbs a { text-decoration: none; color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink-45); }
+.prompt-box { border: 2px solid var(--ink); padding: 12px 14px; margin-bottom: 14px; background: var(--paper); }
+.prompt-box h4 { margin: 0 0 6px; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); text-transform: uppercase; }
+.prompt-box .prompt { font-family: var(--font-kai); font-size: var(--fs-l); line-height: 1.6; white-space: pre-wrap; max-height: 12em; overflow: auto; }
+
+/* ============ footer ============ */
+.foot { height: 34px; border-top: 2px solid var(--ink); display: flex; align-items: center; gap: 22px; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); background: var(--paper); position: sticky; bottom: 0; z-index: 5; }
+.foot .ph { color: var(--ink); border-bottom: 1px dashed var(--ink-45); }
+.foot .ph::after { content: "placeholder"; font-size: var(--fs-m10); color: var(--ink-70); margin-left: 4px; letter-spacing: 0.02em; vertical-align: 1px; }
+.foot .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--ink-45); margin-right: 6px; vertical-align: -1px; }
+.foot .dot.on { background: var(--ink); border-color: var(--ink); }
+.foot .dot.off { background: var(--err-stripe-solid); border-color: var(--ink); border-radius: 0; }
+.foot .r { margin-left: auto; }
+.foot .v { color: var(--ink); }
+
+/* ============ 歷史表／兩本帳補充（M4 history + ledger 元件） ============ */
+table.runs tr.empty td { padding: 18px 8px; text-align: center; border-bottom: 1px dashed var(--ink-25); }
+.costs-page .full { grid-column: 1 / -1; }
+.ledger .lh.sub { margin-top: 16px; }
+.dayrows .v { font-family: var(--font-mono); font-size: var(--fs-m11); text-align: right; font-variant-numeric: tabular-nums; }
+.dayrows .v small { display: block; font-size: var(--fs-m10); color: var(--ink-70); }
+.dayrows li > .n { font-family: var(--font-mono); font-size: var(--fs-m11); }
+
+/* ============ 執行中票券（live 元件補充） ============ */
+/* 小票券選中會往左上位移 3px、右下長 7px 墨影與 19px 三角；.stack-list 是捲動容器（overflow 會裁切），
+   用內距把這些留在可視範圍內，再用負外距抵銷，票寬維持 432px（右側延伸進 hero 欄距） */
+.stack-list { overflow-x: hidden; padding: 3px 22px 8px 3px; margin: -3px -22px 0 -3px; }
+/* 空票位的最近一筆：欄名不再疊透明度（.idle 已是墨 70，文字下限） */
+.idle .meta { margin-top: 8px; border-top: 1px dashed var(--ink-25); padding-top: 12px; }
+.idle .meta dt { opacity: 1; }
+.idle .meta dd { color: var(--ink); }
+
+/* 未知 harness（含開發用的重播）的票券是墨底紙字：事件條若仍用墨色會整條看不見，改跟票面字色走 */
+.ticket.h-unknown .bars i.on, .tk.h-unknown .bars i.on { background: currentColor; }
+.ticket.h-unknown .bars i:not(.on) { background: currentColor; opacity: 0.3; }
+.ticket.h-unknown .bars i.t-session_start, .ticket.h-unknown .bars i.t-result { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }

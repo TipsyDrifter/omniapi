@@ -1,0 +1,64 @@
+{
+  "model_id": "gpt-image-2",
+  "name": "GPT-Image-2",
+  "version": "2.0",
+  "capabilities": [
+    "Text-to-Image Generation: State-of-the-art image quality with improved prompt adherence over gpt-image-1.5",
+    "Image Editing: Precise mask-based editing up to 4K (3840x2160)",
+    "Flexible Sizes: Any WxH where both edges are multiples of 16 (max edge 3840px, aspect <=3:1, 655,360 <= total pixels <= 8,294,400)",
+    "Multiple Formats: PNG, JPEG, WebP output formats",
+    "Background Control: auto, opaque (transparent is accepted but auto-downgraded — gpt-image-2 has no native transparency support)",
+    "Compression: 0-100% for JPEG/WebP formats",
+    "Superior Text Rendering: High accuracy for text within images",
+    "High-Fidelity Image Inputs: Improved preservation of faces and logos during edits"
+  ],
+  "pricing": {
+    "text_input": "$5 per 1M tokens",
+    "cached_text_input": "$1.25 per 1M tokens",
+    "image_input": "$8 per 1M tokens",
+    "cached_image_input": "$2 per 1M tokens",
+    "image_output": "$30 per 1M tokens (~1750 tokens per image)",
+    "per_image_range": "$0.005 (low) to $0.211 (high)"
+  },
+  "rate_limits": {
+    "default": "Tier-dependent: 5 IPM (tier 1) to 250 IPM (tier 5)",
+    "configurable": "Per organization settings",
+    "automatic_retry": "Built-in backoff logic"
+  },
+  "size_options": [
+    "1024x1024",
+    "1536x1024 (landscape)",
+    "1024x1536 (portrait)",
+    "3840x2160 (4K landscape)",
+    "Custom: any WxH where both are multiples of 16, max edge 3840, aspect <= 3:1, 655,360 <= pixels <= 8,294,400"
+  ],
+  "quality_levels": [
+    "auto",
+    "high",
+    "medium",
+    "low"
+  ],
+  "formats": [
+    "PNG",
+    "JPEG",
+    "WebP"
+  ],
+  "features": {
+    "background_control": "auto, opaque. Callers may pass 'transparent' for interface consistency across gpt-image-* models, but it is auto-downgraded to 'auto' since gpt-image-2 has no native transparency support — use gpt-image-1 or gpt-image-1.5 when transparency is required",
+    "compression": "0-100% for JPEG/WebP",
+    "moderation": "auto, low content filtering",
+    "flexible_sizing": "Any dimensions within the model's size constraints"
+  },
+  "best_practices": [
+    "Use 3840x2160 for hero / print-ready assets when budget allows",
+    "Choose 'low' quality for thumbnails and iteration (~$0.005/image)",
+    "Use JPEG/WebP with compression 75-90 for web delivery",
+    "Leverage cached-token pricing by re-using stable system prompts",
+    "Save image IDs from tool responses to access images later via resources"
+  ],
+  "examples": [
+    "generate_image(prompt='A serene mountain landscape at sunset', model='gpt-image-2', size='3840x2160', quality='high')",
+    "generate_image(prompt='Logo mockup on a white background', model='gpt-image-2', size='2048x1152', quality='medium')",
+    "edit_image(image_data='data:image/png;base64,...', prompt='Add a rainbow to the sky', model='gpt-image-2')"
+  ]
+}

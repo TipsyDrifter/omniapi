@@ -1,0 +1,119 @@
+"""Model → harness routing and the Claude-harness endpoint table.
+
+Routing rule (D18): the catalog's ``harness`` field per provider decides —
+openai → codex, google → gemini, everything Anthropic-compatible (anthropic,
+deepseek, openrouter and any ``vendor/model`` id) → claude. A caller may force
+``harness=`` and we only check that the combination is configured.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from ..catalog import catalog
+from .events import RunSpec
+
+logger = logging.getLogger(__name__)
+
+# provider → (harness, claude-endpoint key)
+_PROVIDER_ROUTE: dict[str, tuple[str, Optional[str]]] = {
+    "anthropic": ("claude", "anthropic"),
+    "deepseek": ("claude", "deepseek"),
+    "openrouter": ("claude", "openrouter"),
+    "openai": ("codex", None),
+    "google": ("gemini", None),
+}
+
+# DeepSeek's Anthropic endpoint maps claude aliases to its models (official):
+# claude-haiku/sonnet → deepseek-flash, claude-opus → deepseek-v4-pro.
+DEEPSEEK_CLI_ALIAS = {"deepseek-flash": "claude-sonnet-5", "deepseek-v4-pro": "claude-opus-5"}
+
+
+class HarnessRegistry:
+    def __init__(self, settings: Any, store: Any = None):
+        self.settings = settings
+        self.store = store  # only the replay harness needs it
+
+    def _provider_configured(self, key: str) -> bool:
+        if key == "anthropic":
+            # subscription endpoint: the owner's Claude Code login is enough
+            from pathlib import Path
+
+            return (Path.home() / ".claude" / ".credentials.json").exists() or self._provider_configured("anthropic-api")
+        if key == "anthropic-api":
+            key = "anthropic"
+        cfg = getattr(self.settings.providers, "gemini" if key == "google" else key, None)
+        return bool(cfg and getattr(cfg, "enabled", False) and getattr(cfg, "api_key", ""))
+
+    def resolve(self, spec: RunSpec) -> RunSpec:
+        """Fill resolved_model / provider / harness / endpoint on the spec."""
+        if spec.harness == "replay" or (spec.model or "").startswith("replay"):
+            # development-only: re-emit a stored run, no model call, no billing
+            from .replay import replay_enabled
+
+            if not replay_enabled():
+                raise ValueError("The replay harness is for development only (start the daemon with OMNIAPI_DEV=1).")
+            spec.resolved_model = spec.model if (spec.model or "").startswith("replay") else "replay"
+            spec.provider = "replay"
+            spec.harness = "replay"
+            spec.endpoint = None
+            return spec
+        from ..devmode import offline, offline_message
+
+        if offline():
+            raise ValueError(offline_message(f"an agent run on '{spec.model}'"))
+        model = catalog.resolve(spec.model) or spec.model
+        provider = catalog.provider_of(model)
+        if provider is None and "/" in model:
+            provider = "openrouter"
+        if provider is None:
+            raise ValueError(
+                f"Unknown model '{spec.model}'. Use a tier (cheap/standard/strong), a catalog id, "
+                "or an OpenRouter 'vendor/model' id — see list_available_models(modality='text')."
+            )
+        harness, endpoint = _PROVIDER_ROUTE.get(provider, ("claude", "openrouter"))
+        if spec.harness:
+            if spec.harness not in ("claude", "codex", "gemini"):
+                raise ValueError(f"Unknown harness '{spec.harness}' (claude | codex | gemini)")
+            if spec.harness == "claude" and endpoint is None:
+                # e.g. run an OpenAI/Google model through Claude Code via OpenRouter
+                endpoint = "openrouter"
+                if not self._provider_configured("openrouter"):
+                    raise ValueError(
+                        f"Running '{model}' on the claude harness needs OpenRouter (Anthropic-compatible gateway); "
+                        "set PROVIDERS__OPENROUTER__API_KEY."
+                    )
+            harness = spec.harness
+        if endpoint == "anthropic" and (spec.auth or "").lower() == "api":
+            endpoint = "anthropic-api"
+        if harness == "claude" and endpoint and not self._provider_configured(endpoint):
+            raise ValueError(f"Provider '{endpoint}' is not configured (needed to run '{model}' on the claude harness).")
+        if harness == "codex" and not self._provider_configured("openai"):
+            raise ValueError("Codex harness needs PROVIDERS__OPENAI__API_KEY.")
+        if harness == "gemini" and not self._provider_configured("google"):
+            raise ValueError("Gemini harness needs PROVIDERS__GEMINI__API_KEY.")
+        spec.resolved_model = model
+        spec.provider = provider
+        spec.harness = harness
+        spec.endpoint = endpoint
+        return spec
+
+    def adapter(self, harness: str):
+        if harness == "claude":
+            from .claude import ClaudeHarness
+
+            return ClaudeHarness(self.settings)
+        if harness == "codex":
+            from .codex import CodexHarness
+
+            return CodexHarness(self.settings)
+        if harness == "gemini":
+            from .gemini import GeminiHarness
+
+            return GeminiHarness(self.settings)
+        if harness == "replay":
+            from .replay import ReplayHarness
+
+            return ReplayHarness(self.settings, store=self.store)
+        raise ValueError(f"Unknown harness '{harness}'")

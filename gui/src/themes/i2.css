@@ -1,0 +1,54 @@
+/* =====================================================================
+   主題 I2 · 文庫組版 × 京の色 — 候選主題（決策記錄 D25：入主題倉庫）
+   來源：prototypes/board-styles/i2-kyo-tone/index.html 的 :root（日本傳統色）。
+   這是「token 對應版」：把 I2 的色帳與字型對到 D3 的語意 token，讓同一套元件換一張表就能穿上京の色。
+   I2 原稿的版面（目次／欄外／柱）沒有搬過來——那是另一套版式，不是 token 能換的。
+   harness 對應：I2 原稿沒有「油墨＝harness」的概念，這裡取三個相鄰的傳統色：
+     Claude Code＝柿色、Codex＝錆青磁、Gemini CLI＝深支子（黃系，和 D3 的黃同位）。
+   ===================================================================== */
+[data-theme="i2"] {
+  /* 紙：生成（紙面）／白練（桌面）。第二層紙略深 */
+  --paper: #ebe3d0;
+  --paper-deep: #e4dac4;
+  /* 墨：墨黑茶四階（次要文字用「墨黑茶・淡」；45／25 用利休鼠系） */
+  --ink: #2b2a24;
+  --ink-70: #57534a;
+  --ink-45: rgba(140, 134, 118, 0.7);
+  --ink-25: rgba(140, 134, 118, 0.38);
+  /* 三油墨（本主題不做疊印，兩支 ovp 都收成墨） */
+  --riso-pink: #c86b3c; /* 柿色 */
+  --riso-blue: #7a9a8a; /* 錆青磁 */
+  --riso-yellow: #b58a2e; /* 深支子 */
+  --riso-pink-ovp: var(--ink);
+  --riso-blue-ovp: var(--ink);
+  --ovp-pink-blue: var(--ink);
+  --ovp-dx: 0;
+  --ovp-dy: 0;
+  --ovp-blend: normal;
+  --h-claude-ink: var(--riso-pink);
+  --h-claude-on: #f2ecdd; /* 白練：柿色上用淺字 */
+  --h-codex-ink: var(--riso-blue);
+  --h-codex-on: var(--ink);
+  --h-gemini-ink: var(--riso-yellow);
+  --h-gemini-on: var(--ink);
+  /* 材質：和紙不打網點，只留很淡的纖維紋；錯誤斜紋沿用墨色 */
+  --halftone: none;
+  --err-stripe: repeating-linear-gradient(135deg, var(--ink-25) 0 1.5px, transparent 1.5px 6px);
+  --err-stripe-solid: repeating-linear-gradient(135deg, var(--ink) 0 1.5px, transparent 1.5px 4px);
+  --ledger-shadow: none;
+  --grain-opacity: 0.16;
+  /* 字：明朝當 display、Iansui 當本文、JetBrains Mono 當代號 */
+  --font-display: "Shippori Mincho B1", "Noto Serif TC", "PingFang TC", "Microsoft JhengHei", serif;
+  --font-kai: "Iansui", "Noto Serif TC", "PingFang TC", "Microsoft JhengHei", serif;
+  --font-label: "Noto Sans TC", "Segoe UI", system-ui, "Microsoft JhengHei", sans-serif;
+  --font-sans: "Noto Sans TC", "Segoe UI", system-ui, "Microsoft JhengHei", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, "Noto Sans TC", monospace;
+  --display-wdth: 100;
+  --num-wdth: 100;
+  /* 動效：文庫是靜的——留進場，關掉票券的錯位跳動 */
+  --t-print: 240ms steps(2, end);
+  --t-stamp: 200ms steps(2, end);
+  --t-pick: 120ms linear;
+  --t-bar: 180ms steps(2, end);
+  --drum-anim: spin 2.4s linear infinite;
+}

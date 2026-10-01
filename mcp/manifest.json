@@ -1,0 +1,201 @@
+{
+  "manifest_version": "0.4",
+  "name": "omniapi-mcp",
+  "display_name": "OmniAPI — Image · Audio · Text · Speech · Music · Agents",
+  "version": "1.0.0",
+  "description": "One MCP server for image generation/editing, audio transcription, text completion and multi-turn chat, speech synthesis, music generation, and dispatching headless coding agents — across OpenAI, Anthropic, Google, DeepSeek, OpenRouter, ElevenLabs, and Suno (via kie.ai).",
+  "long_description": "OmniAPI is a unified MCP server that routes requests to multiple AI provider APIs behind one interface — five modalities plus agent dispatch in 19 tools:\n\n- **Image generation & editing** (OpenAI gpt-image-2.5 / 2 / 1.5 / 1-mini, Google Nano Banana) — text-to-image, mask editing, multi-image compositing, up to 4K, multiple candidates per call.\n- **Audio transcription** (OpenAI gpt-transcribe) — plus subtitles, word-level timestamps and speaker diarization via the deprecated whisper-1 / gpt-4o-transcribe family.\n- **Text / chat completion** (OpenAI GPT-6 & GPT-5.x, Anthropic Claude, Google Gemini, DeepSeek, and the OpenRouter long tail) — tier aliases cheap / standard / strong, reasoning controls, structured output, and function calling.\n- **Speech synthesis / TTS** (OpenAI gpt-4o-mini-tts / tts-1, ElevenLabs, Gemini TTS) — natural-language tone control and fine voice tuning.\n- **Music generation** (Suno V6 via kie.ai; ElevenLabs Music) — full songs with vocals, plus action-based editing (extend / cover / stems / vocals), lyrics, WAV / MP4 rendering, and ElevenLabs composition plans.\n- **Multi-turn chat** (`chat`) — conversations kept in a local store; pass the returned conversation_id to continue, switch models between turns.\n- **Agent dispatch** (`run_agent` / `get_run` / `list_runs` / `cancel_run`) — hand a task to a headless coding agent (Claude Code, Codex CLI or Gemini CLI, routed by model) working in a folder you choose, then follow or resume it.\n\nModel rosters are live: every provider is asked what is online at startup, merged with a curated pricing/capability overlay. Call list_available_models(modality=...) to see the current list, including deprecation and shutdown dates.\n\nA single OpenAI API key unlocks image, transcription, text and speech. Anthropic, Google, DeepSeek and OpenRouter add text models. Music needs a kie.ai key (Suno) or a paid ElevenLabs plan.\n\nLong jobs (Suno music, high-quality / 4K images) return a task_id ticket and keep running in the background — fetch them with get_job_result — so they never hit the client's tool-call timeout.\n\nThis extension is the stdio MCP server on its own. The full OmniAPI v1.0 — a local daemon with a web board, dispatch and chat UI, and the `omni` CLI — is in the repository.",
+  "author": {
+    "name": "TipsyDrifter",
+    "url": "https://github.com/TipsyDrifter/omniapi"
+  },
+  "homepage": "https://github.com/TipsyDrifter/omniapi",
+  "documentation": "https://github.com/TipsyDrifter/omniapi/blob/main/README.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TipsyDrifter/omniapi"
+  },
+  "keywords": [
+    "image-generation",
+    "image-editing",
+    "transcription",
+    "diarization",
+    "text-completion",
+    "llm",
+    "gpt-6",
+    "gpt-5",
+    "claude",
+    "gemini",
+    "deepseek",
+    "openrouter",
+    "tts",
+    "speech",
+    "elevenlabs",
+    "music-generation",
+    "suno",
+    "kie",
+    "openai",
+    "anthropic",
+    "mcp",
+    "agents",
+    "agent-dispatch",
+    "chat",
+    "claude-code",
+    "codex",
+    "gemini-cli"
+  ],
+  "license": "MIT",
+  "server": {
+    "type": "uv",
+    "entry_point": "omniapi_mcp/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "${__dirname}",
+        "run",
+        "omniapi-mcp"
+      ],
+      "env": {
+        "PROVIDERS__OPENAI__API_KEY": "${user_config.openai_api_key}",
+        "PROVIDERS__OPENAI__ENABLED": "true",
+        "PROVIDERS__OPENAI__TIMEOUT": "300",
+        "PROVIDERS__ELEVENLABS__API_KEY": "${user_config.elevenlabs_api_key}",
+        "PROVIDERS__ELEVENLABS__ENABLED": "true",
+        "PROVIDERS__KIE__API_KEY": "${user_config.kie_api_key}",
+        "PROVIDERS__KIE__ENABLED": "true",
+        "IMAGES__DEFAULT_MODEL": "${user_config.default_model}",
+        "IMAGES__DEFAULT_SIZE": "${user_config.default_size}",
+        "IMAGES__DEFAULT_QUALITY": "auto",
+        "STORAGE__BASE_PATH": "${user_config.storage_path}",
+        "CACHE__ENABLED": "true",
+        "MCP_TIMEOUT": "600000",
+        "MCP_TOOL_TIMEOUT": "600000"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "generate_image",
+      "description": "Generate images from a text prompt (OpenAI gpt-image, Google Nano Banana); supports 4K, transparent backgrounds, explicit aspect ratios, and multiple candidates (n)."
+    },
+    {
+      "name": "edit_image",
+      "description": "Edit an existing image with a text instruction and optional mask; supports input_fidelity, multi-image compositing, and local file paths. OpenAI gpt-image models only."
+    },
+    {
+      "name": "transcribe_audio",
+      "description": "Transcribe audio to text (gpt-transcribe by default); subtitles, word-level timestamps and speaker diarization are available on the deprecated whisper-1 / gpt-4o-transcribe family (shutdown 2027-02-26)."
+    },
+    {
+      "name": "complete_text",
+      "description": "Run a text/chat completion with OpenAI (GPT-6 / GPT-5.x), Anthropic, Google, DeepSeek or OpenRouter. Accepts the tier aliases cheap / standard / strong, plus reasoning controls, structured output, and function calling."
+    },
+    {
+      "name": "chat",
+      "description": "Multi-turn chat with any text model (tiers cheap / standard / strong or a model id). Pass back the returned conversation_id for the next turn; conversations are stored and appear in the OmniAPI GUI under /chat."
+    },
+    {
+      "name": "generate_speech",
+      "description": "Synthesize speech from text (OpenAI gpt-4o-mini-tts / tts-1, ElevenLabs, or Gemini TTS) with tone control and fine voice tuning."
+    },
+    {
+      "name": "generate_music",
+      "description": "Generate music from a text description (Suno V6 family via kie.ai, or ElevenLabs Music); supports instrumental, custom mode, and vocal gender."
+    },
+    {
+      "name": "edit_music",
+      "description": "Transform existing audio with Suno. Pick one action: extend, cover, upload_extend, add_instrumental, add_vocals, or separate_vocals — each needs a different subset of audio_id / task_id / upload_url / prompt / style / title / tags."
+    },
+    {
+      "name": "music_lyrics",
+      "description": "Song lyrics via Suno. action='generate' writes lyrics from a prompt; action='timestamped' returns word-level timings for a track you already generated (task_id + audio_id)."
+    },
+    {
+      "name": "music_utility",
+      "description": "Render a Suno track you already generated into another format. action='convert_to_wav' or 'create_music_video'; both need task_id + audio_id."
+    },
+    {
+      "name": "compose_music",
+      "description": "ElevenLabs composition-plan workflow. action='create_plan' returns an editable section-level plan; action='compose' renders audio from a prompt or an edited plan."
+    },
+    {
+      "name": "run_agent",
+      "description": "Dispatch a task to a headless coding agent (Claude Code, Codex CLI or Gemini CLI — chosen by model) in a working directory; returns a run id right away. Supports resume."
+    },
+    {
+      "name": "get_run",
+      "description": "Fetch a run's state, result, cost and (optionally) its events."
+    },
+    {
+      "name": "list_runs",
+      "description": "List recent agent runs with state, model, turns and cost."
+    },
+    {
+      "name": "cancel_run",
+      "description": "Stop a running agent run."
+    },
+    {
+      "name": "list_available_models",
+      "description": "List every model OmniAPI can call across all modalities (text, image, transcription, speech, music) with provider, online status, pricing, deprecation/shutdown info and the tier aliases. Filter with modality; flags: include_retired, include_snapshots, refresh."
+    },
+    {
+      "name": "health_check",
+      "description": "Check whether the MCP server and its providers are reachable."
+    },
+    {
+      "name": "server_info",
+      "description": "Return server metadata (version, capabilities, default model, etc.)."
+    },
+    {
+      "name": "get_job_result",
+      "description": "Fetch the result of a long-running generation that returned a task_id ticket (Suno music, high-quality / 4K images). Poll until status is no longer 'running'."
+    }
+  ],
+  "user_config": {
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API Key",
+      "description": "Your OpenAI API key (sk-...). Required — unlocks image, transcription, text (GPT-5.x), and speech (gpt-4o-mini-tts).",
+      "sensitive": true,
+      "required": true
+    },
+    "elevenlabs_api_key": {
+      "type": "string",
+      "title": "ElevenLabs API Key (optional)",
+      "description": "Optional. Add an ElevenLabs key to use ElevenLabs voices for generate_speech, and ElevenLabs Music (paid plan) for music generation. Leave blank to use OpenAI TTS only.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "kie_api_key": {
+      "type": "string",
+      "title": "kie.ai API Key (optional)",
+      "description": "Optional. Add a kie.ai key to generate and transform music with Suno (generate_music, edit_music, music_lyrics, music_utility). Leave blank to disable Suno music.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "default_model": {
+      "type": "string",
+      "title": "Default Image Model",
+      "description": "Default model for generate_image (and the fallback model for edit_image).",
+      "default": "gpt-image-2",
+      "required": false
+    },
+    "default_size": {
+      "type": "string",
+      "title": "Default Image Size",
+      "description": "Default size in WxH (e.g. 1024x1024, 1536x1024, 1024x1536, 3840x2160).",
+      "default": "1536x1024",
+      "required": false
+    },
+    "storage_path": {
+      "type": "directory",
+      "title": "Storage Path",
+      "description": "Absolute path to the folder where generated images and audio are saved (kept across extension updates). Change it to any folder you like via the picker.",
+      "default": "C:/Users/User/Documents/OmniAPI",
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,79 @@
+/* 基底：Tailwind ＋ 主題倉庫 ＋ 全站共用的字型角色 class ＋ 材質。
+   元件 CSS 在 board.css（從 d3-final/index.html 移植）。 */
+@import "tailwindcss";
+@import "../themes/d3.css";
+@import "../themes/i2.css";
+
+/* Tailwind 只開放語意色；油墨三色刻意不開成 utility，免得被拿去當文字色（THEME.md §7） */
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-deep: var(--paper-deep);
+  --color-ink: var(--ink);
+  --color-ink-70: var(--ink-70);
+  --color-ink-45: var(--ink-45);
+  --color-ink-25: var(--ink-25);
+  --color-run: var(--run-ink);
+  --color-run-on: var(--run-on);
+  --radius-none: 0;
+}
+
+/* harness → 油墨對照：任何「屬於某 harness」的面積都從這裡取色（THEME.md §1.3） */
+.h-claude { --run-ink: var(--h-claude-ink); --run-on: var(--h-claude-on); }
+.h-codex { --run-ink: var(--h-codex-ink); --run-on: var(--h-codex-on); }
+.h-gemini { --run-ink: var(--h-gemini-ink); --run-on: var(--h-gemini-on); }
+/* 未知 harness：墨色面積、紙色字 */
+.h-unknown, :root { --run-ink: var(--ink); --run-on: var(--paper); }
+
+@layer base {
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: var(--fs-base) / var(--lh-body) var(--font-sans);
+    min-width: 1440px;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 紙紋：整頁 multiply 一層雜訊（雜訊著墨色） */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    background-image: var(--grain);
+    opacity: var(--grain-opacity);
+    mix-blend-mode: multiply;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  button:disabled { cursor: not-allowed; }
+  a { color: inherit; }
+  pre { margin: 0; }
+}
+
+/* 字型角色的共用 class：.n＝數字（等寬＋tabular）、.lbl＝拉丁 UI 標籤（全大寫＋字距）、.code＝代號／路徑（等寬、可換行不截斷） */
+.mono { font-family: var(--font-mono); }
+.n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.lbl { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.code { font-family: var(--font-mono); white-space: normal; overflow-wrap: anywhere; }
+.f-kai { font-family: var(--font-kai); }
+.f-display { font-family: var(--font-display); }
+.f-label { font-family: var(--font-label); }
+.wrap { padding: 0 var(--m); }
+
+/* 套印字：藍版在下，粉版偏移 multiply。只用在 wordmark 與區塊大標（THEME.md §2.4） */
+.ovp { position: relative; display: inline-block; color: var(--riso-blue-ovp); isolation: isolate; }
+.ovp::after {
+  content: attr(data-t);
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--riso-pink-ovp);
+  mix-blend-mode: var(--ovp-blend);
+  transform: translate(var(--ovp-dx), var(--ovp-dy));
+  pointer-events: none;
+}
+
+/* 減少動態：全部靜止，執行中改靠油墨面積＋「執行中」章辨識 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

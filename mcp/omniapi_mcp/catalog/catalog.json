@@ -1,0 +1,1164 @@
+{
+ "_note": "Curated overlay for the OmniAPI model catalog. Discovery (live /models) decides what is ONLINE; this file adds pricing, capabilities, status and routing. Prices are USD per 1M tokens unless the pricing object says otherwise. Sources: docs/research/2026-09-25-*.md Ids ending in -YYYY-MM-DD are dated snapshots: kept callable, hidden from default listings.",
+ "version": 1,
+ "updated": "2026-09-25",
+ "tiers": {
+  "cheap": "deepseek-flash",
+  "standard": "gemini-3.8-flash",
+  "strong": "gpt-6-sol"
+ },
+ "providers": {
+  "openai": {
+   "label": "OpenAI",
+   "discovery": "openai_compatible",
+   "harness": "codex",
+   "modalities": [
+    "text",
+    "image",
+    "transcription",
+    "speech"
+   ],
+   "discovery_modalities": [
+    "text",
+    "image",
+    "transcription",
+    "speech"
+   ]
+  },
+  "anthropic": {
+   "label": "Anthropic",
+   "discovery": "anthropic",
+   "harness": "claude",
+   "modalities": [
+    "text"
+   ]
+  },
+  "google": {
+   "label": "Google",
+   "discovery": "gemini",
+   "harness": "gemini",
+   "modalities": [
+    "text",
+    "image",
+    "speech",
+    "music"
+   ],
+   "settings_key": "gemini"
+  },
+  "deepseek": {
+   "label": "DeepSeek",
+   "discovery": "openai_compatible",
+   "harness": "claude",
+   "modalities": [
+    "text"
+   ]
+  },
+  "openrouter": {
+   "label": "OpenRouter",
+   "discovery": "openai_compatible",
+   "harness": "claude",
+   "modalities": [
+    "text"
+   ]
+  },
+  "elevenlabs": {
+   "label": "ElevenLabs",
+   "discovery": "elevenlabs",
+   "harness": null,
+   "modalities": [
+    "speech",
+    "music"
+   ],
+   "discovery_modalities": [
+    "speech"
+   ]
+  },
+  "kie": {
+   "label": "kie.ai (Suno)",
+   "discovery": null,
+   "harness": null,
+   "modalities": [
+    "music"
+   ]
+  }
+ },
+ "id_rules": {
+  "_note": "How to classify a DISCOVERED id that is not in the curated list. First matching rule wins.",
+  "openai": [
+   {
+    "match": "^gpt-image",
+    "modality": "image"
+   },
+   {
+    "match": "^(tts-|gpt-4o-mini-tts|gpt-.*-tts)",
+    "modality": "speech"
+   },
+   {
+    "match": "(transcribe|whisper)",
+    "modality": "transcription"
+   },
+   {
+    "match": "(gpt-live|search-api|deep-research)",
+    "modality": "ignore"
+   },
+   {
+    "match": "(realtime|embedding|moderation|dall-e|sora|babbage|davinci|computer-use|codex-mini|-audio|search-preview|image-)",
+    "modality": "ignore"
+   },
+   {
+    "match": "^(gpt-|o[0-9]|chatgpt-)",
+    "modality": "text"
+   }
+  ],
+  "google": [
+   {
+    "match": "-image",
+    "modality": "image"
+   },
+   {
+    "match": "-tts",
+    "modality": "speech"
+   },
+   {
+    "match": "^lyria",
+    "modality": "music"
+   },
+   {
+    "match": "(embedding|imagen|veo|aqa|learnlm|gemma|live|native-audio|omni)",
+    "modality": "ignore"
+   },
+   {
+    "match": "^gemini-",
+    "modality": "text"
+   }
+  ],
+  "anthropic": [
+   {
+    "match": "^claude-",
+    "modality": "text"
+   }
+  ],
+  "deepseek": [
+   {
+    "match": "^deepseek",
+    "modality": "text"
+   }
+  ],
+  "openrouter": [
+   {
+    "match": ".",
+    "modality": "text"
+   }
+  ],
+  "elevenlabs": [
+   {
+    "match": "_sts_",
+    "modality": "ignore"
+   },
+   {
+    "match": "^eleven_",
+    "modality": "speech"
+   },
+   {
+    "match": "^music_",
+    "modality": "music"
+   },
+   {
+    "match": "^scribe",
+    "modality": "ignore"
+   }
+  ]
+ },
+ "models": [
+  {
+   "id": "gpt-6-astra",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-6 Astra",
+   "status": "current",
+   "pricing": {
+    "input": 10.0,
+    "cached_input": 1.0,
+    "output": 50.0,
+    "long_context": {
+     "input": 20.0,
+     "output": 75.0
+    }
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "artificial_analysis": 53
+   }
+  },
+  {
+   "id": "gpt-6-sol",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-6 Sol",
+   "status": "current",
+   "pricing": {
+    "input": 2.0,
+    "cached_input": 0.2,
+    "output": 10.0,
+    "long_context": {
+     "input": 4.0,
+     "output": 15.0
+    },
+    "note": "promo price at least through 2026-11-21"
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "artificial_analysis": 48
+   }
+  },
+  {
+   "id": "gpt-6-luna",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-6 Luna",
+   "status": "current",
+   "pricing": null,
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.5",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.5",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.5-pro",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.5 Pro",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.4",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.4",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.4-pro",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.4 Pro",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.4-mini",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.4 mini",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.4-nano",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.4 nano",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "gpt-5.3-codex",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.3 Codex",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "claude-fable-5-1",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Fable 5.1",
+   "status": "current",
+   "pricing": {
+    "input": 10.0,
+    "output": 50.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "lmarena_text": 5,
+    "artificial_analysis": 53
+   }
+  },
+  {
+   "id": "claude-fable-5",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Fable 5",
+   "status": "current",
+   "pricing": {
+    "input": 10.0,
+    "output": 50.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "lmarena_text": 1
+   }
+  },
+  {
+   "id": "claude-opus-5-5",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Opus 5.5",
+   "status": "current",
+   "pricing": {
+    "input": 4.0,
+    "output": 20.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "artificial_analysis": 58
+   }
+  },
+  {
+   "id": "claude-opus-5",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Opus 5",
+   "status": "current",
+   "pricing": {
+    "input": 5.0,
+    "output": 25.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-opus-4-8",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Opus 4.8",
+   "status": "current",
+   "pricing": {
+    "input": 5.0,
+    "output": 25.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-opus-4-7",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Opus 4.7",
+   "status": "current",
+   "pricing": {
+    "input": 5.0,
+    "output": 25.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-opus-4-6",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Opus 4.6",
+   "status": "current",
+   "pricing": {
+    "input": 5.0,
+    "output": 25.0
+   },
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-sonnet-5",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Sonnet 5",
+   "status": "current",
+   "pricing": null,
+   "context": 1000000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-haiku-4-5-20251001",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Haiku 4.5",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gemini-3.8-flash",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.8 Flash",
+   "status": "current",
+   "pricing": {
+    "input": 0.75,
+    "output": 3.75,
+    "note": "through 2026-12-31; $1.50/$7.50 from 2027-01-01"
+   },
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "lmarena_text": 9
+   }
+  },
+  {
+   "id": "gemini-3.7-flash",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.7 Flash",
+   "status": "current",
+   "pricing": {
+    "input": 0.75,
+    "output": 3.75,
+    "note": "through 2026-12-31; $1.50/$7.50 from 2027-01-01"
+   },
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "lmarena_text": 12
+   }
+  },
+  {
+   "id": "gemini-3.1-pro-preview",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.1 Pro (preview)",
+   "status": "current",
+   "pricing": {
+    "input": 2.0,
+    "output": 12.0,
+    "long_context": {
+     "input": 4.0,
+     "output": 18.0
+    },
+    "note": "long_context applies above 200k prompt tokens"
+   },
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "leaderboard": {
+    "lmarena_text": 15
+   }
+  },
+  {
+   "id": "deepseek-flash",
+   "provider": "deepseek",
+   "modality": "text",
+   "name": "DeepSeek V4 Flash",
+   "status": "current",
+   "aliases": [
+    "deepseek-v4-flash"
+   ],
+   "pricing": {
+    "input": 0.22,
+    "cached_input": 0.007,
+    "output": 0.66,
+    "note": "off-peak (Taipei weekdays 12-14 & after 18, weekends); peak x2"
+   },
+   "capabilities": {
+    "tools": true,
+    "structured_output": "json_object",
+    "reasoning": true,
+    "anthropic_endpoint": true
+   }
+  },
+  {
+   "id": "deepseek-v4-pro",
+   "provider": "deepseek",
+   "modality": "text",
+   "name": "DeepSeek V4 Pro",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "tools": true,
+    "structured_output": "json_object",
+    "reasoning": true,
+    "anthropic_endpoint": true
+   }
+  },
+  {
+   "id": "gpt-image-2.5-sunburst",
+   "provider": "openai",
+   "modality": "image",
+   "name": "GPT Image 2.5 Sunburst",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 5.0,
+    "image_input": 8.0,
+    "image_output": 30.0
+   },
+   "capabilities": {
+    "edit": true,
+    "inpaint": true,
+    "multi_reference": true,
+    "max_edge": 3840
+   },
+   "leaderboard": {
+    "lmarena_t2i": 1,
+    "lmarena_edit": 1
+   }
+  },
+  {
+   "id": "gpt-image-2.5-flare",
+   "provider": "openai",
+   "modality": "image",
+   "name": "GPT Image 2.5 Flare",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 5.0,
+    "image_input": 8.0,
+    "image_output": 30.0
+   },
+   "capabilities": {
+    "edit": true,
+    "inpaint": true,
+    "multi_reference": true,
+    "max_edge": 3840
+   },
+   "leaderboard": {
+    "lmarena_t2i": 2,
+    "lmarena_edit": 2
+   }
+  },
+  {
+   "id": "gpt-image-2",
+   "provider": "openai",
+   "modality": "image",
+   "name": "GPT Image 2",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 5.0,
+    "image_input": 8.0,
+    "image_output": 30.0
+   },
+   "capabilities": {
+    "edit": true,
+    "inpaint": true,
+    "multi_reference": true,
+    "max_edge": 3840
+   },
+   "leaderboard": {
+    "lmarena_t2i": 3,
+    "lmarena_edit": 3
+   }
+  },
+  {
+   "id": "gpt-image-1.5",
+   "provider": "openai",
+   "modality": "image",
+   "name": "GPT Image 1.5",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 4.0,
+    "image_output": 32.0
+   },
+   "capabilities": {
+    "edit": true,
+    "input_fidelity": true
+   }
+  },
+  {
+   "id": "gpt-image-1",
+   "provider": "openai",
+   "modality": "image",
+   "name": "GPT Image 1",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-image-2",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 5.0,
+    "image_output": 40.0
+   },
+   "capabilities": {
+    "edit": true,
+    "input_fidelity": true
+   }
+  },
+  {
+   "id": "gpt-image-1-mini",
+   "provider": "openai",
+   "modality": "image",
+   "name": "GPT Image 1 mini",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "edit": true,
+    "input_fidelity": true
+   }
+  },
+  {
+   "id": "gemini-3.1-flash-image",
+   "provider": "google",
+   "modality": "image",
+   "name": "Nano Banana 2",
+   "status": "current",
+   "pricing": {
+    "unit": "per_image",
+    "0.5K": 0.045,
+    "1K": 0.067,
+    "2K": 0.101,
+    "4K": 0.151,
+    "text_input_per_1m": 0.5
+   },
+   "capabilities": {
+    "edit": true,
+    "multi_reference": 14,
+    "sizes": [
+     "512",
+     "1K",
+     "2K",
+     "4K"
+    ]
+   },
+   "leaderboard": {
+    "lmarena_t2i": 10
+   }
+  },
+  {
+   "id": "gemini-3-pro-image",
+   "provider": "google",
+   "modality": "image",
+   "name": "Nano Banana Pro",
+   "status": "current",
+   "pricing": {
+    "unit": "per_image",
+    "1K": 0.134,
+    "2K": 0.134,
+    "4K": 0.24,
+    "text_input_per_1m": 2.0
+   },
+   "capabilities": {
+    "edit": true,
+    "multi_reference": 6,
+    "sizes": [
+     "1K",
+     "2K",
+     "4K"
+    ]
+   },
+   "leaderboard": {
+    "lmarena_edit": 9
+   }
+  },
+  {
+   "id": "gemini-3.1-flash-lite-image",
+   "provider": "google",
+   "modality": "image",
+   "name": "Nano Banana 2 Lite",
+   "status": "current",
+   "pricing": null,
+   "capabilities": {
+    "edit": true
+   }
+  },
+  {
+   "id": "gemini-2.5-flash-image",
+   "provider": "google",
+   "modality": "image",
+   "name": "Nano Banana (2.5)",
+   "status": "deprecated",
+   "replacement": "gemini-3.1-flash-image",
+   "pricing": null,
+   "capabilities": {
+    "edit": true
+   },
+   "note": "access limited to prior users"
+  },
+  {
+   "id": "gpt-transcribe",
+   "provider": "openai",
+   "modality": "transcription",
+   "name": "GPT Transcribe",
+   "status": "current",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.0045
+   },
+   "capabilities": {
+    "timestamps": false,
+    "diarization": false
+   }
+  },
+  {
+   "id": "gpt-4o-transcribe",
+   "provider": "openai",
+   "modality": "transcription",
+   "name": "GPT-4o Transcribe",
+   "status": "deprecated",
+   "shutdown": "2027-02-26",
+   "replacement": "gpt-transcribe",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.006
+   },
+   "capabilities": {
+    "logprobs": true
+   }
+  },
+  {
+   "id": "gpt-4o-mini-transcribe",
+   "provider": "openai",
+   "modality": "transcription",
+   "name": "GPT-4o mini Transcribe",
+   "status": "deprecated",
+   "shutdown": "2027-02-26",
+   "replacement": "gpt-transcribe",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.003
+   },
+   "capabilities": {
+    "logprobs": true
+   }
+  },
+  {
+   "id": "gpt-4o-transcribe-diarize",
+   "provider": "openai",
+   "modality": "transcription",
+   "name": "GPT-4o Transcribe (diarize)",
+   "status": "deprecated",
+   "shutdown": "2027-02-26",
+   "replacement": "gpt-transcribe",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.006
+   },
+   "capabilities": {
+    "diarization": true
+   }
+  },
+  {
+   "id": "whisper-1",
+   "provider": "openai",
+   "modality": "transcription",
+   "name": "Whisper",
+   "status": "deprecated",
+   "shutdown": "2027-02-26",
+   "replacement": "gpt-transcribe",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.006
+   },
+   "capabilities": {
+    "timestamps": true,
+    "srt": true,
+    "vtt": true,
+    "translate": true
+   }
+  },
+  {
+   "id": "gpt-4o-mini-tts",
+   "provider": "openai",
+   "modality": "speech",
+   "name": "GPT-4o mini TTS",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 0.6,
+    "audio_output": 12.0
+   },
+   "capabilities": {
+    "instructions": true
+   }
+  },
+  {
+   "id": "tts-1",
+   "provider": "openai",
+   "modality": "speech",
+   "name": "TTS-1",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_chars",
+    "text": 15.0
+   }
+  },
+  {
+   "id": "tts-1-hd",
+   "provider": "openai",
+   "modality": "speech",
+   "name": "TTS-1 HD",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_chars",
+    "text": 30.0
+   }
+  },
+  {
+   "id": "eleven_v3",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven v3",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.1
+   },
+   "capabilities": {
+    "expressive": true
+   }
+  },
+  {
+   "id": "eleven_v3_conversational",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven v3 Conversational",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.05
+   },
+   "capabilities": {
+    "realtime": true
+   }
+  },
+  {
+   "id": "eleven_flash_v2_5",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven Flash v2.5",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.05
+   },
+   "capabilities": {
+    "low_latency": true
+   }
+  },
+  {
+   "id": "eleven_flash_v2",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven Flash v2",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.05
+   }
+  },
+  {
+   "id": "eleven_multilingual_v2",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven Multilingual v2",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.1
+   }
+  },
+  {
+   "id": "eleven_turbo_v2_5",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven Turbo v2.5",
+   "status": "deprecated",
+   "replacement": "eleven_flash_v2_5",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.05
+   }
+  },
+  {
+   "id": "gemini-3.8-flash-tts",
+   "provider": "google",
+   "modality": "speech",
+   "name": "Gemini 3.8 Flash TTS",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 0.5,
+    "audio_output": 9.0,
+    "note": "through 2026-12-31; $1.00/$18.00 from 2027-01-01; 25 audio tokens per second"
+   }
+  },
+  {
+   "id": "gemini-3.8-flash-lite-tts",
+   "provider": "google",
+   "modality": "speech",
+   "name": "Gemini 3.8 Flash-Lite TTS",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 0.5,
+    "audio_output": 6.0,
+    "note": "through 2026-12-31; then $12.00 output"
+   }
+  },
+  {
+   "id": "gemini-3.1-flash-tts-preview",
+   "provider": "google",
+   "modality": "speech",
+   "name": "Gemini 3.1 Flash TTS (preview, legacy)",
+   "status": "deprecated",
+   "replacement": "gemini-3.8-flash-tts",
+   "pricing": null
+  },
+  {
+   "id": "V6",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V6",
+   "status": "current",
+   "pricing": {
+    "unit": "credits",
+    "credit_usd": 0.005,
+    "note": "credits per song not published"
+   }
+  },
+  {
+   "id": "V6_MINI",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V6 Mini",
+   "status": "current",
+   "pricing": {
+    "unit": "credits",
+    "credit_usd": 0.005
+   }
+  },
+  {
+   "id": "V6_WILD",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V6 Wild",
+   "status": "current",
+   "pricing": {
+    "unit": "credits",
+    "credit_usd": 0.005
+   }
+  },
+  {
+   "id": "V5_5",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V5.5",
+   "status": "retired",
+   "replacement": "V6"
+  },
+  {
+   "id": "V5",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V5",
+   "status": "retired",
+   "replacement": "V6"
+  },
+  {
+   "id": "V4_5PLUS",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V4.5+",
+   "status": "retired",
+   "replacement": "V6"
+  },
+  {
+   "id": "V4_5ALL",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V4.5 All",
+   "status": "retired",
+   "replacement": "V6"
+  },
+  {
+   "id": "V4_5",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V4.5",
+   "status": "retired",
+   "replacement": "V6"
+  },
+  {
+   "id": "V4",
+   "provider": "kie",
+   "modality": "music",
+   "name": "Suno V4",
+   "status": "retired",
+   "replacement": "V6"
+  },
+  {
+   "id": "music_v1",
+   "provider": "elevenlabs",
+   "modality": "music",
+   "name": "Eleven Music v1",
+   "status": "current",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.15
+   }
+  },
+  {
+   "id": "music_v2",
+   "provider": "elevenlabs",
+   "modality": "music",
+   "name": "Eleven Music v2",
+   "status": "current",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.15
+   }
+  },
+  {
+   "id": "music_v2_5",
+   "provider": "elevenlabs",
+   "modality": "music",
+   "name": "Eleven Music v2.5",
+   "status": "current",
+   "pricing": {
+    "unit": "per_minute",
+    "audio": 0.15
+   }
+  },
+  {
+   "id": "lyria-3.5",
+   "provider": "google",
+   "modality": "music",
+   "name": "Lyria 3.5",
+   "status": "current",
+   "implemented": false,
+   "pricing": {
+    "unit": "per_song",
+    "song": 0.08
+   },
+   "note": "catalogued; generate path not yet wired (see ideas notebook)"
+  },
+  {
+   "id": "lyria-3-clip-preview",
+   "provider": "google",
+   "modality": "music",
+   "name": "Lyria 3 Clip (30s)",
+   "status": "current",
+   "implemented": false,
+   "pricing": {
+    "unit": "per_song",
+    "song": 0.04
+   }
+  }
+ ]
+}
