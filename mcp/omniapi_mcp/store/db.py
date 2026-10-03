@@ -147,11 +147,12 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_kind ON artifacts(kind, created_at DESC
 CREATE TABLE IF NOT EXISTS uploads (
   id TEXT PRIMARY KEY,
   created_at REAL NOT NULL,
-  kind TEXT NOT NULL,              -- image | audio
+  kind TEXT NOT NULL,              -- image | audio | file (1.2-M5)
   filename TEXT,
   file_path TEXT NOT NULL,
   mime TEXT,
-  bytes INTEGER
+  bytes INTEGER,
+  meta_json TEXT                   -- 1.2-M5: {info: what extraction found, transcript_id}
 );
 
 CREATE TABLE IF NOT EXISTS generations (
@@ -176,6 +177,10 @@ CREATE TABLE IF NOT EXISTS generations (
 CREATE INDEX IF NOT EXISTS idx_generations_created ON generations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_generations_status ON generations(status);
 """
+
+
+#: ``add_message(parent_id=LEAF)``: follow the conversation's current leaf
+LEAF: Any = object()
 
 
 def _dumps(obj: Any) -> Optional[str]:
@@ -225,7 +230,13 @@ class Store:
         assert self._db is not None
         wanted = {
             # M6: how a reply ended (done / cancelled / error), provider, duration
-            "messages": {"meta_json": "TEXT"},
+            # 1.2-M1: images a message carries, by id (決策記錄 1.2-M1-a) and the
+            # message it answers / follows (決策記錄 1.2-M1-b)
+            "messages": {"meta_json": "TEXT", "attachments_json": "TEXT", "parent_id": "TEXT"},
+            # 1.2-M4: where a generation was asked for beyond its door ({conversation_id, message_id, tool_call_id})
+            "generations": {"meta_json": "TEXT"},
+            # 1.2-M5: what a file holds (pages, rows, readable…) and the transcript that makes an audio file readable
+            "uploads": {"meta_json": "TEXT"},
         }
         for table, cols in wanted.items():
             cur = await self._db.execute(f"PRAGMA table_info({table})")
@@ -234,6 +245,35 @@ class Store:
                 if name not in have:
                     await self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
                     logger.info("Store migration: %s.%s added", table, name)
+        await self._db.execute("CREATE INDEX IF NOT EXISTS idx_msg_parent ON messages(conversation_id, parent_id)")
+        cur = await self._db.execute("PRAGMA user_version")
+        version = (await cur.fetchone())[0]
+        if version < 1:
+            await self._link_linear_history()
+            await self._db.execute("PRAGMA user_version=1")
+
+    async def _link_linear_history(self) -> None:
+        """1.2-M1-b: messages written before branching existed form one line in
+        ``seq`` order — chain each to the one before it and make the last one
+        the conversation's current leaf. Runs once (``user_version``); it also
+        only touches conversations where no message has a parent yet, so a
+        forced re-run leaves branched conversations alone."""
+        assert self._db is not None
+        cur = await self._db.execute(
+            "SELECT conversation_id FROM messages GROUP BY conversation_id HAVING COUNT(parent_id)=0"
+        )
+        cids = [r[0] for r in await cur.fetchall()]
+        for cid in cids:
+            cur = await self._db.execute("SELECT id FROM messages WHERE conversation_id=? ORDER BY seq ASC", (cid,))
+            ids = [r[0] for r in await cur.fetchall()]
+            await self._db.executemany("UPDATE messages SET parent_id=? WHERE id=?", list(zip(ids[:-1], ids[1:])))
+            await self._db.execute(
+                "UPDATE conversations SET meta_json=json_set(COALESCE(meta_json,'{}'),'$.leaf_id',?) WHERE id=?"
+                " AND json_extract(COALESCE(meta_json,'{}'),'$.leaf_id') IS NULL",
+                (ids[-1], cid),
+            )
+        if cids:
+            logger.info("Store migration: %d conversation(s) linked into a single branch", len(cids))
 
     async def close(self) -> None:
         if self._db is not None:
@@ -416,26 +456,109 @@ class Store:
         reasoning: str | None = None,
         tool_calls: Any = None,
         meta: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+        parent_id: Any = LEAF,
     ) -> dict[str, Any]:
+        """Append a message. ``parent_id`` is the message it follows: by default
+        the conversation's current leaf (a plain append), ``None`` for a new
+        first message (an edit of the opening one). The new message becomes
+        the current leaf."""
+        if parent_id is LEAF:
+            parent_id = await self.leaf_id(cid)
         cur = await self.db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conversation_id=?", (cid,))
         seq = (await cur.fetchone())[0]
         mid = uuid.uuid4().hex[:16]
         now = time.time()
         await self.db.execute(
-            "INSERT INTO messages (id, conversation_id, seq, role, content_json, created_at, model, usage_json, cost_usd, reasoning, tool_calls_json, meta_json)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (mid, cid, seq, role, _dumps(content), now, model, _dumps(usage), cost_usd, reasoning, _dumps(tool_calls), _dumps(meta)),
+            "INSERT INTO messages (id, conversation_id, seq, role, content_json, created_at, model, usage_json, cost_usd, reasoning,"
+            " tool_calls_json, meta_json, attachments_json, parent_id)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mid, cid, seq, role, _dumps(content), now, model, _dumps(usage), cost_usd, reasoning, _dumps(tool_calls), _dumps(meta),
+             _dumps(attachments or None), parent_id),
         )
-        await self.db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now, cid))
+        await self.db.execute(
+            "UPDATE conversations SET updated_at=?, meta_json=json_set(COALESCE(meta_json,'{}'),'$.leaf_id',?) WHERE id=?", (now, mid, cid)
+        )
         await self.db.commit()
         return {"id": mid, "conversation_id": cid, "seq": seq, "role": role, "content": content, "created_at": now,
-                "model": model, "usage": usage, "cost_usd": cost_usd, "reasoning": reasoning, "tool_calls": tool_calls, "meta": meta}
+                "model": model, "usage": usage, "cost_usd": cost_usd, "reasoning": reasoning, "tool_calls": tool_calls, "meta": meta,
+                "attachments": attachments or None, "parent_id": parent_id}
+
+    async def message(self, mid: str) -> Optional[dict[str, Any]]:
+        cur = await self.db.execute("SELECT * FROM messages WHERE id=?", (mid,))
+        return _row(await cur.fetchone())
+
+    async def update_message(self, mid: str, *, content: Any = LEAF, meta: Any = LEAF, **fields: Any) -> None:
+        """Rewrite a stored message's content and/or meta (``LEAF`` = leave it):
+        a tool call's state lives on its message and its result message is
+        brought up to date in place (1.2-M4). Not a change of activity.
+        ``fields`` (``model``, ``usage``, ``cost_usd``, ``reasoning``,
+        ``tool_calls``) fill in a reply that waited for the owner (1.2-M5)."""
+        sets, vals = [], []
+        if content is not LEAF:
+            sets.append("content_json=?"); vals.append(_dumps(content))
+        if meta is not LEAF:
+            sets.append("meta_json=?"); vals.append(_dumps(meta))
+        for k, v in fields.items():
+            if k not in ("model", "usage", "cost_usd", "reasoning", "tool_calls"):
+                raise ValueError(f"cannot update message field {k}")
+            json_col = k in ("usage", "tool_calls")
+            sets.append(f"{k}_json=?" if json_col else f"{k}=?"); vals.append(_dumps(v) if json_col else v)
+        if not sets:
+            return
+        await self.db.execute(f"UPDATE messages SET {', '.join(sets)} WHERE id=?", [*vals, mid])
+        await self.db.commit()
+
+    async def messages_with_tool_state(self, state: str) -> list[dict[str, Any]]:
+        """Assistant messages holding a tool call in ``state`` (any conversation).
+        A coarse text match narrows it down; callers check the parsed meta."""
+        cur = await self.db.execute(
+            "SELECT * FROM messages WHERE role='assistant' AND (tool_calls_json IS NOT NULL OR meta_json LIKE '%\"gate\"%')"
+            " AND meta_json LIKE ?", (f'%"{state}"%',)
+        )
+        return [_row(r) for r in await cur.fetchall()]
+
+    async def leaf_id(self, cid: str) -> Optional[str]:
+        """The tip of the branch the conversation is on (``meta.leaf_id``);
+        falls back to the newest message when the pointer is missing or stale."""
+        cur = await self.db.execute(
+            "SELECT m.id FROM conversations c JOIN messages m ON m.id=json_extract(c.meta_json,'$.leaf_id')"
+            " AND m.conversation_id=c.id WHERE c.id=?",
+            (cid,),
+        )
+        row = await cur.fetchone()
+        if row:
+            return row[0]
+        cur = await self.db.execute("SELECT id FROM messages WHERE conversation_id=? ORDER BY seq DESC LIMIT 1", (cid,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+    async def set_leaf(self, cid: str, mid: Optional[str]) -> None:
+        """Point the conversation at another branch tip (not a change of activity:
+        ``updated_at`` stays, so switching versions does not reorder the list)."""
+        await self.db.execute(
+            "UPDATE conversations SET meta_json=json_set(COALESCE(meta_json,'{}'),'$.leaf_id',?) WHERE id=?", (mid, cid)
+        )
+        await self.db.commit()
+
+    async def delete_conversation(self, cid: str) -> dict[str, int]:
+        """Delete a conversation and its messages. Done by hand: ``foreign_keys``
+        is off for this database, so ``ON DELETE CASCADE`` never fires
+        (決策記錄 1.2-M1-d). The call ledger, works and uploads are left alone."""
+        cur = await self.db.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+        n_messages = cur.rowcount
+        cur = await self.db.execute("DELETE FROM conversations WHERE id=?", (cid,))
+        n_conv = cur.rowcount
+        await self.db.commit()
+        return {"conversations": n_conv, "messages": n_messages}
 
     async def chats(self, *, limit: int = 100, include_archived: bool = False) -> list[dict[str, Any]]:
-        """Chat conversations with their message count and total cost, most
-        recently active first."""
+        """Chat conversations with their message count (yours and the replies;
+        a tool call's result message is not one) and total cost, most recently
+        active first."""
         sql = (
-            "SELECT c.*, COUNT(m.id) AS n_messages, COALESCE(SUM(m.cost_usd),0) AS cost_usd,"
+            "SELECT c.*, COALESCE(SUM(CASE WHEN m.role IN ('user','assistant') THEN 1 ELSE 0 END),0) AS n_messages,"
+            " COALESCE(SUM(m.cost_usd),0) AS cost_usd,"
             " COALESCE(SUM(CASE WHEN m.role='assistant' AND m.cost_usd IS NOT NULL THEN 1 ELSE 0 END),0) AS priced,"
             " COALESCE(SUM(CASE WHEN m.role='assistant' AND m.cost_usd IS NULL AND m.content_json NOT IN ('\"\"','null') THEN 1 ELSE 0 END),0) AS unpriced"
             " FROM conversations c LEFT JOIN messages m ON m.conversation_id=c.id"
@@ -447,9 +570,11 @@ class Store:
         cur = await self.db.execute(sql, (limit,))
         return [_row(r) for r in await cur.fetchall()]
 
-    async def messages(self, cid: str, *, limit: int = 500) -> list[dict[str, Any]]:
+    async def messages(self, cid: str, *, limit: Optional[int] = 500) -> list[dict[str, Any]]:
+        """Every message of a conversation, all branches, in ``seq`` order
+        (``limit=None``: no cap — the branch walk needs the whole tree)."""
         cur = await self.db.execute(
-            "SELECT * FROM messages WHERE conversation_id=? ORDER BY seq ASC LIMIT ?", (cid, limit)
+            "SELECT * FROM messages WHERE conversation_id=? ORDER BY seq ASC LIMIT ?", (cid, -1 if limit is None else limit)
         )
         return [_row(r) for r in await cur.fetchall()]
 
@@ -673,14 +798,27 @@ class Store:
         await self.db.execute("UPDATE artifacts SET hidden=? WHERE id=?", (1 if hidden else 0, artifact_id))
         await self.db.commit()
 
-    async def add_upload(self, *, upload_id: str, kind: str, filename: str, file_path: str, mime: str, size: int) -> dict[str, Any]:
+    async def add_upload(self, *, upload_id: str, kind: str, filename: str, file_path: str, mime: str, size: int,
+                         meta: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         now = time.time()
         await self.db.execute(
-            "INSERT INTO uploads (id, created_at, kind, filename, file_path, mime, bytes) VALUES (?,?,?,?,?,?,?)",
-            (upload_id, now, kind, filename, file_path, mime, size),
+            "INSERT INTO uploads (id, created_at, kind, filename, file_path, mime, bytes, meta_json) VALUES (?,?,?,?,?,?,?,?)",
+            (upload_id, now, kind, filename, file_path, mime, size, _dumps(meta)),
         )
         await self.db.commit()
-        return {"id": upload_id, "created_at": now, "kind": kind, "filename": filename, "file_path": file_path, "mime": mime, "bytes": size}
+        return {"id": upload_id, "created_at": now, "kind": kind, "filename": filename, "file_path": file_path, "mime": mime,
+                "bytes": size, "meta": meta}
+
+    async def update_upload_meta(self, upload_id: str, **fields: Any) -> Optional[dict[str, Any]]:
+        """Merge ``fields`` into an upload's meta (1.2-M5: ``info``, ``transcript_id``)."""
+        row = await self.upload(upload_id)
+        if not row:
+            return None
+        meta = {**(row.get("meta") or {}), **fields}
+        await self.db.execute("UPDATE uploads SET meta_json=? WHERE id=?", (_dumps(meta), upload_id))
+        await self.db.commit()
+        row["meta"] = meta
+        return row
 
     async def upload(self, upload_id: str) -> Optional[dict[str, Any]]:
         cur = await self.db.execute("SELECT * FROM uploads WHERE id=?", (upload_id,))
@@ -707,11 +845,12 @@ class Store:
     _GENERATION_COLS = ("finished_at", "model", "title", "status", "error", "error_kind", "cost_usd", "call_id")
 
     async def create_generation(self, generation_id: str, *, kind: str, tool: str, model: str | None, title: str | None,
-                                params: Any, sources: Any, estimate: Any, source: str) -> dict[str, Any]:
+                                params: Any, sources: Any, estimate: Any, source: str, meta: Any = None) -> dict[str, Any]:
         await self.db.execute(
-            "INSERT INTO generations (id, created_at, kind, tool, model, title, params_json, sources_json, status, estimate_json, source)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (generation_id, time.time(), kind, tool, model, title, _dumps(params), _dumps(sources), "running", _dumps(estimate), source),
+            "INSERT INTO generations (id, created_at, kind, tool, model, title, params_json, sources_json, status, estimate_json, source, meta_json)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (generation_id, time.time(), kind, tool, model, title, _dumps(params), _dumps(sources), "running", _dumps(estimate), source,
+             _dumps(meta or None)),
         )
         await self.db.commit()
         return await self.generation(generation_id)  # type: ignore[return-value]
@@ -741,6 +880,21 @@ class Store:
         sql = "SELECT * FROM generations" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY created_at DESC LIMIT ?"
         cur = await self.db.execute(sql, [*params, limit])
         return [_row(r) for r in await cur.fetchall()]
+
+    async def chat_generation_costs(self, cids: Optional[list[str]] = None) -> dict[str, float]:
+        """conversation id → the actual cost of every generation started from
+        it (proposals and transcriptions, every branch; a job that reported no
+        cost is left out). A chat with none is not in the answer."""
+        sql = ("SELECT json_extract(meta_json,'$.conversation_id') AS cid, SUM(cost_usd) AS cost FROM generations"
+               " WHERE cost_usd IS NOT NULL AND json_extract(meta_json,'$.conversation_id') IS NOT NULL")
+        params: list[Any] = []
+        if cids is not None:
+            if not cids:
+                return {}
+            sql += f" AND json_extract(meta_json,'$.conversation_id') IN ({', '.join('?' for _ in cids)})"
+            params += cids
+        cur = await self.db.execute(sql + " GROUP BY cid", params)
+        return {r[0]: float(r[1]) for r in await cur.fetchall()}
 
     async def interrupt_running_generations(self) -> int:
         """At startup nothing can still be running: the tasks died with the

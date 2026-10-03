@@ -233,7 +233,14 @@ class TextTool:
         **params: Any,
     ):
         """Async generator: ``{"type": "text"|"reasoning", "delta"}`` pieces,
-        then one ``{"type": "done", ...}`` shaped like ``complete()``'s return."""
+        then one ``{"type": "done", ...}`` shaped like ``complete()``'s return.
+
+        ``tools`` (OpenAI-shaped function tools) go to the provider when given;
+        the tool calls of the reply — text and calls may come together — are
+        on ``done`` as ``tool_calls`` (OpenAI-shaped, arguments a JSON string).
+        ``replay`` is what the vendor needs back with them on a later request
+        (Anthropic's signed thinking), private keys to merge into the stored
+        assistant message's provider form; ``None`` when there is nothing."""
         target_model, provider = self.route(model)
         clean = {k: v for k, v in params.items() if v is not None}
         async for piece in provider.stream(target_model, messages, **clean):
@@ -254,6 +261,8 @@ class TextTool:
                 "finish_reason": result.finish_reason,
                 "usage": result.usage,
                 "cost_usd": cost,
+                "tool_calls": result.tool_calls,
+                "replay": (result.metadata or {}).get("replay"),
             }
 
     async def close(self) -> None:

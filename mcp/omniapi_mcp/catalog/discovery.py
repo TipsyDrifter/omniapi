@@ -79,7 +79,7 @@ async def fetch_openai_compatible(
                 else item.get("max_tokens"),
                 extra={
                     k: item[k]
-                    for k in ("pricing", "owned_by", "created", "architecture")
+                    for k in ("pricing", "owned_by", "created", "architecture", "supported_parameters")
                     if k in item
                 },
             )

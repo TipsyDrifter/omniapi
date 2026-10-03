@@ -1,8 +1,9 @@
 /* 生成頁共用的小元件：模態章、切換鈕、模型清單、播放器、送出列（含預估費用）、拖放上傳、從作品挑 */
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ApiError, api } from "@/api/client";
 import type { Artifact, Estimate, GenModel, GenOptions, GenRequest } from "@/api/types";
 import { dt } from "@/lib/format";
+import { onSendKey, sendHint, sendKeyName, useSendKey } from "@/lib/sendKey";
 import { Field } from "@/components/dispatch";
 import { GLYPH, baseName, firstLine, msShort, priceText, type Built } from "./draft";
 
@@ -70,13 +71,8 @@ export function useNow(active: boolean): number {
   return now;
 }
 
-/** Ctrl／⌘＋Enter 送出 */
-export const ctrlEnter = (fn: () => void) => (e: KeyboardEvent) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    fn();
-  }
-};
+/** 送出鍵照設定（Ctrl+Enter，或 Enter：只在標了 data-enter-sends 的 prompt 欄單按 Enter 送出），見 lib/sendKey */
+export const sendKeys = onSendKey;
 
 /* ---------------- 模型清單（同新對話頁 dp-mrow 的語彙；反灰＝斜紋＋原因） ---------------- */
 const rank = (m: GenModel) => (m.status === "current" ? 0 : m.status === "deprecated" ? 1 : 2);
@@ -162,7 +158,8 @@ export function claimAudio(a: HTMLAudioElement): void {
   playingNow = a;
 }
 
-export function AudioPlayer({ src, onDuration, big }: { src: string; onDuration?: (s: number) => void; big?: boolean }) {
+/** slip＝聊天訊息裡音檔單的小播放器（播放鈕＋細時間軸，1.2-M5）；其餘照生成頁、作品牆 */
+export function AudioPlayer({ src, onDuration, big, slip }: { src: string; onDuration?: (s: number) => void; big?: boolean; slip?: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [dur, setDur] = useState<number | null>(null);
@@ -175,34 +172,48 @@ export function AudioPlayer({ src, onDuration, big }: { src: string; onDuration?
       void a.play().catch(() => setPlaying(false));
     } else a.pause();
   };
-  const seek = (e: MouseEvent<HTMLDivElement>) => {
+  const seek = (e: MouseEvent<HTMLElement>) => {
     const a = ref.current;
     if (!a || !dur) return;
     const r = e.currentTarget.getBoundingClientRect();
     a.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * dur;
   };
+  const audio = (
+    <audio
+      ref={ref}
+      src={src}
+      preload="metadata"
+      onLoadedMetadata={(e) => {
+        const d = e.currentTarget.duration;
+        if (Number.isFinite(d)) {
+          setDur(d);
+          onDuration?.(d);
+        }
+      }}
+      onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+      onPlay={() => setPlaying(true)}
+      onPause={() => setPlaying(false)}
+      onEnded={() => {
+        setPlaying(false);
+        setT(0);
+      }}
+    />
+  );
+  const play = <button type="button" className={`mk-play${playing ? " on" : ""}`} aria-label={playing ? "暫停" : "播放"} onClick={toggle} />;
+  if (slip)
+    return (
+      <span className="mf-play">
+        {audio}
+        {play}
+        <span className="mf-trk" onClick={seek} role="presentation" title={dur ? `${msShort(t)} / ${msShort(dur)}` : undefined}>
+          <i style={{ width: dur ? `${Math.min(100, (t / dur) * 100)}%` : 0 }} />
+        </span>
+      </span>
+    );
   return (
     <div className={`mk-aud${big ? " mk-aud-big" : ""}`}>
-      <audio
-        ref={ref}
-        src={src}
-        preload="metadata"
-        onLoadedMetadata={(e) => {
-          const d = e.currentTarget.duration;
-          if (Number.isFinite(d)) {
-            setDur(d);
-            onDuration?.(d);
-          }
-        }}
-        onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => {
-          setPlaying(false);
-          setT(0);
-        }}
-      />
-      <button type="button" className={`mk-play${playing ? " on" : ""}`} aria-label={playing ? "暫停" : "播放"} onClick={toggle} />
+      {audio}
+      {play}
       <div className="mk-ruler" onClick={seek} role="presentation">
         <div className="ends">
           <span>{msShort(t)}</span>
@@ -268,6 +279,7 @@ export function basisText(e: Estimate): string {
 
 export function SubmitBar({ kind, recap, built, busy, error, onSend }: { kind: string; recap: ReactNode; built: Built; busy: boolean; error: string | null; onSend: () => void }) {
   const { est, err } = useEstimate(built.body);
+  const [sendKey] = useSendKey();
   return (
     <div className="mk-submitwrap">
       {error ? (
@@ -281,7 +293,7 @@ export function SubmitBar({ kind, recap, built, busy, error, onSend }: { kind: s
           <b>{built.verb}</b>
           {recap}
         </div>
-        <button type="button" className="stamp-btn mk-go" disabled={!built.req || busy} title={built.problem ?? "Ctrl＋Enter"} onClick={onSend}>
+        <button type="button" className="stamp-btn mk-go" disabled={!built.req || busy} title={built.problem ?? sendKeyName(sendKey)} onClick={onSend}>
           {busy ? (
             "送出中…"
           ) : (
@@ -307,16 +319,21 @@ export function SubmitBar({ kind, recap, built, busy, error, onSend }: { kind: s
           )}
           <span className="mk-basis">{est ? basisText(est) : err ? `預估問不到：${err}` : "正在算…"}</span>
         </div>
-        <div className="mk-hint">{built.problem ?? "Ctrl＋Enter 送出。送出後留在這頁，等待與成品從右邊出件。"}</div>
+        <div className="mk-hint">{built.problem ?? `${sendHint(sendKey)}。送出後留在這頁，等待與成品從右邊出件。`}</div>
       </div>
     </div>
   );
 }
 
 /* ---------------- 拖放上傳 ---------------- */
-export function useFileDrop(onFile: (f: File) => void) {
+/** multiple：一次收多個檔（聊天附件）；預設只取第一個（生成頁的來源圖、音檔） */
+export function useFileDrop(onFile: (f: File) => void, opts: { multiple?: boolean } = {}) {
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const take = (files: FileList | null | undefined) => {
+    const list = Array.from(files ?? []);
+    for (const f of opts.multiple ? list : list.slice(0, 1)) onFile(f);
+  };
   const handlers = {
     onDragOver: (e: DragEvent) => {
       e.preventDefault();
@@ -326,8 +343,7 @@ export function useFileDrop(onFile: (f: File) => void) {
     onDrop: (e: DragEvent) => {
       e.preventDefault();
       setOver(false);
-      const f = e.dataTransfer.files?.[0];
-      if (f) onFile(f);
+      take(e.dataTransfer.files);
     },
   };
   const open = () => inputRef.current?.click();
@@ -336,15 +352,21 @@ export function useFileDrop(onFile: (f: File) => void) {
       ref={inputRef}
       type="file"
       accept={accept}
+      multiple={opts.multiple}
       hidden
       onChange={(e) => {
-        const f = e.target.files?.[0];
-        if (f) onFile(f);
+        take(e.target.files);
         e.target.value = "";
       }}
     />
   );
   return { over, handlers, open, input };
+}
+
+/** 上傳失敗 → 給人看的一句（413 太大、415 型別不收；其餘照後端的原因） */
+export function uploadErrText(e: unknown): string {
+  const status = e instanceof ApiError ? e.status : 0;
+  return status === 413 ? `檔案太大：${errMsg(e)}` : status === 415 ? `這種檔案不收：${errMsg(e)}` : errMsg(e);
 }
 
 /** 上傳一個檔：回傳上傳結果，錯誤丟出給人看的訊息 */
@@ -357,8 +379,7 @@ export function useUploader() {
     try {
       return await api.upload(f);
     } catch (e) {
-      const status = e instanceof ApiError ? e.status : 0;
-      setErr(status === 413 ? `檔案太大：${errMsg(e)}` : status === 415 ? `這種檔案不收：${errMsg(e)}` : errMsg(e));
+      setErr(uploadErrText(e));
       return null;
     } finally {
       setBusy(false);
@@ -398,16 +419,25 @@ function useArtifacts(kinds: string[], limit = 24) {
 
 export const artName = (a: Artifact): string => a.title || baseName(a.file_path) || a.id;
 
-export function ImagePicker({ selected, onPick }: { selected: string | null; onPick: (a: Artifact) => void }) {
+/** selected 可以是多個（聊天一則能附好幾張） */
+export function ImagePicker({ selected, onPick }: { selected: string | readonly string[] | null; onPick: (a: Artifact) => void }) {
   const { items, err, hasMore, more } = useArtifacts(["image"]);
   if (err) return <div className="warn">讀不到作品：{err}</div>;
   if (!items) return <div className="dp-empty">讀取作品…</div>;
   if (!items.length) return <div className="dp-empty">作品庫裡還沒有圖。</div>;
+  const on = (id: string) => (typeof selected === "string" || selected == null ? id === selected : selected.includes(id));
   return (
     <div className="mk-pickwrap">
       <div className="mk-pick">
         {items.map((a) => (
-          <button key={a.id} type="button" aria-pressed={a.id === selected} title={`${artName(a)}\n${a.prompt ?? ""}`} onClick={() => onPick(a)}>
+          <button
+            key={a.id}
+            type="button"
+            aria-pressed={on(a.id)}
+            disabled={a.exists === false}
+            title={a.exists === false ? `${artName(a)}\n檔案已經不在硬碟上` : `${artName(a)}\n${a.prompt ?? ""}`}
+            onClick={() => onPick(a)}
+          >
             {a.thumb_url ? <img src={`${a.thumb_url}?w=240`} alt="" loading="lazy" /> : null}
           </button>
         ))}
@@ -434,6 +464,33 @@ export function AudioPicker({ selected, onPick }: { selected: string | null; onP
             <Glyph kind={a.kind} size="sm" />
             <span className="code">{artName(a)}</span>
             <span className="n">{msShort(a.duration_s)}</span>
+            <span className="n">{dt(a.created_at)}</span>
+          </button>
+        ))}
+      </div>
+      {hasMore ? (
+        <button type="button" className="mk-mini mk-more" onClick={more}>
+          更早的
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/** 1.2-M5：作品牆的文字作品（歌詞、逐字稿），聊天可以當附件；selected 可以是多個 */
+export function TextWorkPicker({ selected, onPick }: { selected: readonly string[]; onPick: (a: Artifact) => void }) {
+  const { items, err, hasMore, more } = useArtifacts(["transcript", "lyrics"], 12);
+  if (err) return <div className="warn">讀不到作品：{err}</div>;
+  if (!items) return <div className="dp-empty">讀取作品…</div>;
+  if (!items.length) return <div className="dp-empty">作品庫裡還沒有逐字稿或歌詞。</div>;
+  return (
+    <>
+      <div className="mk-alist">
+        {items.map((a) => (
+          <button key={a.id} type="button" className="mk-arow" aria-pressed={selected.includes(a.id)} onClick={() => onPick(a)} title={firstLine(a.text) || undefined}>
+            <Glyph kind={a.kind} size="sm" />
+            <span className="code">{a.title || firstLine(a.text) || artName(a)}</span>
+            <span className="n">{a.kind === "lyrics" ? "歌詞" : "逐字稿"}</span>
             <span className="n">{dt(a.created_at)}</span>
           </button>
         ))}

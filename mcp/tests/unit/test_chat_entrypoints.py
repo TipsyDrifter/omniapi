@@ -78,7 +78,7 @@ async def test_tool_new_conversation_returns_reply_and_id(mcp_chat):
     assert r["n_messages"] == 2 and r["title"] == "你好"
     assert r["url"] == f"http://127.0.0.1:7788/chat/{r['conversation_id']}" and "url_note" in r
     conv = await mcp_chat.store.conversation(r["conversation_id"])
-    assert conv["meta"] == {"source": "mcp"}
+    assert conv["meta"]["source"] == "mcp" and conv["meta"]["leaf_id"]  # 1.2-M1-b: the current branch tip lives in meta too
     calls = await mcp_chat.store.calls(tool="chat")
     assert len(calls) == 1 and calls[0]["source"] == "mcp"  # one ledger row per turn, not two
 
@@ -375,7 +375,7 @@ def test_cli_streams_the_reply_then_prints_the_summary(daemon):
     assert out.text.rstrip("\n") == summary["text"]
     assert "── echo-fast" in err.text and f"對話 {s.cid}" in err.text and f"http://127.0.0.1:7799/chat/{s.cid}" in err.text
     conv = daemon.get(f"/api/chat/{s.cid}").json()
-    assert conv["meta"] == {"source": "cli"} and conv["system_prompt"] == "你是測試助手"
+    assert conv["meta"]["source"] == "cli" and conv["system_prompt"] == "你是測試助手"
 
     out.parts.clear()
     s.ask("第二問")

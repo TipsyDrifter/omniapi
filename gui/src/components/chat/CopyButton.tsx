@@ -20,7 +20,7 @@ async function copyText(text: string): Promise<void> {
   if (!ok) throw new Error("copy failed");
 }
 
-export default function CopyButton({ text, label = "複製" }: { text: string; label?: string }) {
+export default function CopyButton({ text, label = "複製", className = "cm-copy" }: { text: string; label?: string; className?: string }) {
   const [st, setSt] = useState<"idle" | "ok" | "fail">("idle");
   const t = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (t.current && clearTimeout(t.current)), []);
@@ -34,7 +34,7 @@ export default function CopyButton({ text, label = "複製" }: { text: string; l
       });
   };
   return (
-    <button type="button" className={`cm-copy${st === "ok" ? " ok" : ""}`} onClick={onClick} title="複製這則的原始 markdown">
+    <button type="button" className={`${className}${st === "ok" ? " ok" : ""}`} onClick={onClick} title="複製這則的原始 markdown">
       {st === "ok" ? "已複製" : st === "fail" ? "複製失敗" : label}
     </button>
   );

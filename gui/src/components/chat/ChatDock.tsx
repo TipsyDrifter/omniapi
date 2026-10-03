@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ModelPicker } from "@/components/dispatch";
+import { SendKeyCap, SendKeyOptions } from "@/components/SendKeyMenu";
+import { isSendKey, sendHint, useSendKey } from "@/lib/sendKey";
+import type { OutgoingAttachment } from "@/store/chat";
 import ChatComposer from "./ChatComposer";
+import { capsOf } from "./files";
 import { resolveChatModel, toSel, useModels } from "./useModels";
 
-/* 貼底區（M6-f）：錯誤 → 一行細列（左「下一則用：模型」、右「System prompt 有／無」）→ 輸入列。
-   細列的兩個展開區預設收合，展開時往上長（蓋在訊息區上），不擠壓輸入列。 */
+/* 貼底區（M6-f）：錯誤 → 一行細列（左「下一則用：模型」、右「送出鍵」「System prompt 有／無」）→ 輸入列。
+   細列的展開區預設收合，展開時往上長（蓋在訊息區上），不擠壓輸入列。
+   送出鍵（1.2-M3）：現在是哪一種一眼看得到（鍵帽），點開選；四處的輸入框一起改。
+   不會用工具的模型（1.2-M4）：「下一則用」旁一個虛線小籤「不在對話裡生成」，滑過／聚焦才說原因（不跳警告、不擋輸入）。 */
 
 export interface ChatDockProps {
   /** 下一則會用的模型（等級別名或 id） */
@@ -17,25 +23,34 @@ export interface ChatDockProps {
   /** save＝存到對話（「儲存」）；draft＝還沒建立對話，只是先填（「套用」） */
   systemMode: "save" | "draft";
   live: boolean;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, attachments: OutgoingAttachment[]) => Promise<boolean>;
   onStop?: () => Promise<void>;
   /** 顯示在細列上方的錯誤（送出失敗、上一則回覆失敗…） */
   notices?: ReactNode[];
   blocked?: string | null;
   autoFocus?: boolean;
+  /** 對話現行路徑上已經有幾張圖：換到不會看圖的模型時先講清楚它看不到 */
+  priorImages?: number;
 }
 
-type Pop = null | "model" | "system";
+type Pop = null | "model" | "system" | "key";
 
 // 「含長尾」的勾選：整個分頁記住就好
 let longtailMemo = false;
 
 export default function ChatDock(props: ChatDockProps) {
-  const { model, onModel, system, onSystem, systemMode, live, onSend, onStop, notices = [], blocked, autoFocus } = props;
+  const { model, onModel, system, onSystem, systemMode, live, onSend, onStop, notices = [], blocked, autoFocus, priorImages = 0 } = props;
   const [pop, setPop] = useState<Pop>(null);
   const [longtail, setLongtail] = useState(longtailMemo);
+  const [sendKey] = useSendKey();
   const m = useModels();
   const r = resolveChatModel(model, m);
+  // 讀不到清單（error）也算「不知道」：不擋，後端會略過並講
+  const caps = capsOf(r.entry, !!m.data);
+  const vision = caps.vision;
+  // 1.2-M4：會不會用工具（不會＝聊天裡不會有生成提議）；清單還沒讀到不顯示；目錄不認得的同後端當成不會
+  const tools = caps.tools;
+  const nogenTip = useId();
   const boxRef = useRef<HTMLDivElement>(null);
 
   // 點到細列與展開區以外就收起來
@@ -86,6 +101,11 @@ export default function ChatDock(props: ChatDockProps) {
           </div>
         ) : null}
         {pop === "system" ? <SystemEditor value={system} mode={systemMode} onSave={onSystem} onClose={() => setPop(null)} /> : null}
+        {pop === "key" ? (
+          <div className="cs-pop ck-pop" role="dialog" aria-label="送出鍵">
+            <SendKeyOptions onPicked={() => setPop(null)} />
+          </div>
+        ) : null}
         <div className="cs-strip">
           <button type="button" className="cs-btn" aria-expanded={pop === "model"} onClick={() => toggle("model")} title="換模型">
             <span className="cs-k">下一則用</span>
@@ -93,6 +113,23 @@ export default function ChatDock(props: ChatDockProps) {
             {r.id && r.id !== model ? <span className="code">→ {r.id}</span> : null}
             <span className="cs-car" aria-hidden="true">
               {pop === "model" ? "▾" : "▴"}
+            </span>
+          </button>
+          {tools === false ? (
+            <span className="tipw up">
+              <span className="cs-nogen" tabIndex={0} aria-describedby={nogenTip}>
+                不在對話裡生成
+              </span>
+              <span className="cx-tip" id={nogenTip} role="tooltip">
+                <span className="code">{r.id ?? model}</span> 不會用工具，聊天裡不會出現生成圖片、語音的提議。要生成：換一個模型，或到「生成」頁。之前留下的提議卡照樣能按。
+              </span>
+            </span>
+          ) : null}
+          <button type="button" className="cs-btn ck-btn" aria-expanded={pop === "key"} aria-haspopup="dialog" onClick={() => toggle("key")} title="選送出鍵">
+            <span className="cs-k">送出鍵</span>
+            <SendKeyCap mode={sendKey} />
+            <span className="cs-car" aria-hidden="true">
+              {pop === "key" ? "▾" : "▴"}
             </span>
           </button>
           <button type="button" className="cs-btn cs-sys" aria-expanded={pop === "system"} onClick={() => toggle("system")} title="編輯 system prompt">
@@ -104,7 +141,23 @@ export default function ChatDock(props: ChatDockProps) {
           </button>
         </div>
       </div>
-      <ChatComposer live={live} onSend={onSend} onStop={onStop} blocked={blocked} autoFocus={autoFocus} placeholder={`對 ${model} 說……（Ctrl+Enter 送出）`} />
+      {vision === false && priorImages > 0 && !blocked ? (
+        <p className="cx-blind" role="status">
+          <span className="cx-blind-k">看不到圖</span>
+          <span>
+            這個模型看不到前面的 <span className="n">{priorImages}</span> 張圖，回覆只根據文字；要它看圖，換一個會看圖的模型。
+          </span>
+        </p>
+      ) : null}
+      <ChatComposer
+        live={live}
+        onSend={onSend}
+        onStop={onStop}
+        blocked={blocked}
+        autoFocus={autoFocus}
+        caps={caps}
+        placeholder={`對 ${model} 說……（${sendHint(sendKey)}；可以貼上或拖進檔案）`}
+      />
     </div>
   );
 }
@@ -141,8 +194,8 @@ function SystemEditor({ value, mode, onSave, onClose }: { value: string; mode: "
         value={v}
         onChange={(e) => setV(e.target.value)}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing) return;
-          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          // system prompt 常是好幾段、存了就生效：固定 Ctrl+Enter 儲存，不跟送出鍵設定（那是給四處送出訊息的輸入框）
+          if (isSendKey(e, { mode: "ctrl" })) {
             e.preventDefault();
             void save();
           }

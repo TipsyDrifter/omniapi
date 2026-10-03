@@ -347,7 +347,9 @@ async def test_rest_upload_whitelist_caps_and_image_check(ctx, client, monkeypat
         ok = client.post("/api/uploads", params={"filename": "../../ref photo.PNG"}, content=_png())
         assert ok.status_code == 200
         up = ok.json()
-        stored = Path(up["file_path"])
+        assert "file_path" not in up and up["file_url"] == f"/api/uploads/{up['id']}/file"  # 1.2-M1-e: ids, never paths
+        (stored,) = [p for p in (Path(ctx.settings.storage.base_path) / "uploads").rglob("*") if p.is_file()]
+        stored = stored.resolve()
         assert up["kind"] == "image" and up["filename"] == "ref photo.PNG" and stored.name.startswith("upload_") and stored.suffix == ".png"
         assert stored.is_relative_to(Path(ctx.settings.storage.base_path).resolve() / "uploads")
         assert client.get(f"/api/uploads/{up['id']}/file").content == _png()

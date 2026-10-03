@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
@@ -46,6 +47,81 @@ class TextResult:
     tool_calls: list[dict[str, Any]] | None = None  # OpenAI-shaped
     cost_usd: float | None = None  # provider-reported cost (OpenRouter) if any
     provider_response: dict[str, Any] | None = None
+
+
+#: message keys starting with this are OmniAPI's own (replay data one vendor
+#: needs back, e.g. Anthropic's signed thinking blocks); never sent as-is
+PRIVATE_KEY_PREFIX = "_"
+
+
+def public_message(msg: dict[str, Any]) -> dict[str, Any]:
+    """A message without OmniAPI's private replay keys."""
+    if not any(isinstance(k, str) and k.startswith(PRIVATE_KEY_PREFIX) for k in msg):
+        return msg
+    return {k: v for k, v in msg.items() if not (isinstance(k, str) and k.startswith(PRIVATE_KEY_PREFIX))}
+
+
+class ToolCallAssembler:
+    """Put OpenAI-style streamed tool calls back together.
+
+    A streamed chunk's ``delta.tool_calls`` carries fragments keyed by
+    ``index``: the first names the call (``id``, ``function.name``), later
+    ones append to ``function.arguments``. Some OpenAI-compatible servers send
+    a whole call in one fragment, or leave ``index`` out; a fragment without
+    an index joins the call with the same ``id``, else starts a new one. Any
+    extra field a fragment carries (Gemini's ``extra_content`` with the thought
+    signature) is kept on the call, so it goes back to the vendor unchanged.
+    """
+
+    def __init__(self) -> None:
+        self._calls: dict[Any, dict[str, Any]] = {}
+        self._order: list[Any] = []
+
+    @staticmethod
+    def _plain(obj: Any) -> dict[str, Any]:
+        if isinstance(obj, dict):
+            return obj
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump(exclude_none=True)
+        return {k: v for k, v in vars(obj).items() if not k.startswith("_") and v is not None} if hasattr(obj, "__dict__") else {}
+
+    def add(self, fragment: Any) -> None:
+        frag = self._plain(fragment)
+        index = frag.get("index")
+        key = index if index is not None else None
+        if key is None:
+            fid = frag.get("id")
+            key = next((k for k, c in self._calls.items() if fid and c.get("id") == fid), None)
+            if key is None:
+                key = f"n{len(self._order)}"
+        call = self._calls.get(key)
+        if call is None:
+            call = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+            self._calls[key] = call
+            self._order.append(key)
+        if frag.get("id"):
+            call["id"] = frag["id"]
+        if frag.get("type"):
+            call["type"] = frag["type"]
+        fn = self._plain(frag.get("function") or {})
+        if fn.get("name"):
+            call["function"]["name"] += fn["name"] if call["function"]["name"] != fn["name"] else ""
+        if fn.get("arguments"):
+            call["function"]["arguments"] += fn["arguments"]
+        for k, v in frag.items():
+            if k not in ("index", "id", "type", "function") and v is not None:
+                call[k] = v
+
+    def calls(self) -> list[dict[str, Any]] | None:
+        out = []
+        for key in self._order:
+            call = self._calls[key]
+            if not call["function"]["name"]:
+                continue  # a fragment that never named its function is not a call
+            if not call["id"]:  # the id names the call in later requests and urls: unique, not positional
+                call["id"] = f"call_{uuid.uuid4().hex[:16]}"
+            out.append(call)
+        return out or None
 
 
 class TextProvider(ABC):
@@ -195,6 +271,7 @@ class OpenAITextProvider(TextProvider):
     def _prepare_messages(
         self, model: str, messages: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
+        messages = [public_message(msg) for msg in messages]
         if not (self.REMAP_SYSTEM_TO_DEVELOPER and self._is_reasoning_model(model)):
             return messages
         return [
@@ -382,8 +459,9 @@ class OpenAITextProvider(TextProvider):
         **kwargs: Any,
     ) -> AsyncIterator[dict[str, Any]]:
         """Streamed chat completion (``stream=True``), same dialect rules as
-        ``complete()``. Tool calls are not assembled here — chat does not use
-        them; a run that needs tools goes through a harness."""
+        ``complete()``. Tool calls arrive in fragments (``delta.tool_calls``)
+        and are put back together (``ToolCallAssembler``); the finished calls
+        are on the ``done`` result, next to whatever text came with them."""
         if not self.supports_model(model):
             raise ProviderError(
                 f"Model '{model}' is not supported by {self.name} provider",
@@ -400,6 +478,7 @@ class OpenAITextProvider(TextProvider):
         finish: str | None = None
         usage: dict[str, Any] | None = None
         served_model = model
+        calls = ToolCallAssembler()
         try:
             self._logger.info("Text stream with %s model %s", self.name, model)
             stream = await self.client.chat.completions.create(**request)
@@ -430,6 +509,8 @@ class OpenAITextProvider(TextProvider):
                 if isinstance(piece, str) and piece:
                     texts.append(piece)
                     yield {"type": "text", "delta": piece}
+                for fragment in getattr(delta, "tool_calls", None) or extra.get("tool_calls") or []:
+                    calls.add(fragment)
         except ProviderError:
             raise
         except Exception as e:
@@ -448,6 +529,7 @@ class OpenAITextProvider(TextProvider):
                 reasoning="".join(thoughts) or None,
                 finish_reason=finish,
                 usage=usage,
+                tool_calls=calls.calls(),
                 cost_usd=float(cost) if cost is not None else None,
                 metadata={"provider": self.name},
             ),
@@ -559,6 +641,11 @@ class OpenRouterTextProvider(OpenAITextProvider):
 # ============================================================================
 
 
+#: private key on an assistant message: the signed thinking blocks Anthropic
+#: returned with its tool calls (``TextResult.metadata["replay"]`` carries them out)
+ANTHROPIC_THINKING_KEY = "_anthropic_thinking"
+
+
 class AnthropicTextProvider(TextProvider):
     """Anthropic Claude via the native Messages API.
 
@@ -629,6 +716,53 @@ class AnthropicTextProvider(TextProvider):
         return None
 
     @staticmethod
+    def _convert_image_part(part: dict[str, Any]) -> dict[str, Any]:
+        """OpenAI ``image_url`` part → Anthropic ``image`` block. Chat sends
+        base64 data URLs (``chat/images.py``); a plain https URL becomes a
+        ``url`` source. Anything unparseable is passed on unchanged so the API,
+        not this converter, says what is wrong with it."""
+        url = (part.get("image_url") or {}).get("url") if isinstance(part.get("image_url"), dict) else part.get("image_url")
+        if isinstance(url, str) and url.startswith("data:") and ";base64," in url:
+            head, data = url[5:].split(";base64,", 1)
+            return {"type": "image", "source": {"type": "base64", "media_type": head or "image/png", "data": data}}
+        if isinstance(url, str) and url.startswith(("https://", "http://")):
+            return {"type": "image", "source": {"type": "url", "url": url}}
+        return part
+
+    @staticmethod
+    def _convert_file_part(part: dict[str, Any]) -> dict[str, Any]:
+        """OpenAI-style ``file`` part holding a base64 PDF data URL (1.2-M5)
+        → Anthropic ``document`` block (base64 source). Chat only sends PDFs
+        this way; anything else becomes a line of text saying it was left out."""
+        f = part.get("file") if isinstance(part.get("file"), dict) else {}
+        url = f.get("file_data")
+        if isinstance(url, str) and url.startswith("data:application/pdf;base64,"):
+            block: dict[str, Any] = {"type": "document",
+                                     "source": {"type": "base64", "media_type": "application/pdf", "data": url.split(",", 1)[1]}}
+            if f.get("filename"):
+                block["title"] = str(f["filename"])[:200]
+            return block
+        return {"type": "text", "text": f"[附件 {f.get('filename') or ''} 的格式不能原樣送，略過]"}
+
+    @staticmethod
+    def _convert_user_content(content: Any) -> Any:
+        if content is None:
+            return ""
+        if not isinstance(content, list):
+            return content
+        out = []
+        for p in content:
+            if isinstance(p, dict) and p.get("type") == "image_url":
+                out.append(AnthropicTextProvider._convert_image_part(p))
+            elif isinstance(p, dict) and p.get("type") == "file":
+                out.append(AnthropicTextProvider._convert_file_part(p))
+            elif isinstance(p, dict) and p.get("type") == "input_audio":  # never sent here (no audio input): say so
+                out.append({"type": "text", "text": "[一段錄音：這個模型聽不到，略過]"})
+            else:
+                out.append(p)
+        return out
+
+    @staticmethod
     def _convert_messages(
         messages: list[dict[str, Any]],
     ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -655,6 +789,10 @@ class AnthropicTextProvider(TextProvider):
                 continue
             if role == "assistant":
                 blocks: list[dict[str, Any]] = []
+                if msg.get("tool_calls"):
+                    # signed thinking that came with these tool calls goes back first
+                    # (with extended thinking on, the API wants it ahead of tool_use)
+                    blocks.extend(b for b in msg.get(ANTHROPIC_THINKING_KEY) or [] if isinstance(b, dict))
                 if isinstance(content, str) and content:
                     blocks.append({"type": "text", "text": content})
                 elif isinstance(content, list):
@@ -677,7 +815,7 @@ class AnthropicTextProvider(TextProvider):
                     out.append({"role": "assistant", "content": blocks})
                 continue
             # user (string or content blocks)
-            out.append({"role": "user", "content": content if content is not None else ""})
+            out.append({"role": "user", "content": AnthropicTextProvider._convert_user_content(content)})
         # Anthropic requires alternating roles starting with user; merge
         # consecutive same-role messages defensively.
         merged: list[dict[str, Any]] = []
@@ -739,12 +877,17 @@ class AnthropicTextProvider(TextProvider):
         texts: list[str] = []
         thoughts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
+        signed: list[dict[str, Any]] = []
         for block in getattr(resp, "content", []) or []:
             btype = getattr(block, "type", None)
             if btype == "text":
                 texts.append(getattr(block, "text", ""))
             elif btype == "thinking":
                 thoughts.append(getattr(block, "thinking", ""))
+                signed.append({"type": "thinking", "thinking": getattr(block, "thinking", "") or "",
+                               "signature": getattr(block, "signature", "") or ""})
+            elif btype == "redacted_thinking":
+                signed.append({"type": "redacted_thinking", "data": getattr(block, "data", "") or ""})
             elif btype == "tool_use":
                 tool_calls.append(
                     {
@@ -778,8 +921,17 @@ class AnthropicTextProvider(TextProvider):
             finish_reason=finish,
             usage=usage,
             tool_calls=tool_calls or None,
-            metadata={"provider": provider},
+            metadata=AnthropicTextProvider._metadata(provider, tool_calls, signed),
         )
+
+    @staticmethod
+    def _metadata(provider: str, tool_calls: list[dict[str, Any]], signed: list[dict[str, Any]]) -> dict[str, Any]:
+        """Result metadata; with tool calls, the signed thinking that came with
+        them (``replay``) so a later request can send it back."""
+        md: dict[str, Any] = {"provider": provider}
+        if tool_calls and signed:
+            md["replay"] = {ANTHROPIC_THINKING_KEY: signed}
+        return md
 
     async def complete(
         self, model: str, messages: list[dict[str, Any]], **kwargs: Any
@@ -811,7 +963,10 @@ class AnthropicTextProvider(TextProvider):
         self, model: str, messages: list[dict[str, Any]], **kwargs: Any
     ) -> AsyncIterator[dict[str, Any]]:
         """Streamed Messages API call, read from the raw server-sent events
-        (``message_start`` → ``content_block_delta``… → ``message_delta``)."""
+        (``message_start`` → ``content_block_start`` / ``content_block_delta``…
+        → ``message_delta``). A ``tool_use`` block's input arrives as
+        ``input_json_delta`` fragments, joined and parsed when the stream ends;
+        thinking blocks keep their ``signature_delta`` for replay."""
         if not self.supports_model(model):
             raise ProviderError(
                 f"Model '{model}' is not supported by {self.name} provider",
@@ -825,11 +980,24 @@ class AnthropicTextProvider(TextProvider):
         usage: dict[str, Any] = {}
         stop: str | None = None
         served_model = model
+        blocks: dict[int, dict[str, Any]] = {}  # content block index -> what it holds so far
         try:
             self._logger.info("Text stream with %s model %s", self.name, model)
             stream = await self.client.messages.create(**request)
             async for event in stream:
                 etype = getattr(event, "type", None)
+                if etype == "content_block_start":
+                    cb = getattr(event, "content_block", None)
+                    ctype = getattr(cb, "type", None)
+                    idx = getattr(event, "index", len(blocks))
+                    if ctype == "tool_use":
+                        blocks[idx] = {"type": "tool_use", "id": getattr(cb, "id", "") or "", "name": getattr(cb, "name", "") or "",
+                                       "json": "", "input": getattr(cb, "input", None)}
+                    elif ctype == "thinking":
+                        blocks[idx] = {"type": "thinking", "thinking": "", "signature": getattr(cb, "signature", "") or ""}
+                    elif ctype == "redacted_thinking":
+                        blocks[idx] = {"type": "redacted_thinking", "data": getattr(cb, "data", "") or ""}
+                    continue
                 if etype == "message_start":
                     msg = getattr(event, "message", None)
                     served_model = getattr(msg, "model", None) or served_model
@@ -851,7 +1019,18 @@ class AnthropicTextProvider(TextProvider):
                         piece = getattr(delta, "thinking", "") or ""
                         if piece:
                             thoughts.append(piece)
+                            block = blocks.get(getattr(event, "index", -1))
+                            if block is not None and block["type"] == "thinking":
+                                block["thinking"] += piece
                             yield {"type": "reasoning", "delta": piece}
+                    elif dtype == "signature_delta":
+                        block = blocks.get(getattr(event, "index", -1))
+                        if block is not None and block["type"] == "thinking":
+                            block["signature"] += getattr(delta, "signature", "") or ""
+                    elif dtype == "input_json_delta":
+                        block = blocks.get(getattr(event, "index", -1))
+                        if block is not None and block["type"] == "tool_use":
+                            block["json"] += getattr(delta, "partial_json", "") or ""
                 elif etype == "message_delta":
                     delta = getattr(event, "delta", None)
                     stop = getattr(delta, "stop_reason", None) or stop
@@ -869,6 +1048,7 @@ class AnthropicTextProvider(TextProvider):
             )
         if usage.get("prompt_tokens") is not None and usage.get("completion_tokens") is not None:
             usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
+        tool_calls, signed = self._finish_blocks(blocks)
         yield {
             "type": "done",
             "result": TextResult(
@@ -877,9 +1057,34 @@ class AnthropicTextProvider(TextProvider):
                 reasoning="".join(thoughts) or None,
                 finish_reason=self._STOP_MAP.get(stop or "", stop),
                 usage=usage or None,
-                metadata={"provider": self.name},
+                tool_calls=tool_calls or None,
+                metadata=self._metadata(self.name, tool_calls, signed),
             ),
         }
+
+    @staticmethod
+    def _finish_blocks(blocks: dict[int, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Streamed blocks → (OpenAI-shaped tool calls, signed thinking blocks).
+        The same shapes ``_parse_response`` gives for a non-streamed reply."""
+        tool_calls: list[dict[str, Any]] = []
+        signed: list[dict[str, Any]] = []
+        for _, b in sorted(blocks.items()):
+            if b["type"] == "tool_use":
+                raw = b["json"].strip()
+                if raw:
+                    try:
+                        args = json.loads(raw)
+                    except json.JSONDecodeError:
+                        args = {"_raw": raw}
+                else:
+                    args = b.get("input") or {}
+                tool_calls.append({"id": b["id"], "type": "function",
+                                   "function": {"name": b["name"], "arguments": json.dumps(args, ensure_ascii=False)}})
+            elif b["type"] == "thinking":
+                signed.append({"type": "thinking", "thinking": b["thinking"], "signature": b["signature"]})
+            elif b["type"] == "redacted_thinking":
+                signed.append({"type": "redacted_thinking", "data": b["data"]})
+        return tool_calls, signed
 
     async def close(self) -> None:
         try:

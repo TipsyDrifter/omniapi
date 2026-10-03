@@ -132,7 +132,7 @@ export default function WorksPage() {
           </span>
         </h2>
         <span className="zh">作品牆</span>
-        <span className="dp-sub">所有入口的作品都在這：生成頁、Claude Code（MCP）、歷史回填</span>
+        <span className="dp-sub">所有入口的作品都在這：生成頁、聊天、Claude Code（MCP）、歷史回填</span>
         <div className="wk-count">
           {WALL_KINDS.map((k) => (
             <div key={k} className={counts[k] ? undefined : "zero"}>

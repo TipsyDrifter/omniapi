@@ -34,12 +34,25 @@ def _write(p: Path, text: str = "x") -> Path:
     return p
 
 
-def make_repo(root: Path, py="1.0.0", init="1.0.0", manifest="1.0.0", pkg="1.0.0") -> Path:
+def uv_lock(version: str) -> str:
+    """A trimmed uv.lock: the project's own entry sits between dependencies, with its
+    dependency list mentioning other names and a metadata sub-table after it."""
+    return (
+        'version = 1\nrevision = 3\nrequires-python = ">=3.10"\n\n'
+        '[[package]]\nname = "httpx"\nversion = "0.28.1"\nsource = { registry = "https://pypi.org/simple" }\n\n'
+        f'[[package]]\nname = "omniapi-mcp"\nversion = "{version}"\nsource = {{ editable = "." }}\n'
+        'dependencies = [\n    { name = "httpx" },\n]\n\n'
+        '[package.metadata]\nrequires-dist = [\n    { name = "httpx", specifier = ">=0.27" },\n]\n\n'
+        '[[package]]\nname = "pypdf"\nversion = "6.1.0"\nsource = { registry = "https://pypi.org/simple" }\n'
+    )
+
+
+def make_repo(root: Path, py="1.0.0", init="1.0.0", manifest="1.0.0", pkg="1.0.0", lock=None) -> Path:
     m = root / "mcp"
     _write(m / "pyproject.toml", f'[tool.hatch]\nversion = "9.9.9"\n\n[project]\nname = "omniapi-mcp"\nversion = "{py}"\n')
     _write(m / "omniapi_mcp" / "__init__.py", f'"""pkg"""\n\n__version__ = "{init}"\n')
     _write(m / "manifest.json", json.dumps({"name": "omniapi-mcp", "version": manifest}))
-    _write(m / "uv.lock", "lock")
+    _write(m / "uv.lock", uv_lock(py if lock is None else lock))  # uv writes the PEP 440 form
     _write(m / "README.md", "# mcp")
     _write(m / ".python-version", "3.10")
     _write(m / "omniapi_mcp" / "server.py", "print('hi')")
@@ -96,8 +109,42 @@ def test_prerelease_pep440_and_semver_are_consistent(tmp_path):
         "mcp/omniapi_mcp/__init__.py": "1.0.0a1",
         "mcp/manifest.json": "1.0.0-alpha.1",
         "gui/package.json": "1.0.0-alpha.1",
+        "mcp/uv.lock": "1.0.0a1",
     }
     assert br.check_versions(versions) == []
+
+
+def test_lock_version_is_the_projects_own_entry(tmp_path):
+    root = make_repo(tmp_path, lock="1.2.0")
+    assert br.read_versions(root)["mcp/uv.lock"] == "1.2.0"  # not httpx's or pypdf's
+
+
+def test_stale_lock_is_a_mismatch(tmp_path):
+    # pyproject and the rest bumped, uv.lock never re-locked
+    root = make_repo(tmp_path, py="1.2.0", init="1.2.0", manifest="1.2.0", pkg="1.2.0", lock="1.1.0")
+    problems = br.check_versions(br.read_versions(root))
+    assert any("不一致" in p for p in problems)
+
+
+def test_lock_without_the_project_entry_is_reported(tmp_path):
+    root = make_repo(tmp_path)
+    (root / "mcp" / "uv.lock").write_text('version = 1\n\n[[package]]\nname = "httpx"\nversion = "0.28.1"\n', encoding="utf-8")
+    problems = br.check_versions(br.read_versions(root))
+    assert any("mcp/uv.lock" in p and "讀不到" in p for p in problems)
+
+
+def test_missing_lock_is_reported(tmp_path):
+    root = make_repo(tmp_path)
+    (root / "mcp" / "uv.lock").unlink()
+    assert any("mcp/uv.lock" in p and "讀不到" in p for p in br.check_versions(br.read_versions(root)))
+
+
+def test_the_repos_own_versions_agree():
+    # the real tree: catches a bump that missed one of the five places before anyone runs a build
+    real = SCRIPT.parents[1]
+    if not (real / "gui" / "package.json").is_file():
+        pytest.skip("not a full checkout")
+    assert br.check_versions(br.read_versions(real)) == []
 
 
 def test_all_equal_release_is_consistent(tmp_path):

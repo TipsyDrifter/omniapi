@@ -5,15 +5,17 @@
 
 /* ============ 頂欄導覽：三組，組間一條墨 25 直線；「生成」旁的進行中件數章 ============ */
 /* 導覽多了兩項：收緊間距，讓 1440 寬放得下一整排（右側主題切換、日期、＋新對話都不折行） */
-.top { column-gap: 20px; }
+.top { column-gap: 16px; }
+/* 「生成」件數章與「作品 新 N」同時出現時導覽變寬：wordmark 旁的「派工中心」不准折成兩行，章收窄一點 */
+.logo { white-space: nowrap; }
 .top nav { gap: 0; align-items: center; }
-.top nav a { padding: 6px 7px 4px; white-space: nowrap; }
+.top nav a { padding: 6px 6px 4px; white-space: nowrap; }
 .top nav a span { margin-left: 4px; }
 .top-r { gap: 14px; white-space: nowrap; }
 .navsep { display: inline-block; width: 1px; height: 30px; background: var(--ink-25); margin: 0 5px; flex: none; }
 /* 紙底墨框小章＋小滾筒（不是油墨） */
 .navct {
-  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; vertical-align: 2px;
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; vertical-align: 2px;
   font-family: var(--font-mono); font-size: var(--fs-m11); font-weight: 600; font-style: normal; line-height: 16px; font-variant-numeric: tabular-nums;
   color: var(--ink); border: 1.5px solid var(--ink); padding: 0 5px 0 3px; background: var(--paper);
 }
@@ -150,6 +152,8 @@
 .mk-pick button img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mk-pick button:hover { border-color: var(--ink); }
 .mk-pick button[aria-pressed="true"] { border: 2px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.mk-pick button:disabled { border: 1.5px dashed var(--ink-45); background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); cursor: not-allowed; }
+.mk-pick button:disabled img { display: none; }
 .mk-more { margin-top: 8px; }
 
 /* 從作品挑歌詞（歌詞框下方一排） */

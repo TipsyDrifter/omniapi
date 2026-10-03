@@ -1,13 +1,16 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "@/api/client";
 import type { Run, Thread } from "@/api/types";
+import { SendKeyHint } from "@/components/SendKeyMenu";
 import { harnessName } from "@/lib/format";
+import { isSendKey, sendHint, sendKeyName, useSendKey } from "@/lib/sendKey";
 
 /* 追問輸入列（決策記錄 M5-g；2026-09-29 主人回饋後改成精簡版）：
    貼在追問串最底的一列——平常只有一行高，打字才往上長（最多約 8 行，再多就在框內捲），
    把高度讓給閱讀區，像各家 harness 的 GUI／TUI 那樣。
    thread.resumable 才能輸入；不能追問時整列收成一行原因。
-   送出＝POST /api/runs 帶 resume_run_id＝leaf；成功後交給 onStarted（換網址、重抓串）；失敗保留輸入內容。 */
+   送出＝POST /api/runs 帶 resume_run_id＝leaf；成功後交給 onStarted（換網址、重抓串）；失敗保留輸入內容。
+   送出鍵照設定（1.2-M3）：追問沒有細列，輸入列裡的鍵帽可以點，開送出鍵選單。 */
 
 export interface ComposerProps {
   thread: Thread;
@@ -27,6 +30,7 @@ export default function Composer({ thread, leaf, leafLive, onStarted }: Composer
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [sendKey] = useSendKey();
 
   const enabled = thread.resumable && !leafLive;
   const reason = leafLive ? thread.reason ?? "最後一段還在執行中，結束後才能追問。" : thread.reason ?? "這條串目前不能追問。";
@@ -62,9 +66,8 @@ export default function Composer({ thread, leaf, leafLive, onStarted }: Composer
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // 選字中（注音／日文輸入法）的 Enter 是確認選字，不是送出
-    if (e.nativeEvent.isComposing) return;
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    // 送出鍵照設定（lib/sendKey）；選字中（注音／日文輸入法）的 Enter 是確認選字，不是送出
+    if (isSendKey(e)) {
       e.preventDefault();
       void submit();
     }
@@ -91,11 +94,12 @@ export default function Composer({ thread, leaf, leafLive, onStarted }: Composer
             onKeyDown={onKey}
             disabled={sending}
             rows={1}
-            placeholder={`追問……（沿用同一個模型：${via}；Ctrl+Enter 送出）`}
+            placeholder={`追問……（沿用同一個模型：${via}；${sendHint(sendKey)}）`}
             title={`沿用最後一段：${via}`}
             aria-label="追問內容"
           />
-          <button type="button" className="composer-send" onClick={() => void submit()} disabled={!canSend} title="Ctrl+Enter">
+          <SendKeyHint up cap />
+          <button type="button" className="composer-send" onClick={() => void submit()} disabled={!canSend} title={sendKeyName(sendKey)}>
             {sending ? "送出中…" : "追問"}
           </button>
         </div>

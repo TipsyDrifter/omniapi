@@ -67,6 +67,49 @@ def peak_multiplier(pricing: dict[str, Any], at: float | None = None) -> float:
     return 1.0
 
 
+def discovered_vision(extra: Any) -> bool | None:
+    """``vision`` for a discovered model from what its listing reported, or
+    ``None`` when it reported nothing about input modalities (決策記錄 1.2-M2-a).
+
+    OpenRouter's ``GET /models`` (checked 2026-10-03, 466 models) gives every
+    model ``architecture.input_modalities`` (e.g. ``["text", "image"]``) and
+    ``architecture.modality`` (e.g. ``"text+image->text"``); "image" among the
+    inputs means it takes images. The modality string is only the fallback."""
+    arch = extra.get("architecture") if isinstance(extra, dict) else None
+    if not isinstance(arch, dict):
+        return None
+    inputs = arch.get("input_modalities")
+    if isinstance(inputs, list):
+        return any(str(x).lower() == "image" for x in inputs)
+    modality = arch.get("modality")
+    if isinstance(modality, str) and "->" in modality:
+        return "image" in modality.split("->", 1)[0].lower().split("+")
+    return None
+
+
+def discovered_input(extra: Any, modality: str) -> bool | None:
+    """Does a discovered model take ``modality`` ("file" / "audio") as input,
+    from OpenRouter's ``architecture.input_modalities`` (1.2-M5); ``None``
+    when the listing said nothing."""
+    arch = extra.get("architecture") if isinstance(extra, dict) else None
+    inputs = arch.get("input_modalities") if isinstance(arch, dict) else None
+    if not isinstance(inputs, list):
+        return None
+    return any(str(x).lower() == modality for x in inputs)
+
+
+def discovered_tools(extra: Any) -> bool | None:
+    """``tools`` (function calling) for a discovered model from its listing,
+    or ``None`` when the listing said nothing (1.2-M4). OpenRouter documents
+    ``supported_parameters`` on every model of ``GET /models`` ("tools —
+    function calling capabilities"; docs checked 2026-10-03). A cache written
+    before this field was kept has no such key: ``None``, i.e. no tools."""
+    params = extra.get("supported_parameters") if isinstance(extra, dict) else None
+    if not isinstance(params, list):
+        return None
+    return any(str(p).lower() == "tools" for p in params)
+
+
 @dataclass
 class ModelEntry:
     id: str
@@ -89,7 +132,46 @@ class ModelEntry:
     discovered_name: str | None = None
     snapshot: bool = False  # uncurated snapshot / alias id (gpt-5.5-2026-04-23, gpt-4-0613, *-latest): hidden by default
 
+    @property
+    def vision(self) -> bool:
+        """Takes images as input (決策記錄 1.2-M2-a: the flag decides, nothing else)."""
+        return bool(self.capabilities.get("vision"))
+
+    @property
+    def tools(self) -> bool:
+        """Can call functions (1.2-M4: only then does a chat offer it tools)."""
+        return bool(self.capabilities.get("tools"))
+
+    @property
+    def pdf(self) -> bool:
+        """Takes a PDF as it is in a chat (1.2-M5, 決策記錄 1.2-M5-d): Anthropic's
+        ``document`` block and OpenAI's ``file`` part on their vision models,
+        OpenRouter per model (``files``, from its input modalities); Gemini's
+        compatible endpoint documents no PDF input, DeepSeek none."""
+        if self.provider in ("anthropic", "openai"):
+            return self.vision
+        if self.provider == "openrouter":
+            return bool(self.capabilities.get("files"))
+        return False
+
+    @property
+    def audio(self) -> bool:
+        """Takes audio as it is (``input_audio``) in a chat: a curated or
+        discovered ``audio_input`` flag; Gemini's compatible endpoint documents
+        ``input_audio``, so a multimodal (vision) Gemini model counts unless
+        flagged otherwise. Anthropic none; OpenAI only its audio models, which
+        the catalog does not route."""
+        if "audio_input" in self.capabilities:
+            return bool(self.capabilities["audio_input"])
+        return self.provider == "google" and self.vision
+
     def to_dict(self) -> dict[str, Any]:
+        caps = dict(self.capabilities)
+        if self.modality == "text":
+            caps["vision"] = self.vision  # always a boolean on text models: the GUI greys out attaching by it
+            caps["tools"] = self.tools  # likewise: the GUI says when a model cannot generate in a chat
+            caps["pdf"] = self.pdf  # 1.2-M5: a PDF goes as it is (else its text)
+            caps["audio"] = self.audio  # 1.2-M5: audio goes as it is (else the owner is asked about transcribing)
         d = {
             "id": self.id,
             "provider": self.provider,
@@ -99,7 +181,7 @@ class ModelEntry:
             "online": self.online,
             "harness": self.harness,
             "pricing": self.pricing,
-            "capabilities": self.capabilities,
+            "capabilities": caps,
         }
         for k in ("shutdown", "replacement", "context", "max_output", "note"):
             v = getattr(self, k)
@@ -190,6 +272,18 @@ class ModelCatalog:
     def provider_of(self, model_id: str) -> str | None:
         e = self.get(model_id)
         return e.provider if e else None
+
+    def vision(self, model_id: str, provider: str) -> bool:
+        """Does ``provider``'s ``model_id`` take images? A model the catalog
+        does not know is treated as text-only: its images are left out rather
+        than risking a request the vendor may reject or quietly ignore."""
+        e = self.get(model_id, provider)
+        return bool(e and e.vision)
+
+    def tools(self, model_id: str, provider: str) -> bool:
+        """Does ``provider``'s ``model_id`` take tools? Unknown → no."""
+        e = self.get(model_id, provider)
+        return bool(e and e.tools)
 
     def models(
         self,
@@ -298,6 +392,13 @@ class ModelCatalog:
                 e.discovered_name = dm.display_name
                 e.context = e.context or dm.context
                 e.max_output = e.max_output or dm.max_output
+                if "vision" not in e.capabilities and (v := discovered_vision(dm.extra)) is not None:
+                    e.capabilities["vision"] = v  # the curated flag wins; the listing only fills a gap
+                if "tools" not in e.capabilities and (t := discovered_tools(dm.extra)) is not None:
+                    e.capabilities["tools"] = t
+                for cap, mod in (("files", "file"), ("audio_input", "audio")):
+                    if cap not in e.capabilities and (v := discovered_input(dm.extra, mod)) is not None:
+                        e.capabilities[cap] = v
                 continue
             modality = self.classify(provider, dm.id)
             if not modality:
@@ -314,6 +415,16 @@ class ModelCatalog:
                     }
                 except (TypeError, ValueError):
                     pricing = None
+            caps: dict[str, Any] = {}
+            vision = discovered_vision(dm.extra)
+            if vision is not None:
+                caps["vision"] = vision
+            tools = discovered_tools(dm.extra)
+            if tools is not None:
+                caps["tools"] = tools
+            for cap, mod in (("files", "file"), ("audio_input", "audio")):
+                if (v := discovered_input(dm.extra, mod)) is not None:
+                    caps[cap] = v
             self._entries[(provider, dm.id)] = ModelEntry(
                 id=dm.id,
                 provider=provider,
@@ -321,6 +432,7 @@ class ModelCatalog:
                 name=dm.display_name or dm.id,
                 status="discovered",
                 pricing=pricing,
+                capabilities=caps,
                 context=dm.context,
                 max_output=dm.max_output,
                 harness=(self.providers.get(provider) or {}).get("harness"),

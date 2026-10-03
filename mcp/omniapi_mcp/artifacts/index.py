@@ -71,6 +71,7 @@ class CallInfo:
     args: dict[str, Any] = field(default_factory=dict)
     call_id: Optional[str] = None
     source: str = "mcp"
+    links: dict[str, Any] = field(default_factory=dict)  # e.g. the chat that proposed it (1.2-M4)
 
 
 #: Set by the call recorder around each tool handler. A job that outlives the
@@ -232,7 +233,7 @@ async def _index_result(ctx: Any, call: Optional[CallInfo], result: Any) -> list
             source=call.source,
             call_id=call.call_id,
             parent_id=parent_id,
-            meta={**meta_common, **extra},
+            meta={**meta_common, **extra, **(call.links or {})},
         )
         if row is None:
             continue

@@ -32,7 +32,7 @@ export const DATE_OPTS: { v: DateRange; zh: string }[] = [
   { v: "7", zh: "7 天" },
   { v: "30", zh: "30 天" },
 ];
-export const SOURCE_ZH: Record<string, string> = { gui: "生成頁", mcp: "MCP", cli: "CLI", backfill: "回填" };
+export const SOURCE_ZH: Record<string, string> = { gui: "生成頁", chat: "聊天", mcp: "MCP", cli: "CLI", backfill: "回填" };
 export const sourceZh = (s: string | null | undefined): string => (s ? SOURCE_ZH[s] ?? s : "—");
 
 const KIND_OK = new Set(KIND_TABS.map((t) => t.v));

@@ -4,7 +4,8 @@ import { api } from "@/api/client";
 import { Field } from "@/components/dispatch";
 import { setDraft, useMake } from "@/store/make";
 import { GOOGLE_RATIOS, GOOGLE_SIZES, buildImage, effModel, imageCaps, type ImageDraft } from "./draft";
-import { ImagePicker, Knob, ModelList, Seg, SubmitBar, artName, ctrlEnter, useFileDrop, useUploader, type FormProps } from "./bits";
+import { ImagePicker, Knob, ModelList, Seg, SubmitBar, artName, sendKeys, useFileDrop, useUploader, type FormProps } from "./bits";
+import { SendKeyHint } from "@/components/SendKeyMenu";
 
 const MAX_PROMPT = 4000;
 
@@ -61,19 +62,20 @@ export function ImageForm({ opts, optsError, busy, error, onSend }: FormProps) {
 
   return (
     <>
-      <div className="mk-main" onKeyDown={ctrlEnter(send)}>
+      <div className="mk-main" onKeyDown={sendKeys(send)}>
         <Field
           lbl="Prompt"
           zh="提示詞"
           htmlFor="mk-prompt"
           aside={
             <>
-              <span className="n">{chars}</span> / <span className="n">{MAX_PROMPT}</span> 字 · Ctrl＋Enter 送出
+              <span className="n">{chars}</span> / <span className="n">{MAX_PROMPT}</span> 字 · <SendKeyHint />
             </>
           }
         >
           <textarea
             id="mk-prompt"
+            data-enter-sends=""
             className="dp-prompt mk-prompt"
             value={d.prompt}
             maxLength={MAX_PROMPT}
@@ -155,7 +157,7 @@ export function ImageForm({ opts, optsError, busy, error, onSend }: FormProps) {
         />
       </div>
 
-      <aside className="mk-side" onKeyDown={ctrlEnter(send)}>
+      <aside className="mk-side" onKeyDown={sendKeys(send)}>
         <ModelList models={models} sel={m?.id ?? null} onSel={(id) => set({ model: id })} loading={!opts} error={optsError} />
         <Field lbl="Output" zh="輸出" aside={google ? "Google 系列：比例＋解析度" : caps.provider === "openai" ? "OpenAI 系列" : m?.provider ?? ""}>
           {google ? (

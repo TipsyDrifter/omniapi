@@ -272,7 +272,10 @@ mcp__omniapi-mcp__get_run(run_id="20260925130701-bf0", after_event=0)
 - `system`：新對話設定 system prompt；對既有對話給，會**取代**它原本的 system prompt。
 - `url` 是 GUI 的聊天頁（`http://127.0.0.1:7788/chat/<id>`），回報時附給使用者。
 - 回覆超過約 45 秒會回取件單（`status:"running"`、`task_id`，也帶 `conversation_id`）→ `get_job_result(task_id)` 領。
-- 錯誤回 `{error, status}`：404＝`conversation_id` 不存在；400＝模型不認得；409＝上一則還在回覆中。
+- 錯誤回 `{error, status}`：404＝`conversation_id` 不存在；400＝模型不認得；409＝上一則還在回覆中、對話已封存或正在刪除。
+- **`chat` 不能帶附件**（沒有檔案參數）。要外部模型看圖、讀 PDF／文件／試算表：請使用者在 GUI 的對話裡附上，再用那段對話的 `conversation_id` 接著聊——附過的檔案模型照樣看得到，還會自己用讀檔工具（列出／讀一段／搜尋）翻內容。
+- **從這裡送的回合不會出現生成提議**：GUI 裡模型可以提議生圖或配音、等使用者按確認；經 `chat` 沒有人能按，所以不給這個工具。要生圖就直接用 `generate_image`。
+- 使用者在 GUI 重新生成或改過訊息時，對話會有分岔：`chat` 接在使用者**目前選的那一條**後面，模型只看到那一條；`n_messages` 則是所有分岔的合計。
 - **作品牆**：所有生成工具做出來的檔案（圖、語音、音樂、歌詞、逐字稿）都會登記進作品庫，使用者在 GUI 的 `/works` 看得到、搜得到、能下載；逐字稿會另存全文檔。`edit_image` 用 `image_path` 指到一件既有作品時，新圖會記得它的來源。
 - **費用**記在「聊天・生成帳」（GUI `/costs` 的第二本帳，工具名 `chat`；生圖、語音、音樂、轉錄的費用也在這本），跟派工帳分開。
 - 終端機裡也能聊：`omni chat "一句話" -m standard`（逐字顯示），不帶訊息進互動模式；`-r <conversation_id>` 接續同一段對話。

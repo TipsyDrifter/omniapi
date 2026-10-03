@@ -3,7 +3,8 @@ import { api } from "@/api/client";
 import { Field } from "@/components/dispatch";
 import { setDraft, useMake } from "@/store/make";
 import { MUSIC_LENGTHS, buildMusic, effModel, musicFamily, msShort, type MusicDraft } from "./draft";
-import { Knob, LyricsPicker, ModelList, Seg, SubmitBar, ctrlEnter, errMsg, type FormProps } from "./bits";
+import { Knob, LyricsPicker, ModelList, Seg, SubmitBar, sendKeys, errMsg, type FormProps } from "./bits";
+import { SendKeyHint } from "@/components/SendKeyMenu";
 import { useState } from "react";
 
 export function MusicForm({ opts, optsError, busy, error, onSend }: FormProps) {
@@ -19,7 +20,7 @@ export function MusicForm({ opts, optsError, busy, error, onSend }: FormProps) {
 
   return (
     <>
-      <div className="mk-main" onKeyDown={ctrlEnter(send)}>
+      <div className="mk-main" onKeyDown={sendKeys(send)}>
         {fam === "suno" ? (
           <Field lbl="Mode" zh="寫法" aside="Suno 系列可以照歌詞作曲">
             <Seg
@@ -75,12 +76,13 @@ export function MusicForm({ opts, optsError, busy, error, onSend }: FormProps) {
             htmlFor="mk-mprompt"
             aside={
               <>
-                <span className="n">{[...d.prompt].length}</span> 字 · Ctrl＋Enter 送出
+                <span className="n">{[...d.prompt].length}</span> 字 · <SendKeyHint />
               </>
             }
           >
             <textarea
               id="mk-mprompt"
+              data-enter-sends=""
               className="dp-prompt mk-prompt tall"
               value={d.prompt}
               onChange={(e) => set({ prompt: e.target.value })}
@@ -108,7 +110,7 @@ export function MusicForm({ opts, optsError, busy, error, onSend }: FormProps) {
         />
       </div>
 
-      <aside className="mk-side" onKeyDown={ctrlEnter(send)}>
+      <aside className="mk-side" onKeyDown={sendKeys(send)}>
         <ModelList models={models} sel={m?.id ?? null} onSel={(id) => set({ model: id })} loading={!opts} error={optsError} />
         <Field lbl="Shape" zh="長度與人聲" aside={fam === "elevenlabs" ? "按分鐘計價" : fam === "suno" ? "Suno 自己決定長度" : ""}>
           <div>

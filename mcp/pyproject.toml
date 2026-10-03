@@ -3,7 +3,7 @@ packages = ["omniapi_mcp"]
 
 [project]
 name = "omniapi-mcp"
-version = "1.1.0"
+version = "1.2.0"
 description = "OmniAPI — a unified MCP server and local dispatch center (daemon, web GUI, CLI) routing requests to multiple AI provider APIs: image, transcription, text/chat, speech, music, and headless agent runs. Forked from image-gen-mcp."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,11 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "uvicorn[standard]>=0.35.0",
     "claude-agent-sdk>=0.2.159",
+    "pypdf>=6.19.0",
+    "python-docx>=1.2.0",
+    "openpyxl>=3.1.5",
+    "python-pptx>=1.0.2",
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]

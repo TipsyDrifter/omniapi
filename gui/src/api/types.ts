@@ -167,7 +167,7 @@ export interface BusOther extends BusBase {
   type: string;
   [k: string]: unknown;
 }
-export type BusEvent = BusRunStarted | BusRunEvent | BusRunFinished | BusCall | BusChatStarted | BusChatDelta | BusChatFinished | BusChatUpdated | BusGeneration | BusArtifactCreated | BusOther;
+export type BusEvent = BusRunStarted | BusRunEvent | BusRunFinished | BusCall | BusChatStarted | BusChatDelta | BusChatFinished | BusChatUpdated | BusChatDeleted | BusChatProposal | BusChatTool | BusGeneration | BusArtifactCreated | BusOther;
 
 /** /ws 額外會送的握手與心跳 */
 export interface WsHello { type: "hello"; version: string; ts: number }
@@ -192,7 +192,8 @@ export interface ModelEntry {
   harness?: Harness | string | null;
   /** USD / 百萬 token */
   pricing?: { input?: number; output?: number; cached_input?: number; note?: string; [k: string]: unknown } | null;
-  capabilities?: { tools?: boolean; reasoning?: boolean; vision?: boolean; [k: string]: unknown } | null;
+  /** 1.2-M5：pdf／audio＝原樣收 PDF／音訊（保證是布林） */
+  capabilities?: { tools?: boolean; reasoning?: boolean; vision?: boolean; pdf?: boolean; audio?: boolean; [k: string]: unknown } | null;
   context?: number | null;
   aliases?: string[];
   note?: string;
@@ -251,7 +252,99 @@ export interface Thread {
 
 /* ---------------- M6：聊天 ---------------- */
 
-export type ChatTurnState = "done" | "cancelled" | "error";
+/** awaiting＝回覆前先問主人（轉錄提問，1.2-M5-a）；skipped＝主人沒回答就送了下一則，這則不再回覆（1.2-M5-b） */
+export type ChatTurnState = "done" | "cancelled" | "error" | "awaiting" | "skipped";
+
+export type AttachKind = "image" | "audio" | "file";
+
+/** 送出時帶的附件：只能是上傳檔或作品的編號（不能送路徑；個數上限看 /api/uploads/limits） */
+export type ChatAttachmentRef = ({ upload_id: string; artifact_id?: undefined } | { artifact_id: string; upload_id?: undefined }) & { kind?: AttachKind };
+
+/** 1.2-M5：檔案抽取的結果（上傳時就有；後端 chat/files.py 的 public_info） */
+export interface FileInfo {
+  type: string;
+  /** 給人看的類型：PDF、Excel、CSV、音檔、二進位檔… */
+  type_name?: string;
+  readable?: boolean;
+  /** binary｜encrypted｜corrupt｜no_text｜empty｜too_large｜timeout｜unsupported｜missing… */
+  reason?: string;
+  reason_text?: string;
+  chars?: number;
+  pages?: number;
+  slides?: number;
+  rows?: number;
+  cols?: number;
+  sheets?: { name: string; rows: number; cols?: number }[];
+  lines?: number;
+  truncated?: boolean;
+  /** 音檔 */
+  format?: string | null;
+  duration_s?: number;
+  [k: string]: unknown;
+}
+
+/** 訊息上的附件（1.2-M1：後端補上給頁面看的名稱與網址，不給路徑；1.2-M5：檔案與音檔多 mime／bytes／info／download_url） */
+export interface ChatAttachment {
+  kind: AttachKind | string;
+  upload_id?: string;
+  artifact_id?: string;
+  name: string | null;
+  file_url: string;
+  /** 作品才有縮圖；上傳檔是 null */
+  thumb_url: string | null;
+  /** 檔案還在不在 */
+  exists: boolean;
+  mime?: string | null;
+  bytes?: number | null;
+  info?: FileInfo | null;
+  download_url?: string;
+  /** 音檔：轉好的逐字稿（作品） */
+  transcript?: { artifact_id: string; chars: number; file_url: string } | null;
+}
+
+/** 1.2-M5：回覆的 meta.files 一筆＝這個檔這次怎麼送給模型 */
+export interface FileDelivery {
+  id: string;
+  name: string;
+  kind: AttachKind | string;
+  type: string;
+  /** 這個檔在哪一則使用者訊息上 */
+  message_id?: string;
+  mode: "native" | "text" | "excerpt" | "unreadable" | string;
+  /** native：document｜file｜input_audio */
+  format?: string;
+  audio_format?: string;
+  pages?: number;
+  chars?: number;
+  sent_chars?: number;
+  rows?: number;
+  sent_rows?: number;
+  /** excerpt：其餘由模型用工具讀 */
+  tools?: boolean;
+  truncated?: boolean;
+  transcribed?: boolean;
+  transcript_id?: string;
+  reason?: string;
+  reason_text?: string;
+}
+
+/** 1.2-M5：模型用工具讀檔的一步（what 是後端寫好的中文範圍，如「第 3–7 頁」） */
+export interface FileRead {
+  round?: number;
+  tool: string;
+  file_id?: string | null;
+  name?: string | null;
+  what?: string;
+  chars?: number;
+  error?: boolean;
+}
+
+/** 這一則在同一個 parent 底下的第幾個版本（index 從 1 起算）：‹ index/count › 的版本切換 */
+export interface ChatVersions {
+  count: number;
+  index: number;
+  ids: string[];
+}
 
 /** messages 表的一列 */
 export interface ChatMessage {
@@ -277,7 +370,79 @@ export interface ChatMessage {
     duration_ms?: number;
     turn_id?: string;
     error?: string;
+    /* 1.2-M2：這一則回覆所在的分支有圖時才有 */
+    /** 答的模型會不會看圖 */
+    vision?: boolean;
+    images_sent?: number;
+    /** 沒送出的：模型不看圖（vision=false），或超過一次請求的大小上限（vision=true） */
+    images_skipped?: number;
+    /** 檔案已不在或讀不出來 */
+    images_missing?: number;
+    /* 1.2-M5：這一則回覆所在的分支有檔案時才有（images_* 照舊只算圖片） */
+    files?: FileDelivery[];
+    files_native?: number;
+    files_text?: number;
+    files_excerpt?: number;
+    files_unreadable?: number;
+    files_missing?: number;
+    /** 這一回合有沒有給模型讀檔工具 */
+    files_tools?: boolean;
+    /** 模型用工具讀檔的紀錄 */
+    reads?: FileRead[];
+    tool_rounds?: number;
+    model_calls?: number;
+    read_chars?: number;
+    /** 這則回覆是先問過主人（轉錄）才回的 */
+    asked_first?: boolean;
   } | null;
+  /** 使用者訊息的圖；沒有＝null */
+  attachments?: ChatAttachment[] | null;
+  /** 1.2-M4：模型這一則提出的工具呼叫（OpenAI 形狀；arguments 是 JSON 字串）——提議的原始值看這裡 */
+  tool_calls?: ChatToolCall[] | null;
+  /** 1.2-M4：這一則回覆附的生成提議（只有回覆才有） */
+  proposals?: ChatProposal[];
+  /** 上一則（分岔用）；舊資料升級時照順序串起來 */
+  parent_id?: string | null;
+  /** 只有 GET /api/chat/{id} 的訊息才有 */
+  versions?: ChatVersions;
+  /** 前端自己加的：送出當下先顯示、還沒拿到後端編號的那一則 */
+  local?: boolean;
+}
+
+export interface ChatToolCall {
+  id: string;
+  type?: string;
+  function: { name: string; arguments: string | Record<string, unknown> };
+}
+
+/** 提議的狀態：pending 提議中｜generating 生成中｜done｜declined（auto＝送了下一則而略過）｜failed｜cancelled */
+export type ProposalState = "pending" | "generating" | "done" | "declined" | "failed" | "cancelled";
+
+/** 1.2-M4：回覆上的一張生成提議。prompt／model 在按下生成之後換成實際用的值，模型原本提議的在 proposed。
+ *  1.2-M5：轉錄提問也是這個形狀（kind: transcript、gate: true、file、duration_s）。 */
+export interface ChatProposal {
+  /** ＝tool_call_id */
+  id: string;
+  kind: "image" | "speech" | "transcript" | string;
+  prompt: string;
+  model: string | null;
+  state: ProposalState;
+  voice?: string;
+  note?: string;
+  /** 模型原本提議的值（按下生成之後外層換成實際用的值，這裡不變） */
+  proposed?: { prompt?: string; model?: string; voice?: string };
+  /** 轉錄提問：回覆前先問主人的那一張 */
+  gate?: boolean;
+  file?: { id: string; name: string; kind: string; bytes?: number | null; duration_s?: number | null };
+  duration_s?: number;
+  generation_id?: string;
+  artifact?: { id: string; kind: string; name: string | null; file_url: string; thumb_url: string | null; chars?: number };
+  error?: string;
+  error_kind?: GenErrorKind | string;
+  /** 不是主人按的「不用了」，而是送了下一則（或重新生成、編輯）時自動了結的 */
+  auto?: boolean;
+  /** 按了幾次生成（失敗、中止、不用了之後可以再按） */
+  attempts?: number;
 }
 
 /** 回覆進行中的暫存（daemon 記憶體裡的；頁面中途打開時用它補上已經到的字） */
@@ -290,6 +455,19 @@ export interface ChatLive {
   started_at: number;
   text: string;
   reasoning: string;
+  /** chat.started 帶來的：這次答的模型會不會看圖、因此略過幾張（送出當下的數字） */
+  vision?: boolean;
+  images_skipped?: number;
+  /** 這次回覆接在哪一則使用者訊息後面（GET 的 live 與 chat.started 都有） */
+  parent_id?: string | null;
+  action?: ChatAction;
+  /** 前端自己算的：新的這一版在兄弟裡是第幾版（重新生成時先佔好 ‹ n/n › 的位置） */
+  versions?: ChatVersions;
+  /** 1.2-M5：先問過主人的回覆寫進既有的那一則（訊息 id） */
+  fill_id?: string | null;
+  /** 1.2-M5：這次回覆已經讀過的、正在讀的 */
+  reads?: FileRead[];
+  reading?: FileRead | null;
 }
 
 /** conversations 表的一列＋統計（GET /api/chat 的一筆） */
@@ -311,26 +489,57 @@ export interface ChatSummary {
   priced: number;
   /** 有內容但沒有定價的回覆數 */
   unpriced: number;
+  /** 從這段聊天來的生成與轉錄的實際費用合計（所有分支；後端算的）；null＝沒有回報費用的生成 */
+  generation_cost_usd?: number | null;
   /** 清單裡是 boolean；單筆是 ChatLive | null */
   live: boolean | ChatLive | null;
 }
 
 /** GET /api/chat/{id} */
 export interface ChatDetail extends Omit<ChatSummary, "live"> {
+  /** 只有現行路徑的訊息 */
   messages: ChatMessage[];
   live: ChatLive | null;
+  /** 現行分支的最後一則 */
+  leaf_id?: string | null;
 }
 
-/** POST /api/chat/{id}/messages 的回應（不等回覆） */
+export type ChatAction = "send" | "regenerate" | "edit";
+
+/** 送出類的回應（「回合」，不等回覆） */
 export interface ChatTurn {
   conversation_id: string;
   turn_id: string;
+  /** awaiting＝回覆前先問主人：message 是那則空的回覆（帶轉錄提問） */
   state: "streaming" | ChatTurnState;
+  action?: ChatAction;
+  /** 這次回覆接在哪一則後面 */
+  parent_id?: string | null;
   model: string;
   resolved_model: string;
   user_message: ChatMessage;
+  /** 答的模型會不會看圖 */
+  vision?: boolean;
+  /** 送出當下只算「模型不看圖」略過的張數；?wait=true 才是最終數字 */
+  images_skipped?: number;
+  /** 重新生成：被換掉的那則回覆（對使用者訊息重新生成時是 null） */
+  regenerate_of?: string | null;
+  /** 編輯：原本那則使用者訊息 */
+  edit_of?: string | null;
   /** ?wait=true 才有 */
   message?: ChatMessage | null;
+  /** 1.2-M4：這一回合有沒有給模型工具（會不會出現提議） */
+  tools?: boolean;
+}
+
+/** DELETE /api/chat/{id} */
+export interface ChatDeleted {
+  conversation_id: string;
+  deleted: boolean;
+  /** 刪掉的訊息數（含所有版本） */
+  messages: number;
+  /** 刪除前先停掉了進行中的回覆 */
+  cancelled: boolean;
 }
 
 export interface ChatParams {
@@ -347,6 +556,27 @@ export interface BusChatStarted extends BusBase {
   resolved_model: string;
   user_message: ChatMessage;
   title: string | null;
+  action?: ChatAction;
+  parent_id?: string | null;
+  regenerate_of?: string | null;
+  edit_of?: string | null;
+  vision?: boolean;
+  images_skipped?: number;
+  /** 1.2-M5：回覆前先問主人（沒有回覆在跑，接著來的 chat.finished 帶那則空的回覆） */
+  awaiting?: boolean;
+  /** 1.2-M5：回覆寫進既有的那一則（先問過主人的） */
+  fill_id?: string;
+}
+/** 1.2-M5：回覆進行中模型用工具讀檔（running → done） */
+export interface BusChatTool extends BusBase {
+  type: "chat.tool";
+  conversation_id: string;
+  turn_id: string;
+  round: number;
+  tool_call_id: string;
+  tool: string;
+  state: "running" | "done";
+  read: FileRead;
 }
 export interface BusChatDelta extends BusBase {
   type: "chat.delta";
@@ -366,7 +596,21 @@ export interface BusChatFinished extends BusBase {
 export interface BusChatUpdated extends BusBase {
   type: "chat.updated";
   conversation_id: string;
-  conversation: Partial<ChatSummary>;
+  /** 切換版本時多 leaf_id（與統計）；改名、換模型、封存時是對話那一列 */
+  conversation: Partial<ChatSummary> & { leaf_id?: string | null };
+}
+export interface BusChatDeleted extends BusBase {
+  type: "chat.deleted";
+  conversation_id: string;
+}
+/** 1.2-M4：提議出現（created）或狀態變了（updated：按了生成、不用了、略過、做好、失敗、中止） */
+export interface BusChatProposal extends BusBase {
+  type: "chat.proposal";
+  conversation_id: string;
+  message_id: string;
+  tool_call_id: string;
+  action: "created" | "updated" | string;
+  proposal: ChatProposal;
 }
 
 /* ---------------- 1.1-M3：生成頁（後端 mcp/omniapi_mcp/generate/） ---------------- */
@@ -524,6 +768,8 @@ export interface Generation {
   cost_usd: number | null;
   artifacts: Artifact[];
   source?: string;
+  /** 1.2-M4：聊天來的生成記著是哪段聊天、哪一則、哪張提議 */
+  meta?: { conversation_id?: string; message_id?: string; tool_call_id?: string; [k: string]: unknown } | null;
   [k: string]: unknown;
 }
 
@@ -534,13 +780,26 @@ export interface GenRequest {
   duration_s?: number;
 }
 
-/** POST /api/uploads?filename= */
+/** POST /api/uploads?filename=（生成頁只收圖與音檔；purpose=chat 什麼都收，1.2-M5） */
 export interface Upload {
   id: string;
-  kind: "image" | "audio";
+  created_at?: number;
+  kind: AttachKind;
   filename: string;
   bytes: number;
   mime: string;
+  /** 1.2-M1：用編號取檔（/api/uploads/{id}/file），不給路徑 */
+  file_url?: string;
+  download_url?: string;
+  /** 1.2-M5：聊天的上傳才有；抽取超過幾秒時先是 null、info_pending=true，之後用 GET /api/uploads/{id} 補拿 */
+  info?: FileInfo | null;
+  info_pending?: boolean;
+}
+
+/** GET /api/uploads/limits（不寫死在前端） */
+export interface UploadLimits {
+  max_bytes: Record<AttachKind, number>;
+  max_attachments: number;
 }
 
 /** GET /api/artifacts */

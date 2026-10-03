@@ -7,7 +7,7 @@ and chat, speech synthesis, music generation, and headless agent dispatch —
 plus the local daemon (REST / WebSocket / web GUI) and the ``omni`` CLI.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "TipsyDrifter"
 __description__ = (
     "Unified MCP server and dispatch center: image, transcription, text/chat, speech, music "

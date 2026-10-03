@@ -220,6 +220,38 @@ async def test_a_gui_job_waits_past_the_ticket_window_and_takes_the_work_with_it
         await jobs.close()
 
 
+async def test_a_job_cancelled_before_its_first_step_is_still_recorded_as_cancelled(store, monkeypatch):
+    # start() returns before the job's task has run at all; a cancel landing in that
+    # window used to skip _run entirely and leave the row 'running' forever
+    monkeypatch.setenv("OMNIAPI_OFFLINE", "1")
+    m = GenerationManager(store, EventBus())
+    ended: list[tuple[str, bool]] = []
+
+    async def on_finished(public, shutting_down):
+        ended.append((public["status"], shutting_down))
+
+    g = await m.start("speech", {"text": "hello"}, on_finished=on_finished)
+    m._tasks[g["id"]].cancel()  # no await in between: the task has not stepped yet
+    row = await m.cancel(g["id"])
+    assert row["status"] == "cancelled" and row["finished_at"]
+    assert ended == [("cancelled", False)]
+    assert m.live_count == 0 and not m._unstarted and not m._settling
+
+
+async def test_a_shutdown_right_after_a_start_records_the_job_as_cancelled(store, monkeypatch):
+    monkeypatch.setenv("OMNIAPI_OFFLINE", "1")
+    m = GenerationManager(store, EventBus())
+    ended: list[tuple[str, bool]] = []
+
+    async def on_finished(public, shutting_down):
+        ended.append((public["status"], shutting_down))
+
+    g = await m.start("speech", {"text": "hello"}, on_finished=on_finished)
+    await m.close()
+    assert (await store.generation(g["id"]))["status"] == "cancelled"
+    assert ended == [("cancelled", True)]  # the shutdown's doing, not somebody's cancel
+
+
 async def test_a_scoped_call_is_recorded_under_the_callers_door_and_reports_back(store):
     ctx = NS(store=store, bus=EventBus())
     recorded = make_recorded(lambda: ctx, source="mcp")

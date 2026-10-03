@@ -30,6 +30,10 @@ class CallScope:
     source: str
     call_id: Optional[str] = None
     artifacts: list[dict[str, Any]] = field(default_factory=list)
+    #: where the request came from beyond the door, e.g. ``{conversation_id,
+    #: message_id}`` for a generation a chat proposed (1.2-M4): the ledger row
+    #: gets the conversation, the works get all of it in their ``meta``
+    links: dict[str, Any] = field(default_factory=dict)
 
 
 call_scope: contextvars.ContextVar[Optional[CallScope]] = contextvars.ContextVar("omniapi_call_scope", default=None)
@@ -129,7 +133,8 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
             arg_summary = summarize_args(kwargs)
             if store is not None:
                 try:
-                    call_id = await store.call_started(tool_name, arg_summary, source=door)
+                    call_id = await store.call_started(tool_name, arg_summary, source=door,
+                                                       conversation_id=(scope.links.get("conversation_id") if scope else None))
                 except Exception as e:  # never let bookkeeping break a tool
                     logger.debug("call_started failed: %s", e)
             if scope is not None:
@@ -137,7 +142,7 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
             if bus is not None:
                 await bus.publish({"type": "call.started", "call_id": call_id, "tool": tool_name, "args": arg_summary})
             # who is calling: read by the works index, also from a job that outlives this call
-            call_info = CallInfo(tool=tool_name, args=dict(kwargs), call_id=call_id, source=door)
+            call_info = CallInfo(tool=tool_name, args=dict(kwargs), call_id=call_id, source=door, links=dict(scope.links) if scope else {})
             token = current_call.set(call_info)
             try:
                 result = await (fake_generate(tool_name, kwargs, ctx) if fake else fn(*args, **kwargs))

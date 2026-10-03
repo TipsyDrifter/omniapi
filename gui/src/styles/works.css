@@ -141,6 +141,10 @@ html.wk-lock { overflow: hidden; }
 .wk-esc { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); margin-right: 8px; }
 .wk-lb-msg { padding: 30px var(--m); }
 .wk-lb-body { display: grid; grid-template-columns: minmax(0, 1fr) 470px; min-height: 0; }
+/* 只看圖（聊天附件）：沒有資訊欄，舞台佔滿 */
+.wk-lb-body.solo { grid-template-columns: minmax(0, 1fr); }
+.wk-lb-body.solo .wk-stage { border-right: 0; }
+.wk-vname { min-width: 0; font-size: var(--fs-xs); color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* 舞台 */
 .wk-stage { background: var(--paper-deep); display: grid; place-items: center; padding: 26px 26px 40px; min-height: 0; position: relative; border-right: 2px solid var(--ink); overflow: hidden; }

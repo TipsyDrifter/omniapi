@@ -144,6 +144,20 @@ export async function startGeneration(req: GenRequest): Promise<Generation> {
   return g;
 }
 
+/* 1.2-M4：聊天裡的提議卡要看它那件生成工作（等了多久、實際費用、失敗原因）。
+   最近 30 件以外的（例如重新整理後打開較舊的聊天）照編號補抓一次；同一件不重複抓。 */
+const fetching = new Set<string>();
+export function ensureGeneration(id: string | null | undefined): void {
+  if (!id || state.gens[id] || fetching.has(id)) return;
+  wire();
+  fetching.add(id);
+  api
+    .generation(id)
+    .then((g) => putGens([g]))
+    .catch(() => {})
+    .finally(() => fetching.delete(id));
+}
+
 export async function cancelGeneration(id: string): Promise<void> {
   const g = await api.cancelGeneration(id);
   putGens([g]);
@@ -242,6 +256,16 @@ export function injectDemoFailures(): void {
 
 export const isRunning = (g: Generation | undefined): boolean => !!g && g.status === "running";
 export const selectRunningCount = (s: MakeState): number => s.order.reduce((n, id) => n + (isRunning(s.gens[id]) ? 1 : 0), 0);
+/** 1.2-M4：從聊天按下生成、正在跑的那幾段聊天（左欄清單的「生成中」章） */
+export const selectChatsGenerating = (s: MakeState): string[] => {
+  const out = new Set<string>();
+  for (const id of s.order) {
+    const g = s.gens[id];
+    const cid = g?.meta?.conversation_id;
+    if (cid && isRunning(g)) out.add(cid);
+  }
+  return [...out].sort();
+};
 /** 出件口的內容：最近 TRAY_LIMIT 件＋這次送出的，扣掉收起的；新到舊 */
 export const selectTrayIds = (s: MakeState): string[] => {
   const hidden = new Set(s.dismissed);

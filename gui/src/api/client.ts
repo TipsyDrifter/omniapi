@@ -12,8 +12,12 @@ import type {
   GenRequest,
   Generation,
   Upload,
+  UploadLimits,
+  ChatAttachmentRef,
+  ChatDeleted,
   ChatDetail,
   ChatParams,
+  ChatProposal,
   ChatSummary,
   ChatTurn,
   Costs,
@@ -88,16 +92,30 @@ export const api = {
   chats: (opts: { limit?: number; archived?: boolean } = {}) => req<ChatSummary[]>(`/api/chat${qs({ limit: opts.limit ?? 100, archived: opts.archived ? "true" : undefined })}`),
   chat: (id: string) => req<ChatDetail>(`/api/chat/${encodeURIComponent(id)}`),
   /** 建立對話；帶 message 就順便送出第一則（回應的 turn 欄位） */
-  createChat: (body: { model?: string; system?: string; title?: string; message?: string; params?: ChatParams }) =>
+  createChat: (body: { model?: string; system?: string; title?: string; message?: string; attachments?: ChatAttachmentRef[]; params?: ChatParams }) =>
     req<ChatDetail & { turn?: ChatTurn }>("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
-  /** 409＝上一則還在回覆中或對話已封存；400＝模型不認得等 */
-  sendChat: (id: string, body: { text: string; model?: string; params?: ChatParams }) =>
+  /** 409＝上一則還在回覆中或對話已封存；400＝模型不認得等。有附件時 text 可空 */
+  sendChat: (id: string, body: { text: string; attachments?: ChatAttachmentRef[]; model?: string; params?: ChatParams }) =>
     req<ChatTurn>(`/api/chat/${encodeURIComponent(id)}/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  /* 1.2-M3：重新生成（mid＝回覆或使用者訊息）、編輯舊訊息（沒帶 attachments＝沿用原圖，[]＝拿掉）、切換版本、刪除 */
+  regenerateChat: (id: string, mid: string, body: { model?: string; params?: ChatParams } = {}) =>
+    req<ChatTurn>(`/api/chat/${encodeURIComponent(id)}/messages/${encodeURIComponent(mid)}/regenerate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  editChat: (id: string, mid: string, body: { text: string; attachments?: ChatAttachmentRef[]; model?: string; params?: ChatParams }) =>
+    req<ChatTurn>(`/api/chat/${encodeURIComponent(id)}/messages/${encodeURIComponent(mid)}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  switchChat: (id: string, messageId: string) =>
+    req<ChatDetail>(`/api/chat/${encodeURIComponent(id)}/switch`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message_id: messageId }) }),
+  deleteChat: (id: string) => req<ChatDeleted>(`/api/chat/${encodeURIComponent(id)}`, { method: "DELETE" }),
   cancelChat: (id: string) => req<{ conversation_id: string; cancelled: boolean }>(`/api/chat/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
   updateChat: (id: string, patch: { title?: string; model?: string; system_prompt?: string; archived?: boolean }) =>
     req<ChatSummary>(`/api/chat/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) }),
   /** 匯出 markdown 的網址：直接當連結的 href（瀏覽器會下載） */
   chatExportUrl: (id: string, download = true) => `/api/chat/${encodeURIComponent(id)}/export${download ? "" : "?download=false"}`,
+  /* 1.2-M4：聊天裡的生成提議。accept＝按「生成」（帶改過的提示詞、模型、額外參數）；pending、失敗、中止、不用了都能按，生成中／做好了 409 */
+  acceptProposal: (id: string, toolCallId: string, body: { prompt?: string; model?: string; params?: Record<string, unknown> } = {}) =>
+    req<ChatProposal>(`/api/chat/${encodeURIComponent(id)}/proposals/${encodeURIComponent(toolCallId)}/accept`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  /** 按「不用了」（轉錄提問＝「不轉錄，直接回覆」）：pending、失敗、中止的能按（其他 409） */
+  declineProposal: (id: string, toolCallId: string) =>
+    req<ChatProposal>(`/api/chat/${encodeURIComponent(id)}/proposals/${encodeURIComponent(toolCallId)}/decline`, { method: "POST" }),
   cancelRun: (id: string) => req<{ run_id: string; state: string; cancelled: boolean }>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
 
   /* ---- 1.1-M3 生成頁：工作在背景跑，開始／結束走 /ws（generation.started／finished） ---- */
@@ -116,6 +134,32 @@ export const api = {
   upload: (file: File) =>
     req<Upload>(`/api/uploads${qs({ filename: file.name })}`, { method: "POST", headers: { "content-type": file.type || "application/octet-stream" }, body: file }),
   uploadFileUrl: (id: string) => `/api/uploads/${encodeURIComponent(id)}/file`,
+  /** 1.2-M5：聊天的上傳（purpose=chat，什麼檔都收）。用 XHR 才拿得到上傳進度；錯誤同 req 丟 ApiError */
+  uploadChat: (file: File, onProgress?: (loaded: number, total: number) => void) =>
+    new Promise<Upload>((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", `/api/uploads${qs({ filename: file.name, purpose: "chat" })}`);
+      x.setRequestHeader("content-type", file.type || "application/octet-stream");
+      x.setRequestHeader("accept", "application/json");
+      if (onProgress) x.upload.onprogress = (e) => onProgress(e.loaded, e.lengthComputable ? e.total : file.size);
+      x.onload = () => {
+        let body: unknown = null;
+        try {
+          body = JSON.parse(x.responseText);
+        } catch {
+          /* 非 JSON 錯誤體 */
+        }
+        if (x.status >= 200 && x.status < 300) return resolve(body as Upload);
+        const d = (body as { detail?: unknown } | null)?.detail;
+        reject(new ApiError(x.status, typeof d === "string" ? d : d ? JSON.stringify(d) : x.statusText || "上傳失敗"));
+      };
+      x.onerror = () => reject(new ApiError(0, "連線中斷"));
+      x.onabort = () => reject(new ApiError(0, "上傳中止"));
+      x.send(file);
+    }),
+  /** 一筆上傳（抽取慢的檔：info 之後才補上） */
+  uploadRow: (id: string) => req<Upload>(`/api/uploads/${encodeURIComponent(id)}`),
+  uploadLimits: () => req<UploadLimits>("/api/uploads/limits"),
   /** 作品庫，新的在前；before＝上一頁的 next_before */
   artifacts: (opts: { kind?: string; limit?: number; before?: number | null } = {}) =>
     req<ArtifactList>(`/api/artifacts${qs({ kind: opts.kind, limit: opts.limit ?? 24, before: opts.before ?? undefined })}`),

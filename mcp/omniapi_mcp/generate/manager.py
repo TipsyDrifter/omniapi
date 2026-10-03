@@ -29,7 +29,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from ..artifacts import public_row
 from ..bus import EventBus
@@ -88,6 +88,12 @@ class GenerationManager:
         self.store = store
         self.bus = bus
         self._tasks: dict[str, asyncio.Task] = {}
+        #: jobs whose task has not taken its first step yet, with their ``on_finished``
+        self._unstarted: dict[str, Optional[Callable[[dict[str, Any], bool], Awaitable[None]]]] = {}
+        #: endings being recorded for jobs cancelled before they started
+        self._settling: dict[str, asyncio.Task] = {}
+        #: set by ``close()``: a job cancelled from here on was stopped by the shutdown, not by anyone
+        self.closing = False
 
     @property
     def live_count(self) -> int:
@@ -216,7 +222,13 @@ class GenerationManager:
 
     # ------------------------------------------------------------ jobs
     async def start(self, kind: str, params: Any = None, sources: Any = None, *,
-                    duration_s: Optional[float] = None, source: str = "gui") -> dict[str, Any]:
+                    duration_s: Optional[float] = None, source: str = "gui", links: Optional[dict[str, Any]] = None,
+                    on_finished: Optional[Callable[[dict[str, Any], bool], Awaitable[None]]] = None) -> dict[str, Any]:
+        """Start a job. ``links`` (e.g. the chat and message a proposal came
+        from, 決策記錄 1.2-M4-b) are stored on the job (``meta``) and carried
+        to its ledger row and works. ``on_finished(public row, shutting_down)``
+        is awaited once the ending is recorded — ``shutting_down`` tells a
+        cancel by the daemon's own shutdown from one somebody asked for."""
         tool, args, clean_sources = await self.prepare(kind, params, sources)
         estimate = await estimate_cost(self.store, kind=kind, tool=tool, params=args, duration_s=duration_s)
         public_params = {k: v for k, v in args.items() if not k.endswith("_path") and not k.endswith("_paths")}
@@ -228,17 +240,31 @@ class GenerationManager:
         gid = uuid.uuid4().hex[:16]
         row = await self.store.create_generation(
             gid, kind=kind, tool=tool, model=args.get("model"), title=title or None,
-            params=public_params, sources=clean_sources, estimate=estimate, source=source,
+            params=public_params, sources=clean_sources, estimate=estimate, source=source, meta=links,
         )
         public = await self.public(row)
         await self.bus.publish({"type": "generation.started", "generation": public})
-        task = asyncio.create_task(self._run(gid, tool, args, source), name=f"generation-{gid}")
+        self._unstarted[gid] = on_finished
+        task = asyncio.create_task(self._run(gid, tool, args, source, links or {}, on_finished), name=f"generation-{gid}")
         self._tasks[gid] = task
-        task.add_done_callback(lambda _t, gid=gid: self._tasks.pop(gid, None))
+        task.add_done_callback(lambda t, gid=gid: self._task_done(gid, t))
         return public
 
-    async def _run(self, gid: str, tool: str, args: dict[str, Any], source: str) -> None:
-        scope = CallScope(source=source)
+    def _task_done(self, gid: str, task: asyncio.Task) -> None:
+        self._tasks.pop(gid, None)
+        if task.cancelled() and gid in self._unstarted:
+            # Cancelled before its first step: the coroutine never ran, so nothing
+            # recorded how the job ended and its row would stay 'running' for good.
+            on_finished = self._unstarted.pop(gid)
+            settle = asyncio.create_task(self._finish(gid, {"status": "cancelled"}, None, [], on_finished),
+                                         name=f"generation-{gid}-settle")
+            self._settling[gid] = settle
+            settle.add_done_callback(lambda _t, gid=gid: self._settling.pop(gid, None))
+
+    async def _run(self, gid: str, tool: str, args: dict[str, Any], source: str, links: Optional[dict[str, Any]] = None,
+                   on_finished: Optional[Callable[[dict[str, Any], bool], Awaitable[None]]] = None) -> None:
+        self._unstarted.pop(gid, None)  # no await before the try below: from here on the ending is recorded there
+        scope = CallScope(source=source, links=dict(links or {}))
         scope_token = call_scope.set(scope)
         wait_token = wait_to_finish.set(True)
         fields: dict[str, Any] = {}
@@ -266,11 +292,23 @@ class GenerationManager:
             wait_to_finish.reset(wait_token)
         if fields.get("status") == "done" and fields.get("model") is None:
             fields.pop("model")
+        await self._finish(gid, fields, scope.call_id, artifact_ids, on_finished)
+
+    async def _finish(self, gid: str, fields: dict[str, Any], call_id: Optional[str], artifact_ids: list[str],
+                      on_finished: Optional[Callable[[dict[str, Any], bool], Awaitable[None]]]) -> None:
+        """Record how a job ended, announce it, then tell whoever waited on it."""
         try:
-            await self.store.update_generation(gid, finished_at=time.time(), call_id=scope.call_id, artifact_ids=artifact_ids, **fields)
-            await self.bus.publish({"type": "generation.finished", "generation": await self.get(gid)})
+            await self.store.update_generation(gid, finished_at=time.time(), call_id=call_id, artifact_ids=artifact_ids, **fields)
+            public = await self.get(gid)
+            await self.bus.publish({"type": "generation.finished", "generation": public})
         except Exception as e:  # pragma: no cover - the store is closing
             logger.warning("could not record how generation %s ended: %s", gid, e)
+            return
+        if on_finished is not None:
+            try:
+                await on_finished(public, self.closing)
+            except Exception as e:  # the job is recorded; whoever waited on it copes on its own
+                logger.warning("generation %s: on_finished failed: %s", gid, e)
 
     async def cancel(self, generation_id: str) -> dict[str, Any]:
         row = await self.store.generation(generation_id)
@@ -280,13 +318,19 @@ class GenerationManager:
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        settle = self._settling.get(generation_id)
+        if settle is not None:  # it never started: its ending is being recorded for it
+            await asyncio.gather(settle, return_exceptions=True)
         return await self.get(generation_id)
 
     async def close(self) -> None:
         """Daemon shutdown: stop what is running; each records itself as cancelled."""
+        self.closing = True
         tasks = [t for t in self._tasks.values() if not t.done()]
         for t in tasks:
             t.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        if self._settling:
+            await asyncio.gather(*list(self._settling.values()), return_exceptions=True)
         self._tasks.clear()

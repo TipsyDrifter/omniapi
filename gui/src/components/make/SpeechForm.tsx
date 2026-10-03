@@ -4,7 +4,8 @@ import type { Voice } from "@/api/types";
 import { Field } from "@/components/dispatch";
 import { setDraft, useMake } from "@/store/make";
 import { buildSpeech, effModel, speechKnobs, type SpeechDraft } from "./draft";
-import { Knob, ModelList, SubmitBar, ctrlEnter, type FormProps } from "./bits";
+import { Knob, ModelList, SubmitBar, sendKeys, type FormProps } from "./bits";
+import { SendKeyHint } from "@/components/SendKeyMenu";
 
 let previewing: HTMLAudioElement | null = null;
 
@@ -43,19 +44,20 @@ export function SpeechForm({ opts, optsError, busy, error, onSend }: FormProps) 
 
   return (
     <>
-      <div className="mk-main" onKeyDown={ctrlEnter(send)}>
+      <div className="mk-main" onKeyDown={sendKeys(send)}>
         <Field
           lbl="Text"
           zh="要念的文字"
           htmlFor="mk-text"
           aside={
             <>
-              <span className="n">{[...d.text].length}</span> 字 · Ctrl＋Enter 送出
+              <span className="n">{[...d.text].length}</span> 字 · <SendKeyHint />
             </>
           }
         >
           <textarea
             id="mk-text"
+            data-enter-sends=""
             className="dp-prompt mk-prompt tall"
             value={d.text}
             onChange={(e) => set({ text: e.target.value })}
@@ -83,7 +85,7 @@ export function SpeechForm({ opts, optsError, busy, error, onSend }: FormProps) 
         />
       </div>
 
-      <aside className="mk-side" onKeyDown={ctrlEnter(send)}>
+      <aside className="mk-side" onKeyDown={sendKeys(send)}>
         <ModelList models={models} sel={m?.id ?? null} onSel={(id) => set({ model: id })} loading={!opts} error={optsError} />
         <Field lbl="Voice" zh="聲音" aside={vs ? `${provider} · ${vs.voices.length} 個${vs.live ? " · 現查" : ""}` : null}>
           {vs?.error ? (

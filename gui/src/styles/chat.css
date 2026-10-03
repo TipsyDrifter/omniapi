@@ -48,10 +48,10 @@
 .cm-tag.on { background: var(--paper-deep); border-style: dashed; }
 
 /* ============ 右欄 ============ */
-.chatbox { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 2px solid var(--ink); }
+.chatbox { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 2px solid var(--ink); position: relative; }
 
 /* 表頭一列 */
-.ch-head { flex: none; display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 14px; row-gap: 4px; padding: 10px 0 9px; border-bottom: 1px solid var(--ink-25); }
+.ch-head { flex: none; display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 14px; row-gap: 4px; padding: 10px 0 9px; border-bottom: 1px solid var(--ink-25); position: relative; }
 .ch-title {
   min-width: 0; max-width: 100%; text-align: left; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h4); line-height: 1.25; color: var(--ink);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-shadow: inset 0 -1.5px 0 transparent;
@@ -67,7 +67,7 @@ button.ch-title:disabled { cursor: default; }
 .ch-stat { font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); white-space: nowrap; }
 .ch-stat .n { color: var(--ink); font-size: var(--fs-xs); }
 .ch-stat .k, .cm-meta .k { font-family: var(--font-label); font-weight: 700; color: var(--ink-70); }
-.ch-acts { margin-left: auto; display: flex; gap: 6px; align-self: center; }
+.ch-acts { margin-left: auto; display: flex; gap: 6px; align-self: center; align-items: center; }
 .ch-act {
   font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); color: var(--ink); text-decoration: none;
   border: 1.5px solid var(--ink); padding: 2px 10px 1px; line-height: 1.4; white-space: nowrap;
@@ -188,7 +188,8 @@ button.ch-title:disabled { cursor: default; }
 .cs-k { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); white-space: nowrap; }
 .cs-btn[aria-expanded="true"] .cs-k { color: var(--ink); }
 .cs-car { font-size: var(--fs-xs); color: var(--ink-70); }
-.cs-sys { margin-left: auto; }
+/* 細列右側：送出鍵、System prompt（送出鍵推到右邊） */
+.ck-btn { margin-left: auto; }
 .cs-has { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); border: 1px dashed var(--ink-45); padding: 0 5px; line-height: 1.35; }
 .cs-has.on { color: var(--ink); border: 1px solid var(--ink); }
 
@@ -218,3 +219,435 @@ button.ch-title:disabled { cursor: default; }
 .cs-act.main { border: 2px solid var(--ink); }
 .cs-act.main:hover:not(:disabled) { box-shadow: 2px 2px 0 var(--ink); }
 .cs-act:disabled { border-style: dashed; color: var(--ink-70); }
+
+/* ============ 附件：圖（1.2-M2；檔案見最後一段 1.2-M5） ============ */
+/* 訊息裡的圖：縮圖一排（方形裁切），點開看大圖；檔案不在＝斜紋佔位 */
+.cm-atts { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+.cm-att {
+  width: 112px; height: 112px; flex: none; box-sizing: border-box; padding: 0; overflow: hidden;
+  border: 1.5px solid var(--ink-25); background: var(--paper); cursor: zoom-in;
+}
+.cm-att img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cm-att:hover { border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink-25); }
+.cm-att.gone {
+  display: grid; place-items: center; text-align: center; padding: 8px; cursor: default;
+  border: 1.5px dashed var(--ink-45); background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px);
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70);
+}
+.cm-att.gone:hover { box-shadow: none; }
+/* 送出當下先顯示的那一則：虛線左緣，等後端那一則來換 */
+.cm-u.local { box-shadow: inset 2px 0 0 var(--ink-45); }
+.cm-sending { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); }
+/* 回覆旁的小字：圖片沒送到模型的張數與原因 */
+.cm-skip { margin: 0 0 6px; display: flex; align-items: baseline; gap: 8px; font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.5; color: var(--ink-70); }
+.cm-skip .k { flex: none; font-family: var(--font-label); font-weight: 700; color: var(--ink); border: 1px dashed var(--ink-45); padding: 0 5px; line-height: 1.35; }
+
+/* 輸入框：附件鈕（同送出鈕的語彙，小一號）；停用＝虛線＋斜紋，可聚焦，滑過去／聚焦出說明 */
+.ch-dock .composer { position: relative; }
+.cx-attwrap { position: relative; flex: none; display: flex; }
+.composer-att {
+  flex: none; align-self: stretch; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); letter-spacing: 0.04em; color: var(--ink);
+  background: var(--paper); border: 0; border-left: 1.5px dashed var(--ink-45); padding: 0 14px; white-space: nowrap;
+}
+.composer-att .n { font-size: var(--fs-xs); }
+.composer-att:hover:not([aria-disabled="true"]), .composer-att[aria-expanded="true"] { background: var(--paper-deep); }
+.composer-att[aria-disabled="true"] { color: var(--ink-70); cursor: not-allowed; background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); }
+.cx-tip {
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5; display: none; white-space: nowrap;
+  background: var(--paper); border: 1.5px solid var(--ink); box-shadow: 3px 3px 0 var(--ink-25); padding: 4px 10px 3px;
+  font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink);
+}
+.cx-attwrap:hover .cx-tip, .cx-attwrap:focus-within .cx-tip { display: block; }
+
+/* 待送出的圖：輸入框上方一排小縮圖，右上角 × 拿掉；上傳中虛線框、失敗斜紋 */
+.cx-tray { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.cx-th { position: relative; width: 64px; height: 64px; flex: none; box-sizing: border-box; border: 1.5px solid var(--ink); background: var(--paper-deep); }
+.cx-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 不降透明度（THEME：狀態用框線與斜紋表達）：上傳中虛線框＋底下一條字；失敗＝不顯示圖、只留斜紋 */
+.cx-th.uploading { border-style: dashed; }
+.cx-th.error { border: 1.5px dashed var(--ink-45); background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); }
+.cx-th.error img { display: none; }
+.cx-st {
+  position: absolute; left: 0; right: 0; bottom: 0; text-align: center; background: var(--paper);
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m10); line-height: 1.5; color: var(--ink); border-top: 1px solid var(--ink-25);
+}
+.cx-x {
+  position: absolute; top: -7px; right: -7px; width: 18px; height: 18px; display: grid; place-items: center; padding: 0;
+  font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1; color: var(--ink); background: var(--paper); border: 1.5px solid var(--ink);
+}
+.cx-x:hover { background: var(--paper-deep); box-shadow: 2px 2px 0 var(--ink); }
+.cx-count { margin-left: 2px; font-size: var(--fs-m11); color: var(--ink-70); }
+.cx-errs { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.cx-errs b { font-family: var(--font-label); font-weight: 700; }
+.cx-errs .code { font-size: var(--fs-xs); }
+.cx-note { margin: 0; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink); }
+.cx-note::before { content: "› "; font-family: var(--font-mono); font-weight: 600; }
+
+/* 拖進來時：輸入框變虛線紙深底，上面一行提示 */
+.composer.over .composer-row { border-style: dashed; background: var(--paper-deep); }
+.cx-dropmsg {
+  position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; pointer-events: none; text-align: center;
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); color: var(--ink);
+}
+
+/* 附件展開區（同細列展開區 .cs-pop）：從電腦選＋作品牆的圖與文字作品 */
+/* 貼齊輸入框上緣、蓋住整條細列（不留縫，細列不會從底下露出來）；縮圖的 × 吃輸入框的上內距 */
+.cx-pop { bottom: 100%; }
+.ch-dock .composer:has(.cx-tray) { padding-top: 10px; }
+.cx-pop .dp-fh { margin-bottom: 10px; }
+.cx-popacts { display: flex; align-items: center; gap: 12px; }
+.cx-popacts .cs-note { margin: 0; }
+
+/* 換到不會看圖的模型、前面又有圖：輸入框正上方一行 */
+.cx-blind {
+  margin: 0 0 4px; display: flex; align-items: baseline; gap: 8px; border: 1.5px dashed var(--ink-45); padding: 4px 10px 3px;
+  font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink);
+}
+.cx-blind-k { flex: none; font-family: var(--font-label); font-weight: 700; }
+.cx-blind .n { font-size: var(--fs-xs); }
+
+/* ============ 重來、分岔、刪除、送出鍵（1.2-M3；版面稿 prototypes/chat-upgrade/m3-design） ============ */
+/* 資訊列右側的動作（重新生成、編輯、複製）：同複製鈕的小框 */
+.cm-acts { margin-left: auto; align-self: center; display: flex; gap: 6px; }
+.cm-act {
+  position: relative; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70);
+  border: 1px solid var(--ink-25); padding: 1px 8px 0; line-height: 1.4; white-space: nowrap;
+}
+.cm-act:hover:not([aria-disabled="true"]) { color: var(--ink); border-color: var(--ink); }
+.cm-act.ok { color: var(--ink); border-color: var(--ink); background: var(--paper-deep); }
+/* 最後一則回覆的「重新生成」：常駐、墨框實線（比複製重一階） */
+.cm-act.main { color: var(--ink); border: 1.5px solid var(--ink); }
+.cm-act.main:hover:not([aria-disabled="true"]) { box-shadow: 2px 2px 0 var(--ink); }
+/* 不能按（回覆進行中、已封存）：虛線框＋墨 70，不降透明度、不藏起來；aria-disabled 保留可聚焦，滑過出原因 */
+.cm-act[aria-disabled="true"], .cv-b[aria-disabled="true"] { border-style: dashed; color: var(--ink-70); cursor: not-allowed; box-shadow: none; }
+/* 較早的訊息：動作滑過或聚焦才出現（最後一則回覆常駐） */
+/* 用透明度藏、不用 visibility：藏著的鈕仍可用 Tab 聚焦，聚焦時整排出現 */
+.cm-a:not(.last) .cm-acts, .cm-u .cm-acts { opacity: 0; }
+.cm-a:hover .cm-acts, .cm-a:focus-within .cm-acts, .cm-u:hover .cm-acts, .cm-u:focus-within .cm-acts { opacity: 1; }
+/* 原因小框：同附件鈕的 .cx-tip，往下長 */
+.tipw { position: relative; display: inline-flex; align-self: center; }
+.tipw .cx-tip { right: auto; left: 0; bottom: auto; top: calc(100% + 6px); }
+.tipw.r .cx-tip { left: auto; right: 0; }
+.tipw:hover .cx-tip, .tipw:focus-within .cx-tip { display: block; }
+
+/* 版本切換 ‹ 2/3 ›：資訊列最前面；使用者與回覆同一個樣子 */
+.cv { display: inline-flex; align-items: stretch; align-self: center; border: 1px solid var(--ink-45); background: var(--paper); line-height: 1.4; }
+.cv-b { width: 22px; display: grid; place-items: center; font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-s); color: var(--ink); border: 0 solid var(--ink-25); }
+.cv-b:first-child { border-right-width: 1px; }
+.cv-b:last-child { border-left-width: 1px; }
+.cv-b:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--paper-deep); }
+.cv-b:disabled { color: var(--ink-25); cursor: default; }
+.cv-n { padding: 0 6px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-m11); color: var(--ink); }
+.cv.off { border-style: dashed; }
+
+/* 切換或分岔後：分岔點下方一行說明（同「看不到圖」那行的虛線框），下一個動作或「知道了」就收 */
+.cv-note { margin: 6px 0 10px; display: flex; align-items: baseline; gap: 8px; border: 1.5px dashed var(--ink-45); padding: 4px 10px 3px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink); }
+.cv-note-k { flex: none; font-family: var(--font-label); font-weight: 700; }
+.cv-note .n { font-size: var(--fs-xs); }
+.cv-note button { margin-left: auto; flex: none; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); box-shadow: inset 0 -1.5px 0 var(--ink-45); }
+.cv-note button:hover { color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink); }
+/* 後面換掉的那一段：網點底印一下再退掉（滾筒分格感）；減少動態時只留說明行 */
+.cv-tail { animation: cvprint 960ms steps(3, end) both; }
+@keyframes cvprint { from { background: var(--halftone); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .cv-tail { animation: none; } }
+
+/* 編輯舊訊息：原地變成輸入框（2px 墨框＋偏移陰影＝輸入列聚焦的樣子） */
+.cm-u.editing { background: var(--paper); box-shadow: 3px 3px 0 var(--ink); border: 2px solid var(--ink); padding: 7px 14px 10px 14px; }
+.cm-u.editing.over { border-style: dashed; background: var(--paper-deep); }
+.ce-tray { gap: 10px; margin: 10px 0 6px; }
+.ce-add {
+  width: 64px; height: 64px; flex: none; border: 1.5px dashed var(--ink-45); display: grid; place-items: center;
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); line-height: 1.3; text-align: center;
+}
+.ce-add:hover, .ce-add[aria-expanded="true"] { border-color: var(--ink); color: var(--ink); background: var(--paper-deep); }
+/* 挑圖區在框內展開（不蓋在訊息上：訊息區頂端的那則也不會被切掉） */
+.ce-pick { margin: 4px 0 10px; border: 1.5px solid var(--ink); background: var(--paper); padding: 10px 14px 12px; }
+.ce-pick .dp-fh { display: flex; align-items: baseline; gap: 10px; border-bottom: 2px solid var(--ink); padding-bottom: 5px; margin-bottom: 10px; }
+.cm-u.editing .cx-errs, .cm-u.editing .cx-note { margin: 0 0 6px; }
+.ce-in {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+  font-family: var(--font-kai); font-weight: 400; font-size: var(--fs-l); line-height: 1.6; color: var(--ink);
+  background: var(--paper-deep); border: 0; border-radius: 0; box-shadow: inset 0 0 0 1px var(--ink-25); padding: 6px 10px; outline: none;
+}
+.ce-in:focus { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.ce-in:disabled { color: var(--ink-70); cursor: progress; }
+.ce-fork { margin: 8px 0 0; display: flex; align-items: baseline; gap: 8px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink); }
+.ce-fork .n { font-size: var(--fs-xs); }
+.ce-fork-k { flex: none; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); border: 1.5px solid var(--ink); padding: 0 5px; line-height: 1.35; }
+.ce-err { margin: 8px 0 0; }
+.ce-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.ce-foot .cs-hint .code { font-size: var(--fs-m11); color: var(--ink); }
+
+/* 刪除：表頭動作隔一道線、帶「…」；確認框從按鈕往下長（同細列展開區的語彙） */
+.ch-acts .navsep { height: 18px; margin: 0 4px; }
+.ch-act[aria-expanded="true"] { background: var(--paper-deep); box-shadow: 2px 2px 0 var(--ink); }
+.cd-wash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--halftone); background-color: transparent; }
+.cd-wash::before { content: ""; position: absolute; inset: 0; background: var(--paper); opacity: 0.55; }
+.cd-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 7; width: min(600px, 100%); box-sizing: border-box;
+  background: var(--paper); border: 2px solid var(--ink); box-shadow: 6px 6px 0 var(--ink-25); padding: 12px 18px 16px;
+}
+.cd-pop .dp-fh { margin-bottom: 8px; }
+.cd-q { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h4); line-height: 1.3; margin: 2px 0 6px; overflow-wrap: anywhere; }
+.cd-lead { font-family: var(--font-sans); font-size: var(--fs-s); line-height: 1.6; color: var(--ink); margin: 0 0 12px; }
+.cd-lead b { font-weight: 700; box-shadow: inset 0 -2px 0 var(--ink); }
+.cd-lead .n { font-size: var(--fs-s); }
+.cd-cmp { display: grid; grid-template-columns: 84px 1fr 1fr; border-top: 2px solid var(--ink); font-family: var(--font-sans); font-size: var(--fs-s); line-height: 1.5; }
+.cd-cmp > * { padding: 6px 10px 5px 0; border-bottom: 1px dashed var(--ink-25); }
+.cd-cmp .h { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); padding-top: 7px; }
+.cd-cmp .h.this { box-shadow: inset 0 -3px 0 var(--ink); }
+.cd-cmp .h small { font-family: var(--font-sans); font-weight: 400; font-size: var(--fs-m11); color: var(--ink-70); margin-left: 6px; }
+.cd-cmp .k { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); padding-top: 8px; }
+.cd-cmp .x { font-weight: 700; }
+.cd-cmp .same { color: var(--ink-70); }
+.cd-err { margin: 10px 0 0; }
+.cd-acts { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.cd-alt { margin-right: auto; font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); }
+.cd-alt button { font-family: var(--font-label); font-weight: 700; color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink-45); margin-left: 4px; }
+.cd-alt button:hover:not(:disabled) { box-shadow: inset 0 -1.5px 0 var(--ink); }
+/* 刪除鍵：墨底反白（D3 的「錯誤／不可逆」語言，同 .errstamp），不用紅 */
+.cs-act.danger { background: var(--ink); color: var(--paper); border: 2px solid var(--ink); }
+.cs-act.danger:hover:not(:disabled) { box-shadow: 3px 3px 0 var(--ink-45); }
+.cs-act.danger:disabled { background: var(--ink-70); border-color: var(--ink-70); color: var(--paper); border-style: solid; }
+
+/* 送出鍵：鍵帽、細列第三項的展開區、四處共用的選單 */
+.kbd {
+  display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-xs); line-height: 1.35; color: var(--ink);
+  border: 1.5px solid var(--ink); box-shadow: 1.5px 1.5px 0 var(--ink); padding: 0 5px; background: var(--paper); white-space: nowrap;
+}
+.cs-btn .kbd { font-size: var(--fs-m11); box-shadow: 1px 1px 0 var(--ink); border-width: 1px; }
+.ck-pop { left: auto; width: 520px; max-width: 100%; box-sizing: border-box; }
+.ck-pop .dp-fh { margin-bottom: 10px; }
+.ck-opts { display: grid; gap: 8px; }
+.ck-opt { display: grid; grid-template-columns: 18px 1fr; column-gap: 10px; align-items: start; text-align: left; border: 1.5px solid var(--ink-25); padding: 9px 12px 8px; background: var(--paper); }
+.ck-opt:hover { border-color: var(--ink); }
+.ck-opt[aria-checked="true"] { border: 2px solid var(--ink); background: var(--paper-deep); padding: 8.5px 11.5px 7.5px; }
+.ck-dot { width: 14px; height: 14px; margin-top: 3px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--paper); box-sizing: border-box; }
+.ck-opt[aria-checked="true"] .ck-dot { background: radial-gradient(var(--ink) 0 3.5px, var(--paper) 4px); }
+.ck-t { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-base); color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ck-sub { grid-column: 2; margin-top: 3px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-70); }
+.ck-plus { font-family: var(--font-sans); font-weight: 400; font-size: var(--fs-xs); color: var(--ink-70); }
+.ck-where { margin-top: 10px; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.5; color: var(--ink-70); border-top: 1px dashed var(--ink-25); padding-top: 8px; }
+.ck-where b { font-family: var(--font-label); font-weight: 700; color: var(--ink); }
+/* 追問、派工、生成頁：「Ctrl+Enter 送出」小字可以點（底線虛線），選單從它長出來 */
+.ck-wrap { position: relative; display: inline-block; }
+.ck-wrap.cap { display: flex; flex: none; align-self: stretch; }
+.ck-hint { font: inherit; color: inherit; letter-spacing: inherit; padding: 0; box-shadow: inset 0 -1px 0 var(--ink-45); cursor: pointer; white-space: nowrap; }
+.ck-hint:hover, .ck-hint[aria-expanded="true"] { color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink); }
+.ck-capbtn { display: flex; align-items: center; padding: 0 10px; border-left: 1.5px dashed var(--ink-45); background: var(--paper); }
+.ck-capbtn:hover, .ck-capbtn[aria-expanded="true"] { background: var(--paper-deep); }
+.ck-capbtn .kbd { font-size: var(--fs-m11); box-shadow: 1px 1px 0 var(--ink); border-width: 1px; }
+/* 小字只有幾個字寬：選單寬度不跟著它縮 */
+.ck-float {
+  position: absolute; right: 0; left: auto; bottom: calc(100% + 6px); z-index: 20; display: block; width: 520px; max-width: none; max-height: none;
+  text-align: left; white-space: normal; letter-spacing: normal; text-transform: none; font-weight: 400;
+}
+.ck-float.down { bottom: auto; top: calc(100% + 6px); }
+
+/* ============ 聊天裡的生成：提議卡（1.2-M4；版面稿 prototypes/chat-upgrade/m4-m5-design，只用既有 token） ============ */
+/* 卡是回覆的一部分：在同一則回覆的虛線分隔之內、接在那段話後面，寬度收在 700；1.5px 墨框，比回覆文字重、比做好的作品（2px）輕 */
+.gp-list { display: flex; flex-direction: column; gap: 12px; margin: 12px 0 4px; max-width: 700px; }
+.gp { position: relative; border: 1.5px solid var(--ink); background: var(--paper); }
+.gp-h { display: flex; align-items: center; gap: 8px; padding: 7px 12px 6px; border-bottom: 1px dashed var(--ink-25); min-width: 0; }
+.gp-h b { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-base); white-space: nowrap; }
+/* 「提議」章：虛線＝還沒成真 */
+.gp-tag { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); letter-spacing: 0.1em; border: 1.5px dashed var(--ink); padding: 0 6px; line-height: 1.45; transform: rotate(-2deg); background: var(--paper); white-space: nowrap; display: inline-block; }
+.gp-aside { margin-left: auto; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.gp-b { padding: 2px 12px 12px; }
+.gp-row { display: grid; grid-template-columns: 58px minmax(0, 1fr); column-gap: 12px; align-items: start; padding: 8px 0; border-bottom: 1px dashed var(--ink-25); }
+.gp-k { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); padding-top: 3px; line-height: 1.2; }
+.gp-k small { display: block; font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); margin-top: 2px; }
+.gp-v { min-width: 0; }
+.gp-in {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden; font-family: var(--font-kai); font-size: var(--fs-l); line-height: 1.6; color: var(--ink);
+  background: var(--paper-deep); border: 0; border-radius: 0; box-shadow: inset 0 0 0 1px var(--ink-25); padding: 5px 9px; outline: none;
+}
+.gp-in:focus { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.gp-in:disabled { color: var(--ink-70); cursor: not-allowed; }
+.gp-sub { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); min-height: 17px; }
+.gp-sub .n { color: var(--ink); }
+/* 「你改過」：墨底小章（改過＝已經是你的了）；「還原」：底線字鈕 */
+.gp-mod { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--paper); background: var(--ink); padding: 0 5px; line-height: 1.45; white-space: nowrap; }
+.gp-undo { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); box-shadow: inset 0 -1.5px 0 var(--ink-45); white-space: nowrap; }
+.gp-undo:hover { color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink); }
+.gp-mwrap { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.gp-mbtn { display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; border: 1.5px solid var(--ink-25); padding: 4px 9px 3px; text-align: left; background: var(--paper); }
+.gp-mbtn:hover:not(:disabled), .gp-mbtn[aria-expanded="true"] { border-color: var(--ink); background: var(--paper-deep); }
+.gp-mbtn:disabled { border-style: dashed; cursor: not-allowed; }
+.gp-mbtn .code { font-size: var(--fs-xs); color: var(--ink); white-space: nowrap; }
+.gp-mname { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); white-space: nowrap; }
+.gp-mprice { font-size: var(--fs-m11); color: var(--ink); white-space: nowrap; }
+.gp-rec { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink); border: 1px solid var(--ink); padding: 0 5px; line-height: 1.4; white-space: nowrap; }
+.gp-rec .code { font-size: var(--fs-m11); font-weight: 500; }
+.gp-mpop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 8; width: 540px; max-width: calc(100vw - 80px); box-sizing: border-box; background: var(--paper); border: 2px solid var(--ink); box-shadow: 6px 6px 0 var(--ink-25); padding: 10px 12px 12px; }
+.gp-mpop .dp-fh { margin-bottom: 8px; }
+.gp-mlist { border: 1.5px solid var(--ink-25); max-height: 300px; overflow-y: auto; scrollbar-color: var(--ink-45) transparent; }
+.gp-mpop .cs-note { margin-top: 8px; }
+.gp-spec { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding-top: 3px; font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); }
+.gp-voice .mk-seg button { padding: 3px 9px 2px; }
+.gp-voice .mk-seg button[aria-pressed="true"] { padding: 2.5px 8.5px 1.5px; }
+/* 預估：25px 一行（生成頁 38px 的三分之二），算法與「按了才計費」緊貼在旁；數字跟「生成」鈕同一列 */
+.gp-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 10px; align-items: center; padding-top: 11px; }
+.gp-est { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 2px 4px 2px 0; }
+.gp-est .k { white-space: nowrap; flex: none; line-height: 1.3; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); }
+.gp-estn { flex: none; font-family: var(--font-display); font-weight: 800; font-size: var(--fs-h3); line-height: 1; letter-spacing: -0.04em; font-variation-settings: "wdth" var(--num-wdth); font-variant-numeric: tabular-nums; color: var(--ink); }
+.gp-estn small { font-size: 0.56em; margin-right: 1px; letter-spacing: -0.02em; }
+.gp-estna { flex: none; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-base); color: var(--ink-70); }
+.gp-was { flex: none; font-family: var(--font-mono); font-size: var(--fs-m11); color: var(--ink-70); text-decoration: line-through; align-self: center; }
+.gp-basis { font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.45; color: var(--ink-70); min-width: 0; }
+.gp-basis b { font-weight: 600; color: var(--ink); }
+.gp-go { font-size: var(--fs-base); padding: 5px 16px 4px; margin-right: 3px; white-space: nowrap; }
+.gp-go[aria-disabled="true"] { border-style: dashed; box-shadow: none; color: var(--ink-70); cursor: not-allowed; }
+/* 改了提示詞或模型：預估所在那塊印一下網點（減少動態時不印） */
+.gp-est.flash { animation: cvprint 640ms steps(3, end); }
+@media (prefers-reduced-motion: reduce) { .gp-est.flash { animation: none; } }
+.gp-was-note { margin: 8px 0 0; }
+.gp-err { margin-top: 8px; }
+
+/* 生成中：出件口的等待票（2px 墨框＋6px 實墨影＋滾筒） */
+.gp.run { border-width: 2px; box-shadow: 6px 6px 0 var(--ink); margin-right: 6px; }
+.gp .live-stamp { font-size: var(--fs-s); padding: 1px 8px 0; white-space: nowrap; flex: none; }
+.gp .drum { width: 16px; height: 16px; }
+.gp-t { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-l); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin: 8px 0 4px; }
+.gp-wait { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; }
+.gp-wait .k { line-height: 1.3; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); }
+.gp-elv { font-family: var(--font-display); font-weight: 800; font-size: var(--fs-h2); line-height: var(--lh-num); letter-spacing: -0.045em; font-variation-settings: "wdth" var(--num-wdth); font-variant-numeric: tabular-nums; }
+.gp-usual { font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); }
+.gp-wait .mk-mini { margin-left: auto; align-self: center; }
+.gp-leave { margin-top: 10px; border-top: 1px dashed var(--ink-25); padding-top: 7px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.6; color: var(--ink-70); }
+.gp-leave b { color: var(--ink); font-weight: 600; }
+
+/* 做好了：作品標籤（A：圖在左 288px 原比例、點開看大圖；說明在右）。語音同一張標籤，換成要念的字＋播放器 */
+.gp.done { border-width: 2px; display: grid; grid-template-columns: 288px minmax(0, 1fr); }
+/* 說明那欄比圖高時（展開了完整提示詞）：圖貼頂，下面留紙深底，不置中 */
+.gp-fig { display: flex; align-items: flex-start; width: 100%; padding: 0; border-right: 2px solid var(--ink); background: var(--paper-deep); cursor: zoom-in; position: relative; }
+.gp-fig img { display: block; width: 100%; height: auto; }
+.gp-fig:hover::after, .gp-fig:focus-visible::after { content: "點開看大圖"; position: absolute; right: 8px; top: 8px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink); background: var(--paper); border: 1.5px solid var(--ink); padding: 0 6px; }
+.gp-info { padding: 10px 12px 12px; display: flex; flex-direction: column; min-width: 0; }
+.gp-dh { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gp-by { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.gp-by .code { font-size: var(--fs-m11); color: var(--ink); }
+.gp-info .gp-t { margin-top: 10px; }
+.gp-prt { margin-top: 8px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); align-self: flex-start; }
+.gp-prt:hover { color: var(--ink); }
+.gp-prbox { margin: 6px 0 2px; font-family: var(--font-kai); font-size: var(--fs-base); line-height: 1.6; background: var(--paper-deep); box-shadow: inset 0 0 0 1px var(--ink-25); padding: 6px 9px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.gp-prbox small { display: block; margin-top: 4px; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); white-space: normal; }
+.gp-prbox small .code { font-size: var(--fs-m11); color: var(--ink); }
+.gp.done .gp-spacer { flex: 1; }
+.gp-info > .mk-acts-end { margin-top: 12px; }
+.gp.done.au { display: block; }
+.gp.done.au .mk-aud { margin-top: 10px; }
+
+/* 失敗：墨底反白章＋斜紋底（同出件口）；提示詞那段留紙底好讀 */
+.gp.fail { border-width: 2px; }
+.gp.fail .gp-h { border-bottom: 0; }
+.gp.fail .gp-b { padding-bottom: 8px; }
+.gp.fail .gp-b .gp-t { margin-top: 0; }
+.gp-fb { background: var(--err-stripe); box-shadow: inset 0 2px 0 var(--ink); padding: 10px 12px 12px; }
+.gp-fb .mk-acts .mk-mini { background: var(--paper); }
+/* 已中止：虛線框＋虛線章 */
+.gp.off { border-style: dashed; }
+.gp.off .mk-acts { margin-top: 8px; }
+
+/* 沒有生成：收成一行（實線章＝你按的「不用了」；虛線章＝送了下一則而「略過」） */
+.gp-line { display: flex; align-items: center; gap: 8px; padding: 5px 10px 4px; border: 1px dashed var(--ink-45); font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); min-width: 0; }
+.gp-lk { flex: none; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink); border: 1.5px solid var(--ink); padding: 0 5px; line-height: 1.4; white-space: nowrap; }
+.gp-lk.auto { border-style: dashed; }
+.gp-lt { flex: none; color: var(--ink); white-space: nowrap; }
+.gp-lp { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--font-kai); font-size: var(--fs-s); color: var(--ink-70); }
+.gp-line .gp-undo { flex: none; }
+.gp-peek { margin-top: -13px; border: 1px dashed var(--ink-45); border-top-style: dotted; padding: 8px 10px 10px; background: var(--paper); }
+.gp-peek .gp-prbox { margin-top: 0; }
+.gp-peek .mk-acts { margin-top: 8px; align-items: center; }
+.gp-peek .dp-note { margin-left: 4px; }
+
+/* 這個模型不在對話裡生成：細列裡一個虛線小籤，滑過／聚焦才講原因（不跳警告、不擋輸入） */
+.cs-nogen { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); border: 1px dashed var(--ink-45); padding: 0 6px; line-height: 1.5; white-space: nowrap; cursor: help; }
+.cs-nogen:hover, .cs-nogen:focus-visible { color: var(--ink); border-color: var(--ink); outline: none; }
+.tipw.up .cx-tip { left: 0; right: auto; top: auto; bottom: calc(100% + 8px); white-space: normal; width: 400px; }
+
+/* ============ 檔案附件（1.2-M5；版面稿 prototypes/chat-upgrade/m4-m5-design 情境 9–14，只用既有 token） ============ */
+/* 折角紙：寫副檔名（不是模態章，也不是事件章）；虛線＝還沒成真（上傳中）或讀不了 */
+.fdoc { position: relative; width: 30px; height: 38px; flex: none; }
+.fdoc svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.fdoc svg .pg { fill: var(--paper); stroke: var(--ink); stroke-width: 1.5; }
+.fdoc svg .ear { fill: var(--paper-deep); stroke: var(--ink); stroke-width: 1.5; stroke-linejoin: round; }
+.fdoc b { position: absolute; left: -2px; right: -2px; bottom: 5px; text-align: center; font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-m10); line-height: 1; color: var(--ink); letter-spacing: -0.02em; }
+.fdoc.dash svg .pg, .fdoc.dash svg .ear { stroke-dasharray: 3 2.5; stroke: var(--ink-70); }
+
+/* 輸入框的檔案：跟 64px 縮圖同高、並排、同一個 ×；三行＝檔名／類型・大小・頁數或列數／這個模型會怎麼讀它 */
+.cf { position: relative; width: 186px; height: 64px; flex: none; box-sizing: border-box; display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 9px; align-items: center; padding: 0 10px 0 9px; border: 1.5px solid var(--ink); background: var(--paper); }
+.cf-t { min-width: 0; display: flex; flex-direction: column; }
+.cf-n { font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-xs); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-m { font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.4; color: var(--ink-70); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-m .n { color: var(--ink); font-size: var(--fs-m11); }
+.cf-h { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m10); line-height: 1.45; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.02em; }
+.cf-h.soft { color: var(--ink-70); }
+.cf.up { border-style: dashed; }
+.cf.err, .cf.over { border: 1.5px dashed var(--ink-45); background: var(--err-stripe); }
+.cf.err .cf-t, .cf.over .cf-t { background: var(--paper); padding: 1px 6px; margin-left: -6px; }
+.cf.unk { border: 1.5px dashed var(--ink-45); }
+
+/* 附件展開區：作品牆的圖與文字作品各一段 */
+.cx-picksec { margin-top: 10px; border-top: 1px dashed var(--ink-25); padding-top: 8px; }
+.cx-pickk { display: block; margin-bottom: 6px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); }
+.cx-picksec .mk-alist { max-height: 168px; }
+.cx-picksec .cs-note { margin: 0; }
+/* 送出鈕：附件還有問題時滑過或聚焦說原因（同附件鈕的小框） */
+.cx-sendwrap { flex: none; display: flex; }
+
+/* 訊息裡的檔案單：圖之後另起一排，56px 高、整張點下去就下載；只放檔案本身的事實 */
+.cm-files { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+.mf { width: 276px; height: 56px; box-sizing: border-box; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 0 10px; border: 1.5px solid var(--ink-25); background: var(--paper); text-decoration: none; color: var(--ink); }
+a.mf:hover { border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink-25); }
+.mf-t { min-width: 0; }
+.mf-n { display: block; font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-xs); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-m { display: block; font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.4; color: var(--ink-70); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mf-m .n { color: var(--ink); font-size: var(--fs-m11); }
+.mf-dl { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); box-shadow: inset 0 -1.5px 0 var(--ink-45); white-space: nowrap; text-decoration: none; }
+.mf:hover .mf-dl, .mf-dl:hover { color: var(--ink); box-shadow: inset 0 -1.5px 0 var(--ink); }
+/* 打不開（檔案壞了）：斜紋＋墨底「打不開」章，原檔照樣可以下載；讀不了（不認得的格式）：虛線框＋虛線章 */
+.mf.bad { border: 1.5px dashed var(--ink-45); background: var(--err-stripe); }
+.mf.bad .mf-t { background: var(--paper); padding: 1px 6px; margin-left: -6px; }
+.mf.bad .errstamp { font-size: var(--fs-m11); white-space: nowrap; }
+.mf.unk { border: 1.5px dashed var(--ink-45); }
+.mf-unk { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink-70); border: 1px dashed var(--ink-45); padding: 0 5px; line-height: 1.4; white-space: nowrap; }
+/* 音檔單：寬一點，多一顆播放鈕和細時間軸（同作品牆的小播放器） */
+.mf.au { width: 420px; grid-template-columns: 30px minmax(0, 1fr) auto auto; }
+.mf-play { display: flex; align-items: center; gap: 8px; }
+.mf .mk-play { width: 28px; height: 28px; }
+.mf .mk-play::before { border-left-width: 9px; border-top-width: 6px; border-bottom-width: 6px; margin-left: 2px; }
+.mf .mk-play.on::before { width: 9px; height: 11px; border: 0; margin: 0; background: linear-gradient(90deg, var(--paper) 0 3px, transparent 3px 6px, var(--paper) 6px 9px); }
+.mf-trk { width: 90px; height: 4px; background: var(--ink-25); position: relative; cursor: pointer; }
+.mf-trk i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+
+/* 回覆旁的小字：模型怎麼看這些檔（同「圖片｜這個模型不會看圖」的位置與語氣）；打了折扣的才加底線 */
+.cm-fnote { margin: 0 0 8px; display: flex; align-items: baseline; gap: 8px; font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.6; color: var(--ink-70); }
+.cm-fnote .k { flex: none; font-family: var(--font-label); font-weight: 700; color: var(--ink); border: 1px dashed var(--ink-45); padding: 0 5px; line-height: 1.35; }
+.cm-fnote ul { display: flex; flex-direction: column; min-width: 0; }
+.cm-fnote li { overflow-wrap: anywhere; }
+.cm-fnote .code { color: var(--ink); font-size: var(--fs-m11); margin-right: 6px; }
+.cm-fnote b { color: var(--ink); font-weight: 600; box-shadow: inset 0 -1.5px 0 var(--ink-45); }
+
+/* 模型用工具讀檔：圓章「讀」（同「想」那一族的事件章；想＝點線圈、讀＝實線圈），一行，點開才列每一步 */
+.cm-read { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; margin: 2px 0 8px; }
+.cm-read-gl { width: 24px; height: 24px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--ink-45); display: grid; place-items: center; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-s); color: var(--ink-70); }
+.cm-read.live .cm-read-gl { border-style: dashed; color: var(--ink); border-color: var(--ink); }
+.cm-read-s { display: inline-flex; align-items: baseline; gap: 6px; padding-top: 4px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-70); text-align: left; }
+.cm-read-s .code { font-size: var(--fs-xs); color: var(--ink); }
+.cm-read-s:hover { color: var(--ink); }
+.cm-read-live { display: inline-flex; align-items: center; gap: 8px; padding-top: 3px; font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink); }
+.cm-read-live .code { font-size: var(--fs-xs); }
+.cm-read-live .drum { width: 13px; height: 13px; border-width: 1.5px; }
+.cm-read-l { margin: 6px 0 0; border-left: 1px dashed var(--ink-25); padding-left: 10px; display: flex; flex-direction: column; gap: 2px; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.55; color: var(--ink-70); }
+.cm-read-l li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; column-gap: 6px; }
+.cm-read-l li > .n:first-child { color: var(--ink-70); font-size: var(--fs-m11); }
+.cm-read-l .code { color: var(--ink); font-size: var(--fs-xs); }
+.cm-read-l .r { font-family: var(--font-mono); font-size: var(--fs-m11); color: var(--ink-70); white-space: nowrap; }
+.cm-read-f { margin: 4px 0 0; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); }
+
+/* 轉錄提問：同款提議卡，在回覆的位置、回覆之前（後面才接正文） */
+.gp-gate { margin: 4px 0 12px; }
+.cm-a.asking .gp-gate { margin-bottom: 4px; }
+.gp.done.tx { display: block; }
+.gp.done.tx .mk-text { margin-top: 8px; max-height: 6.6em; overflow: hidden; }

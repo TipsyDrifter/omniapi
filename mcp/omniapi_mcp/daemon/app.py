@@ -95,6 +95,11 @@ HEARTBEAT_SECONDS = 300
 #: (gpt-image edits), 25 MB per audio file (OpenAI transcription)
 UPLOAD_MAX_IMAGE = 50 * 1024 * 1024
 UPLOAD_MAX_AUDIO = 25 * 1024 * 1024
+#: any other file attached to a chat (1.2-M5; the owner set 50 MB, 2026-10-03)
+UPLOAD_MAX_FILE = 50 * 1024 * 1024
+#: an upload's extraction is waited for this long before answering; a slower
+#: one finishes in the background and its facts land on the upload (決策記錄 1.2-M5-h)
+UPLOAD_EXTRACT_WAIT_S = 8.0
 
 
 def _in_job() -> Optional[bool]:
@@ -224,11 +229,9 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             }
         if os.environ.get("OMNIAPI_DEV") == "1" and isinstance(snap.get("models"), dict) and modality in (None, "text"):
             # development daemon: the echo models (no vendor call, no billing) lead the text list
-            echo = [
-                {"id": mid, "provider": "echo", "modality": "text", "name": name, "status": "current", "online": True, "harness": None,
-                 "pricing": {"input": 0, "output": 0, "note": "開發用：不呼叫供應商"}, "capabilities": {"reasoning": True}}
-                for mid, name in (("echo", "回音（開發用）"), ("echo-fast", "回音・不延遲（開發用）"))
-            ]
+            from ..capabilities.echo import echo_catalog_entries
+
+            echo = echo_catalog_entries()
             snap["models"]["text"] = echo + list(snap["models"].get("text") or [])
         return snap
 
@@ -291,11 +294,12 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         """Create a conversation; with ``message`` the first turn starts right away."""
         from ..chat import ChatError
 
-        _check_fields(body, {"model", "system", "title", "message", "params", "source"})
+        _check_fields(body, {"model", "system", "title", "message", "attachments", "params", "source"})
         try:
             conv = await chat().create(model=body.get("model"), system=body.get("system"), title=body.get("title"), source=body.get("source") or "gui")
-            if body.get("message"):
-                conv["turn"] = await chat().send(conv["id"], body["message"], model=body.get("model"), params=body.get("params"), source=body.get("source") or "gui")
+            if body.get("message") or body.get("attachments"):
+                conv["turn"] = await chat().send(conv["id"], body.get("message") or "", model=body.get("model"), params=body.get("params"),
+                                                 source=body.get("source") or "gui", attachments=body.get("attachments"))
             return conv
         except ChatError as e:
             raise _chat_error(e)
@@ -325,12 +329,90 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         holds the request until the reply is stored and returns it."""
         from ..chat import ChatError
 
-        _check_fields(body, {"text", "model", "params", "source"})
-        kw = {"model": body.get("model"), "params": body.get("params"), "source": body.get("source") or "gui"}
+        _check_fields(body, {"text", "attachments", "model", "params", "source"})
+        kw = {"model": body.get("model"), "params": body.get("params"), "source": body.get("source") or "gui", "attachments": body.get("attachments")}
         try:
-            if wait:
-                return await chat().send_and_wait(cid, body.get("text") or "", **kw)
-            return await chat().send(cid, body.get("text") or "", **kw)
+            started = await chat().send(cid, body.get("text") or "", **kw)
+            return await chat().wait(started) if wait else started
+        except ChatError as e:
+            raise _chat_error(e)
+
+    @app.post("/api/chat/{cid}/messages/{mid}/regenerate")
+    async def chat_regenerate(cid: str, mid: str, body: Optional[dict[str, Any]] = None, wait: bool = False) -> dict[str, Any]:
+        """Answer again: a new version of reply ``mid`` under the same question
+        (``model`` may differ). Same response and events as sending."""
+        from ..chat import ChatError
+
+        body = body or {}
+        _check_fields(body, {"model", "params", "source"})
+        try:
+            started = await chat().regenerate(cid, mid, model=body.get("model"), params=body.get("params"), source=body.get("source") or "gui")
+            return await chat().wait(started) if wait else started
+        except ChatError as e:
+            raise _chat_error(e)
+
+    @app.post("/api/chat/{cid}/messages/{mid}/edit")
+    async def chat_edit(cid: str, mid: str, body: dict[str, Any], wait: bool = False) -> dict[str, Any]:
+        """Send an edited version of your message ``mid``: it becomes a new
+        version next to the old one and gets its own reply; the old branch
+        stays. ``attachments`` left out keeps the original's images."""
+        from ..chat import ChatError
+
+        _check_fields(body, {"text", "attachments", "model", "params", "source"})
+        try:
+            started = await chat().edit(cid, mid, body.get("text") or "", attachments=body.get("attachments"), model=body.get("model"),
+                                        params=body.get("params"), source=body.get("source") or "gui")
+            return await chat().wait(started) if wait else started
+        except ChatError as e:
+            raise _chat_error(e)
+
+    @app.post("/api/chat/{cid}/switch")
+    async def chat_switch(cid: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Show another version: ``{"message_id"}`` — the conversation moves to
+        the newest branch under that message. Returns the conversation as GET."""
+        from ..chat import ChatError
+
+        _check_fields(body, {"message_id"})
+        if not body.get("message_id"):
+            raise HTTPException(400, "message_id is required")
+        try:
+            return await chat().switch(cid, str(body["message_id"]))
+        except ChatError as e:
+            raise _chat_error(e)
+
+    @app.delete("/api/chat/{cid}")
+    async def chat_delete(cid: str) -> dict[str, Any]:
+        """Delete a chat and its messages for real (a streaming reply is
+        cancelled first). Its ledger rows, works and uploads stay."""
+        from ..chat import ChatError
+
+        try:
+            return await chat().delete(cid)
+        except ChatError as e:
+            raise _chat_error(e)
+
+    @app.post("/api/chat/{cid}/proposals/{tool_call_id}/accept")
+    async def chat_proposal_accept(cid: str, tool_call_id: str, body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """The owner pressed 生成 on a proposal card: ``{prompt?, model?, params?}``
+        (their edits; left out = the proposal's). Starts a generation job
+        (source ``chat``); the proposal moves to ``generating`` and follows the
+        job. 409 when it is not pending (a failed or cancelled one may be retried)."""
+        from ..chat import ChatError
+
+        body = body or {}
+        _check_fields(body, {"prompt", "model", "params"})
+        try:
+            return await chat().accept(cid, tool_call_id, prompt=body.get("prompt"), model=body.get("model"), params=body.get("params"))
+        except ChatError as e:
+            raise _chat_error(e)
+
+    @app.post("/api/chat/{cid}/proposals/{tool_call_id}/decline")
+    async def chat_proposal_decline(cid: str, tool_call_id: str) -> dict[str, Any]:
+        """The owner pressed 不用了: the proposal is declined (409 unless pending)."""
+        from ..chat import ChatError
+
+        try:
+            return await chat().decline(cid, tool_call_id)
         except ChatError as e:
             raise _chat_error(e)
 
@@ -591,11 +673,36 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             await asyncio.to_thread(render)
         return FileResponse(str(out), media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
 
+    def _upload_view(row: dict[str, Any]) -> dict[str, Any]:
+        # 決策記錄 1.2-M1-e: the page names the file by id (/api/uploads/{id}/file), never by where it sits on disk
+        meta = row.get("meta") or {}
+        out = {k: v for k, v in row.items() if k not in ("file_path", "meta")}
+        out["file_url"] = f"/api/uploads/{row['id']}/file"
+        out["download_url"] = f"/api/uploads/{row['id']}/file?download=true"
+        out["info"] = meta.get("info")
+        if meta.get("info_pending"):
+            out["info_pending"] = True
+        return out
+
+    @app.get("/api/uploads/limits")
+    async def upload_limits() -> dict[str, Any]:
+        """What the page must not hard-code: the size caps per kind and how
+        many attachments a chat message carries (1.2-M5)."""
+        from ..chat.manager import MAX_ATTACHMENTS
+
+        return {"max_bytes": {"image": UPLOAD_MAX_IMAGE, "audio": UPLOAD_MAX_AUDIO, "file": UPLOAD_MAX_FILE},
+                "max_attachments": MAX_ATTACHMENTS, "purposes": ["generate", "chat"]}
+
     @app.post("/api/uploads")
-    async def upload(request: Request, filename: str = Query(..., min_length=1, max_length=255)) -> dict[str, Any]:
-        """Take a reference image or an audio file (raw request body) so a
-        generation can use it. Whitelisted types, size-capped, stored under
-        ``uploads/<date>/`` in the storage folder with a name of our own."""
+    async def upload(request: Request, filename: str = Query(..., min_length=1, max_length=255),
+                     purpose: str = Query("generate", pattern="^(generate|chat)$")) -> dict[str, Any]:
+        """Take a file (raw request body). ``purpose=generate`` (the default,
+        the generate page): a reference image or an audio file only, as
+        before. ``purpose=chat`` (1.2-M5): anything — an image or audio file by
+        its extension, everything else as ``kind: file`` (50 MB). Size-capped,
+        stored under ``uploads/<date>/`` in the storage folder with a name of
+        our own. A chat file is extracted right away (決策記錄 1.2-M5-h) and
+        the response carries ``info`` (pages, rows, readable…)."""
         import uuid
         from datetime import datetime, timezone
 
@@ -605,10 +712,14 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         from ..artifacts.index import AUDIO_EXTS, IMAGE_EXTS
 
         ext = Path(filename).suffix.lower()
+        if not ext.isascii() or len(ext) > 16 or not all(ch.isalnum() or ch == "." for ch in ext):
+            ext = ""  # only a plain extension ever reaches the disk; the name is display only
         if ext in IMAGE_EXTS:
             kind, cap = "image", UPLOAD_MAX_IMAGE
         elif ext in AUDIO_EXTS - {".pcm"} or ext in (".webm", ".mpga", ".mpeg"):
             kind, cap = "audio", UPLOAD_MAX_AUDIO
+        elif purpose == "chat":
+            kind, cap = "file", UPLOAD_MAX_FILE
         else:
             raise HTTPException(415, f"unsupported file type '{ext or filename}': images (png, jpg, webp, gif) and audio (mp3, wav, m4a, mp4, ogg, flac, webm) only")
         now = datetime.now(timezone.utc)
@@ -637,18 +748,69 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
                 try:
                     await asyncio.to_thread(verify)
                 except Exception:
-                    raise HTTPException(400, "the file is not a readable image")
+                    if purpose != "chat":
+                        raise HTTPException(400, "the file is not a readable image")
+                    kind = "file"  # a chat takes it anyway: as a file it is reported as unreadable, not refused
         except HTTPException:
             path.unlink(missing_ok=True)
             raise
-        return await ctx().store.add_upload(upload_id=upload_id, kind=kind, filename=Path(filename).name, file_path=str(path), mime=mime_for(path), size=size)
+        mime = mime_for(path)
+        if mime == "application/octet-stream" and kind == "file":
+            import mimetypes
 
-    @app.get("/api/uploads/{upload_id}/file")
-    async def upload_file(upload_id: str):
+            mime = mimetypes.guess_type(f"x{ext}")[0] or mime
+        meta = await _file_facts(upload_id, kind, path, filename) if purpose == "chat" else None
+        row = await ctx().store.add_upload(upload_id=upload_id, kind=kind, filename=Path(filename).name, file_path=str(path), mime=mime, size=size,
+                                           meta=meta)
+        return _upload_view(row)
+
+    async def _file_facts(upload_id: str, kind: str, path: Path, filename: str) -> dict[str, Any]:
+        """What a chat upload holds (``info``), found now when it is quick
+        (決策記錄 1.2-M5-h). A slow extraction goes on in the background and
+        writes its facts onto the upload when it ends (``info_pending`` until then)."""
+        from ..chat import files as F
+
+        if kind == "audio":
+            return {"info": await asyncio.to_thread(F.audio_info, path)}
+        if kind == "image":
+            return {"info": {"type": "image", "type_name": F.TYPE_NAMES["image"]}}
+        task = asyncio.create_task(F.aextract(path, Path(filename).name))
+        done, _ = await asyncio.wait({task}, timeout=UPLOAD_EXTRACT_WAIT_S)
+        if task in done:
+            return {"info": F.public_info(task.result())}
+
+        async def later() -> None:
+            try:
+                ex = await task
+                await ctx().store.update_upload_meta(upload_id, info=F.public_info(ex), info_pending=False)
+            except Exception as e:  # the facts are a convenience: the chat extracts again when it needs them
+                logger.warning("upload %s: background extraction failed: %s", upload_id, e)
+
+        asyncio.create_task(later())
+        return {"info": None, "info_pending": True}
+
+    @app.get("/api/uploads/{upload_id}")
+    async def upload_row(upload_id: str) -> dict[str, Any]:
+        """One upload as the POST answered it (with ``info`` once a slow extraction ended)."""
         row = await ctx().store.upload(upload_id)
         if not row:
             raise HTTPException(404, "upload not found")
-        return _send_file(row["file_path"], row.get("mime"), download=False)
+        return _upload_view(row)
+
+    @app.get("/api/uploads/{upload_id}/file")
+    async def upload_file(upload_id: str, download: bool = False):
+        """The uploaded file. A chat file that is not an image or audio is
+        always sent as a download (``Content-Disposition: attachment``,
+        ``nosniff``): an uploaded HTML or SVG must never render as a page of
+        this origin."""
+        row = await ctx().store.upload(upload_id)
+        if not row:
+            raise HTTPException(404, "upload not found")
+        if row.get("kind") == "file":
+            resp = _send_file(row["file_path"], "application/octet-stream", download=True, name=row.get("filename"))
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            return resp
+        return _send_file(row["file_path"], row.get("mime"), download=download, name=row.get("filename"))
 
     # ------------------------------------------------------------ generate page (v1.1)
     def generations():

@@ -274,18 +274,104 @@ export function Lightbox({ id, query, pos, onClose, onGo }: LightboxProps) {
   );
 }
 
+/** 舞台上的一張大圖：點了開原檔（新分頁）。作品詳情與聊天裡的看圖共用 */
+function BigImage({ href, src, width, height, alt, note }: { href: string; src: string; width?: number | null; height?: number | null; alt: string; note: ReactNode }) {
+  return (
+    <>
+      <a className="wk-big" href={href} target="_blank" rel="noreferrer" title="開原圖（新分頁）">
+        <img src={src} width={width ?? undefined} height={height ?? undefined} alt={alt} />
+      </a>
+      <span className="wk-sz n">{note}</span>
+    </>
+  );
+}
+
+export interface ViewerImage {
+  /** 原檔 */
+  file_url: string;
+  /** 舞台上顯示的（作品用 1600px 預覽；上傳檔沒有縮圖，就是原檔） */
+  src: string;
+  name: string | null;
+  /** 是作品才有：可以去作品牆看詳情 */
+  artifact_id?: string;
+}
+
+/** 只看圖的燈箱（聊天訊息裡的附件）：沒有資訊欄，一則訊息裡有幾張就能 ← → 換。
+   上傳的圖不是作品，沒有詳情；作品附一個「在作品牆打開」。 */
+export function ImageViewer({ images, start, onClose }: { images: ViewerImage[]; start: number; onClose: () => void }) {
+  const navigate = useNavigate();
+  const [i, setI] = useState(start);
+  const img = images[Math.min(i, images.length - 1)];
+  const n = images.length;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === "ArrowLeft" && n > 1) {
+        e.preventDefault();
+        setI((x) => (x + n - 1) % n);
+      } else if (e.key === "ArrowRight" && n > 1) {
+        e.preventDefault();
+        setI((x) => (x + 1) % n);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [n, onClose]);
+  if (!img) return null;
+  return (
+    <div className="wk-lb" role="dialog" aria-modal="true" aria-label="看圖">
+      <div className="wk-lb-bar">
+        <button type="button" className="wk-back" onClick={onClose}>
+          ← 回聊天
+        </button>
+        <span className="code wk-vname">{img.name ?? "（沒有檔名）"}</span>
+        {n > 1 ? (
+          <span className="wk-pos n">
+            {i + 1} / {n}
+          </span>
+        ) : null}
+        <div className="wk-nav2">
+          <span className="wk-esc">{n > 1 ? "Esc 關閉 · ← → 換一張" : "Esc 關閉"}</span>
+          {img.artifact_id ? (
+            <button type="button" className="mk-mini" onClick={() => navigate(`/works/${encodeURIComponent(img.artifact_id ?? "")}`)}>
+              在作品牆打開
+            </button>
+          ) : null}
+          {n > 1 ? (
+            <>
+              <button type="button" className="mk-mini" onClick={() => setI((x) => (x + n - 1) % n)}>
+                ← 上一張
+              </button>
+              <button type="button" className="mk-mini" onClick={() => setI((x) => (x + 1) % n)}>
+                下一張 →
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
+      <div className="wk-lb-body solo">
+        <div className="wk-stage">
+          <BigImage key={img.file_url} href={img.file_url} src={img.src} alt={img.name ?? ""} note={img.src === img.file_url ? "原圖 · 點圖在新分頁打開" : "這裡是 1600px 預覽，點圖開原檔"} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Stage({ a }: { a: ArtifactDetail }) {
   if (a.exists === false) return <div className="wk-astage">這件作品的檔案已經不在硬碟上。</div>;
   if (a.kind === "image") {
     return (
-      <>
-        <a className="wk-big" href={a.file_url} target="_blank" rel="noreferrer" title="開原圖（新分頁）">
-          <img src={a.thumb_url ? `${a.thumb_url}?w=1600` : a.file_url} width={a.width ?? undefined} height={a.height ?? undefined} alt={a.prompt ?? ""} />
-        </a>
-        <span className="wk-sz n">
-          {a.width && a.height ? `${a.width}×${a.height} 原圖 · ` : ""}這裡是 1600px 預覽，點圖開原檔
-        </span>
-      </>
+      <BigImage
+        href={a.file_url}
+        src={a.thumb_url ? `${a.thumb_url}?w=1600` : a.file_url}
+        width={a.width}
+        height={a.height}
+        alt={a.prompt ?? ""}
+        note={`${a.width && a.height ? `${a.width}×${a.height} 原圖 · ` : ""}這裡是 1600px 預覽，點圖開原檔`}
+      />
     );
   }
   if (isAudio(a)) {

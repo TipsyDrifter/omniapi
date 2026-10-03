@@ -3,7 +3,7 @@ import { api } from "@/api/client";
 import { Field } from "@/components/dispatch";
 import { setDraft, useMake } from "@/store/make";
 import { buildTranscript, effModel, fmtBytes, msShort, type TranscriptDraft } from "./draft";
-import { AudioPicker, AudioPlayer, Knob, ModelList, Seg, SubmitBar, artName, ctrlEnter, useFileDrop, useUploader, type FormProps } from "./bits";
+import { AudioPicker, AudioPlayer, Knob, ModelList, Seg, SubmitBar, artName, sendKeys, useFileDrop, useUploader, type FormProps } from "./bits";
 
 const LANGS = [
   { v: "auto", label: "自動" },
@@ -35,7 +35,7 @@ export function TranscriptForm({ opts, optsError, busy, error, onSend }: FormPro
 
   return (
     <>
-      <div className="mk-main" onKeyDown={ctrlEnter(send)}>
+      <div className="mk-main" onKeyDown={sendKeys(send)}>
         <Field lbl="Audio" zh="音檔" aside="必填 · 上傳或從作品挑">
           {drop.input("audio/*,.mp3,.wav,.m4a,.mp4,.ogg,.flac,.webm")}
           {src ? (
@@ -108,7 +108,7 @@ export function TranscriptForm({ opts, optsError, busy, error, onSend }: FormPro
         />
       </div>
 
-      <aside className="mk-side" onKeyDown={ctrlEnter(send)}>
+      <aside className="mk-side" onKeyDown={sendKeys(send)}>
         <ModelList models={models} sel={m?.id ?? null} onSel={(id) => set({ model: id })} loading={!opts} error={optsError} />
         <Field lbl="Options" zh="選項">
           <div>
@@ -116,7 +116,7 @@ export function TranscriptForm({ opts, optsError, busy, error, onSend }: FormPro
               <Seg label="語言" opts={LANGS} value={d.language} onChange={(v) => set({ language: v })} />
             </Knob>
             <Knob zh="提示" en="HINT">
-              <input className="dp-in" value={d.prompt} onChange={(e) => set({ prompt: e.target.value })} placeholder="選填：人名、專有名詞，幫模型拼對" />
+              <input className="dp-in" data-enter-sends="" value={d.prompt} onChange={(e) => set({ prompt: e.target.value })} placeholder="選填：人名、專有名詞，幫模型拼對" />
             </Knob>
             <Knob zh="格式" en="FORMAT">
               <Seg

@@ -12,12 +12,13 @@
 執行（這台的 python 是 Store 空殼，一律走 uv）：
   cd mcp && uv run python ../scripts/build_release.py
 
-  --allow-version-mismatch  四處版本號不一致時照樣打包（只給「先驗打包機制」用；正式發布不要帶）
+  --allow-version-mismatch  五處版本號不一致時照樣打包（只給「先驗打包機制」用；正式發布不要帶）
   --allow-missing-docs      鏡像內容缺 README.md／LICENSE 時照樣打包（同上）
   --allow-leaks             鏡像安全網命中時照樣打包（傳給 mirror-publish.sh；同上）
   --out <資料夾>            輸出位置，預設 <repo>/dist
 
-版本號四處要一致才打包：mcp/pyproject.toml、mcp/omniapi_mcp/__init__.py、mcp/manifest.json、gui/package.json。
+版本號五處要一致才打包：mcp/pyproject.toml、mcp/omniapi_mcp/__init__.py、mcp/manifest.json、gui/package.json，
+  以及 mcp/uv.lock 裡 omniapi-mcp 自己那一筆（改了 pyproject 沒重鎖，它會停在舊版）。
   manifest.json 必須是 semver 寫法（Claude Desktop 的 dxt 規格）；比對時把 pre-release 正規化，
   所以 pyproject 的 1.0.0a1 與 manifest 的 1.0.0-alpha.1 算一致。
 
@@ -85,7 +86,7 @@ def is_semver(raw: str | None) -> bool:
 
 
 def read_versions(root: Path) -> dict[str, str | None]:
-    """讀四處版本號；讀不到的值是 None（不猜）。"""
+    """讀五處版本號；讀不到的值是 None（不猜）。"""
     out: dict[str, str | None] = {}
 
     pyproject = root / "mcp" / "pyproject.toml"
@@ -120,11 +121,36 @@ def read_versions(root: Path) -> dict[str, str | None]:
             except (json.JSONDecodeError, AttributeError):
                 v = None
         out[rel] = v
+
+    out["mcp/uv.lock"] = read_lock_version(root / "mcp" / "uv.lock")
     return out
 
 
+def read_lock_version(lock: Path, package: str = "omniapi-mcp") -> str | None:
+    """uv.lock 裡專案自己那一筆 [[package]] 的 version。
+
+    pyproject 升了版本、沒有重跑 uv lock／uv sync，這一筆就停在舊版，而鎖檔會跟著 dxt 與發布包出去。"""
+    if not lock.exists():
+        return None
+    name = version = None
+    for line in lock.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            if name == package:
+                return version
+            name = version = None
+            continue
+        m = re.match(r'^(name|version)\s*=\s*"([^"]*)"', s)
+        if m:
+            if m.group(1) == "name":
+                name = m.group(2)
+            elif version is None:
+                version = m.group(2)
+    return version if name == package else None
+
+
 def check_versions(versions: dict[str, str | None]) -> list[str]:
-    """回傳問題清單；空清單＝四處一致而且 manifest 是 semver。"""
+    """回傳問題清單；空清單＝五處一致而且 manifest 是 semver。"""
     problems: list[str] = []
     norm = {k: normalize_version(v) for k, v in versions.items()}
     for k, v in versions.items():
@@ -137,7 +163,7 @@ def check_versions(versions: dict[str, str | None]) -> list[str]:
         problems.append(f"mcp/manifest.json：{manifest!r} 不是 semver（dxt 規格要求，例如 1.0.0-alpha.1）")
     distinct = {n for n in norm.values() if n is not None}
     if len(distinct) > 1:
-        problems.append("四處版本號不一致")
+        problems.append("五處版本號不一致")
     return problems
 
 
@@ -298,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         for p in problems:
             print(f"  ✗ {p}")
         if not args.allow_version_mismatch:
-            print("✗ 版本號要四處一致才打包（只想驗打包機制：加 --allow-version-mismatch）", file=sys.stderr)
+            print("✗ 版本號要五處一致才打包（只想驗打包機制：加 --allow-version-mismatch）", file=sys.stderr)
             return 1
         print("  ⚠ --allow-version-mismatch：照樣打包，檔名用 pyproject.toml 的版本——這批產出不能拿去發布")
     version = versions["mcp/pyproject.toml"]

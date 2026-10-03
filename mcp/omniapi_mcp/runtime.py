@@ -159,6 +159,11 @@ class Runtime:
         stale = await store.interrupt_running_generations()
         if stale:
             logger.info("Generation jobs left running by the previous process marked interrupted: %s", stale)
+        # chat proposals (1.2-M4) start generation jobs; those left generating settle now
+        try:
+            await ctx.chat.attach(ctx.generations, ctx)
+        except Exception as e:  # pragma: no cover - a chat that cannot propose is still a chat
+            logger.warning("Chat could not attach to the generation jobs: %s", e)
         self._tasks.append(asyncio.create_task(self._first_backfill(ctx), name="artifact-backfill"))
 
         # Model discovery in the background: never block startup on a vendor.

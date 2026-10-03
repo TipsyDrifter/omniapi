@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "@/api/client";
 import type { HarnessesResponse, ModelsResponse } from "@/api/types";
+import { SendKeyHint } from "@/components/SendKeyMenu";
 import { harnessClass, harnessName } from "@/lib/format";
+import { enterSends, isSendKey, sendKeyName, useSendKey } from "@/lib/sendKey";
 import { createChat } from "@/store/chat";
 import {
   CwdPicker,
@@ -76,6 +78,7 @@ export default function NewRunPage() {
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sendKey] = useSendKey();
   const errRef = useRef<HTMLDivElement>(null);
 
   const empty = !d.prompt.trim();
@@ -118,7 +121,8 @@ export default function NewRunPage() {
     void submit();
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    // 送出鍵照設定；Enter 模式下單按 Enter 只在 prompt 欄送出（標題、system prompt 等欄位照舊）
+    if (isSendKey(e, { plain: enterSends(e.target) })) {
       e.preventDefault();
       void submit();
     }
@@ -147,9 +151,10 @@ export default function NewRunPage() {
 
       <form className="dp-grid" onSubmit={onSubmit} onKeyDown={onKey} aria-busy={busy}>
         <div className="dp-main">
-          <Field lbl="Prompt" zh={d.toolbox ? "要交代的事" : "第一則訊息"} htmlFor="dp-prompt" aside={<><span className="n">{chars}</span> 字 · Ctrl＋Enter 送出</>}>
+          <Field lbl="Prompt" zh={d.toolbox ? "要交代的事" : "第一則訊息"} htmlFor="dp-prompt" aside={<><span className="n">{chars}</span> 字 · <SendKeyHint /></>}>
             <textarea
               id="dp-prompt"
+              data-enter-sends=""
               className="dp-prompt"
               value={d.prompt}
               onChange={(e) => set({ prompt: e.target.value })}
@@ -195,7 +200,7 @@ export default function NewRunPage() {
                 </div>
               ) : null}
             </div>
-            <button type="submit" className="stamp-btn dp-go" disabled={!canSend} title={empty ? "先寫 prompt" : "Ctrl＋Enter"}>
+            <button type="submit" className="stamp-btn dp-go" disabled={!canSend} title={empty ? "先寫 prompt" : sendKeyName(sendKey)}>
               {busy ? (d.toolbox ? "派工中…" : "開聊中…") : (
                 <>
                   <b>→</b>

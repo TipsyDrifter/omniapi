@@ -308,70 +308,51 @@ class TestServerIntegration:
     """Test complete server integration functionality."""
 
     @pytest.mark.asyncio
-    async def test_server_context_creation(self, mock_settings):
-        """Test server context creation with all components."""
-        from omniapi_mcp.resources.image_resources import ImageResourceManager
-        from omniapi_mcp.server import ServerContext
-        from omniapi_mcp.storage.manager import ImageStorageManager
-        from omniapi_mcp.tools.image_editing import ImageEditingTool
-        from omniapi_mcp.tools.image_generation import ImageGenerationTool
-        from omniapi_mcp.utils.cache import CacheManager
+    async def test_server_context_creation(self, mock_settings, tmp_path, monkeypatch):
+        """The runtime builds one context with every component wired, and tears it down."""
+        from omniapi_mcp import runtime as runtime_mod
+        from omniapi_mcp.runtime import Runtime
 
-        # Create all components
-        storage_manager = ImageStorageManager(mock_settings.storage)
-        await storage_manager.initialize()
+        # an offline sandbox in a scratch data home: no vendor, nothing outside tmp_path
+        monkeypatch.setenv("OMNIAPI_HOME", str(tmp_path / "home"))
+        monkeypatch.setenv("OMNIAPI_OFFLINE", "1")
+        monkeypatch.setenv("OMNIAPI_DEV", "1")
+        monkeypatch.setattr(runtime_mod.catalog, "refresh", AsyncMock(return_value={}))
 
+        rt = Runtime()
+        context = await rt.acquire(mock_settings)
         try:
-            cache_manager = CacheManager(mock_settings.cache)
-            await cache_manager.initialize()
-
-            try:
-                generation_tool = ImageGenerationTool(
-                    storage_manager=storage_manager,
-                    cache_manager=cache_manager,
-                    settings=mock_settings,
-                )
-
-                editing_tool = ImageEditingTool(
-                    storage_manager=storage_manager,
-                    cache_manager=cache_manager,
-                    settings=mock_settings,
-                )
-
-                resource_manager = ImageResourceManager(
-                    storage_manager=storage_manager, settings=mock_settings.storage
-                )
-
-                # Create server context
-                context = ServerContext(
-                    settings=mock_settings,
-                    storage_manager=storage_manager,
-                    cache_manager=cache_manager,
-                    image_generation_tool=generation_tool,
-                    image_editing_tool=editing_tool,
-                    resource_manager=resource_manager,
-                )
-
-                # Verify all components are properly initialized
-                assert context.settings == mock_settings
-                assert context.storage_manager == storage_manager
-                assert context.cache_manager == cache_manager
-                assert context.image_generation_tool == generation_tool
-                assert context.image_editing_tool == editing_tool
-                assert context.resource_manager == resource_manager
-
-            finally:
-                await cache_manager.close()
+            assert await rt.acquire(mock_settings) is context  # one per process
+            assert context.mode == "stdio"
+            # the sandbox writes its stand-in output under its own data home
+            assert context.settings.storage.base_path == str(tmp_path / "home" / "storage")
+            assert (tmp_path / "home" / "omniapi.db").is_file()
+            # the tools share the storage and cache managers
+            for tool in (context.image_generation_tool, context.image_editing_tool):
+                assert tool.storage_manager is context.storage_manager
+                assert tool.cache_manager is context.cache_manager
+            assert context.resource_manager.storage_manager is context.storage_manager
+            # chat, agent runs and GUI generation jobs share the store and the bus
+            assert context.chat is not None and context.chat.store is context.store
+            assert context.generations is not None and context.generations.store is context.store
+            assert context.generations.bus is context.bus and context.runs.bus is context.bus
+            # a generation that outlives its ticket still reaches the works index
+            assert context.jobs.on_late_result is not None
         finally:
-            await storage_manager.close()
+            await rt.release()
+            await rt.release()
+        assert rt.context is None  # the last session closed everything
 
-    @patch("omniapi_mcp.server.mcp")
     @pytest.mark.asyncio
-    async def test_server_tool_integration(
-        self, mock_mcp, mock_settings, sample_image_data
-    ):
-        """Test server tool integration with MCP context."""
-        from omniapi_mcp.server import edit_image, generate_image
+    async def test_server_tool_integration(self, mock_settings, sample_image_data):
+        """The registered MCP tools validate their arguments, hand them to the
+        tool and return its result through the job manager (inline when quick)."""
+        from omniapi_mcp import server
+        from omniapi_mcp.core.job_manager import JobManager
+
+        async def call(name, args):
+            # the path an MCP request takes: schema validation, then the handler
+            return await server.mcp._tool_manager.get_tool(name).run(args, convert_result=False)
 
         # Mock MCP context
         mock_context = MagicMock()
@@ -383,9 +364,9 @@ class TestServerIntegration:
 
         mock_server_context.image_generation_tool = mock_generation_tool
         mock_server_context.image_editing_tool = mock_editing_tool
+        mock_server_context.jobs = JobManager()
 
         mock_context.request_context.lifespan_context = mock_server_context
-        mock_mcp.get_context.return_value = mock_context
 
         # Mock tool responses
         generation_result = {
@@ -406,25 +387,43 @@ class TestServerIntegration:
         mock_generation_tool.generate.return_value = generation_result
         mock_editing_tool.edit.return_value = edit_result
 
-        # Test image generation
-        result = await generate_image(
-            prompt="test image", quality="high", size="1024x1024", style="vivid"
-        )
+        try:
+            with patch.object(server.mcp, "get_context", return_value=mock_context):
+                # Test image generation
+                result = await call(
+                    "generate_image",
+                    {"prompt": "test image", "quality": "high", "size": "1024x1024", "style": "vivid"},
+                )
 
-        assert result == generation_result
-        mock_generation_tool.generate.assert_called_once()
+                assert result == generation_result
+                mock_generation_tool.generate.assert_called_once()
+                kwargs = mock_generation_tool.generate.call_args.kwargs
+                assert (kwargs["prompt"], kwargs["quality"], kwargs["size"], kwargs["n"]) == (
+                    "test image", "high", "1024x1024", 1,
+                )
 
-        # Test image editing - explicitly pass mask_data=None
-        result = await edit_image(
-            image_data=sample_image_data,
-            prompt="edit test",
-            mask_data=None,  # Explicitly pass None
-            size="1024x1024",
-            quality="high",
-        )
+                # Test image editing
+                result = await call(
+                    "edit_image",
+                    {"image_data": sample_image_data, "prompt": "edit test", "size": "1024x1024", "quality": "high"},
+                )
 
-        assert result == edit_result
-        mock_editing_tool.edit.assert_called_once()
+                assert result == edit_result
+                mock_editing_tool.edit.assert_called_once()
+                kwargs = mock_editing_tool.edit.call_args.kwargs
+                assert kwargs["prompt"] == "edit test" and kwargs["mask_data"] is None
+                assert kwargs["image_data"].startswith("data:image/png;base64,")
+
+                # no source image at all is refused before the tool is called
+                with pytest.raises(Exception, match="image_data or image_path"):
+                    await call("edit_image", {"prompt": "x"})
+                # and the schema still rejects what it always rejected
+                with pytest.raises(Exception, match="prompt"):
+                    await call("generate_image", {"prompt": ""})
+                assert mock_editing_tool.edit.call_count == 1
+                assert mock_generation_tool.generate.call_count == 1
+        finally:
+            await mock_server_context.jobs.close()
 
     @patch("omniapi_mcp.server.mcp")
     @pytest.mark.asyncio

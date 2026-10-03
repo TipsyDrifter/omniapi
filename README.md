@@ -3,12 +3,12 @@
 > 把外部 AI 模型收進同一個地方用：在瀏覽器裡派工給 agent、跟任何文字模型聊天、看每一筆花了多少；
 > Claude Code 透過 MCP 用同一套能力，終端機裡有 `omni` 指令。三個入口，背後是同一個常駐服務、同一顆資料庫。
 
-![version](https://img.shields.io/badge/version-1.0.0-1F2330)
+![version](https://img.shields.io/badge/version-1.2.0-1F2330)
 ![platform](https://img.shields.io/badge/platform-Windows%2011-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**OmniAPI** is a local dispatch center for external AI models. One background daemon (`omni serve`, bound to `127.0.0.1`) gives you three doors onto the same store: a web GUI (live board of agent runs, dispatch form, streaming chat, a generation page for images / speech / music / transcripts, a works wall of everything generated, cost ledgers), an MCP server for Claude Code / Claude Desktop (19 tools: image, transcription, text, chat, speech, music, agent runs), and the `omni` CLI. Agent runs are delegated to the vendor's own headless harness — Claude Code, Codex CLI or Gemini CLI — chosen by model. Tested on Windows 11. MIT licensed.
+**OmniAPI** is a local dispatch center for external AI models. One background daemon (`omni serve`, bound to `127.0.0.1`) gives you three doors onto the same store: a web GUI (live board of agent runs, dispatch form, streaming chat with image and file attachments, retries and branches, and images or speech generated inside the conversation, a generation page for images / speech / music / transcripts, a works wall of everything generated, cost ledgers), an MCP server for Claude Code / Claude Desktop (19 tools: image, transcription, text, chat, speech, music, agent runs), and the `omni` CLI. Agent runs are delegated to the vendor's own headless harness — Claude Code, Codex CLI or Gemini CLI — chosen by model. Tested on Windows 11. MIT licensed.
 
 ---
 
@@ -19,7 +19,7 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 | 能力 | 說明 | 從哪裡用 |
 |---|---|---|
 | **派工** | 把一件事交給 headless agent（Claude Code、Codex CLI、Gemini CLI，依模型自動挑）。它會進你指定的資料夾讀檔、改檔、跑指令，做完回報；可以追問、可以中途中止 | GUI、MCP `run_agent`、`omni run` |
-| **聊天** | 跟任何文字模型多輪對話，逐字顯示，每一則都能換模型 | GUI、MCP `chat`、`omni chat` |
+| **聊天** | 跟任何文字模型多輪對話，逐字顯示，每一則都能換模型；可以附圖片與檔案（PDF、Office 文件、試算表、程式碼……），不滿意的回覆重來一次或改了問題另開分岔；想要圖或語音時模型會提議，按下確認才生成 | GUI、MCP `chat`、`omni chat` |
 | **生成** | 生圖與改圖、語音合成、音樂生成、語音轉錄：填表、看預估費用、送出，成品從出件口出來 | GUI 生成頁、MCP 工具（在 Claude Code／Claude Desktop 裡使用） |
 
 另外有一面**看板**：正在跑的 agent 在做什麼、跑過哪些、兩本帳各花了多少。不管是從生成頁還是從 Claude Code 叫的，做出來的圖、聲音、歌詞與逐字稿都收進同一面**作品牆**：可以篩選，看提示詞與費用，也查得到每一張是從哪一張改出來的。
@@ -28,7 +28,7 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 | 聊天 | 費用 |
 |---|---|
-| ![聊天頁：每一則回覆標示模型、耗時、token 與費用](gui/screenshots/chat.png) | ![費用頁：派工帳、聊天・生成帳與最近的生成](gui/screenshots/costs.png) |
+| ![聊天頁：附了圖與檔案的訊息、對話裡生成的作品，回覆可以切換版本](gui/screenshots/chat.png) | ![費用頁：派工帳、聊天・生成帳與最近的生成](gui/screenshots/costs.png) |
 
 ![生成頁：左邊寫提示詞，中間挑模型、比例與解析度並看預估費用，右邊是出件口](gui/screenshots/make.png)
 
@@ -53,10 +53,10 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 ### 方法一：下載 Release（不用 Node）
 
-到 Releases 下載 `omniapi-v1.0.0.zip`，解壓縮後：
+到 Releases 下載 `omniapi-v1.2.0.zip`，解壓縮後：
 
 ```bash
-cd omniapi-v1.0.0/mcp
+cd omniapi-v1.2.0/mcp
 uv sync
 ```
 
@@ -114,7 +114,7 @@ uv run omni serve
 
 - **看板**：執行中的 agent 以票券顯示，右邊是它的即時活動流；下面是歷史與兩本帳
 - **＋新對話**：選「派工」或「聊天」。派工要選模型和工作目錄；聊天只要選模型
-- **聊天**：對話清單與對話內容，輸入列上方可以換下一則要用的模型、改 system prompt，可以匯出成 markdown
+- **聊天**：對話清單與對話內容，輸入列上方可以換下一則要用的模型、改 system prompt，可以匯出成 markdown。訊息可以附圖片與檔案；每則回覆能重新生成、每則問題能改寫，新舊版本用 ‹ 1/2 › 切換；模型提議的圖或語音按「生成」才會做，成品直接出現在對話裡、也收進作品牆。對話可以刪除
 - **生成**：生圖（放一張來源圖就變成改圖）、語音、音樂、轉錄。送出前顯示預估費用；送出後可以離開，做好的成品留在出件口
 - **作品**：所有做出來的作品，可依類型、來源、模型、日期篩選；點開看大圖或試聽、提示詞、費用，以及它的來源與衍生
 - **費用**：兩本帳的明細
@@ -192,7 +192,6 @@ cd gui && npm run dev:sandbox    # 連離線沙盒（7799）
 
 - 只在 Windows 11 上測試過
 - 還不支援影片
-- 聊天不能附檔案；不能刪除對話，只能封存
 - 沒有桌面應用程式的外殼，GUI 是瀏覽器頁面
 
 ## 授權
