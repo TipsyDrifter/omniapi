@@ -274,8 +274,18 @@ logger = logging.getLogger(__name__)
 
 # Helper function to get server context
 def get_server_context(ctx) -> ServerContext:
-    """Get server context from MCP context."""
-    return ctx.request_context.lifespan_context
+    """Get server context from MCP context.
+
+    Outside an MCP request (the GUI runs these same handlers through
+    ``generate.GenerationManager``) there is no request context; the
+    process-wide runtime is the same object the lifespan hands out.
+    """
+    try:
+        return ctx.request_context.lifespan_context
+    except ValueError:
+        if runtime.context is None:
+            raise
+        return runtime.context
 
 
 @mcp.tool(

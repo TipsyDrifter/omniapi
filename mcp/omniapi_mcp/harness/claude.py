@@ -24,9 +24,10 @@ from .registry import DEEPSEEK_CLI_ALIAS
 
 logger = logging.getLogger(__name__)
 
-# Claude Code emits these system subtypes by the thousand; they carry no
-# information the board needs.
-_NOISY_SYSTEM_SUBTYPES = {"thinking_tokens", "task_progress", "task_updated", "background_tasks_changed"}
+# Claude Code emits these system subtypes by the thousand (or, for the hook
+# pair, sixteen at the head of every run); they carry no information the
+# board needs.
+_NOISY_SYSTEM_SUBTYPES = {"thinking_tokens", "task_progress", "task_updated", "background_tasks_changed", "hook_started", "hook_response"}
 
 ENDPOINTS = {
     # Claude models default to the owner's Claude subscription: the CLI runs

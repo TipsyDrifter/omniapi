@@ -24,6 +24,7 @@ from typing import Any, Optional
 import aiofiles
 
 from ..capabilities.music import (
+    LyriaProvider,
     ElevenLabsMusicProvider,
     MusicProvider,
     MusicResult,
@@ -168,6 +169,26 @@ class MusicGenerationTool:
             except Exception as e:
                 logger.error("Failed to init Suno provider: %s", e)
 
+        # Google Lyria (Gemini Developer API key; the paid tier only). Registered last so it
+        # never displaces the default model.
+        gem = getattr(self.settings.providers, "gemini", None)
+        gem_key = (getattr(gem, "api_key", "") or "").strip() if gem else ""
+        looks_like_file = gem_key.lower().endswith(".json") or "/" in gem_key or "\\" in gem_key  # a service-account path is not an API key
+        if gem and getattr(gem, "enabled", False) and gem_key and not looks_like_file:
+            try:
+                self._register(
+                    LyriaProvider(
+                        ProviderConfig(
+                            api_key=gem_key,
+                            timeout=getattr(gem, "timeout", 300.0),
+                            max_retries=getattr(gem, "max_retries", 3),
+                            enabled=True,
+                        )
+                    )
+                )
+            except Exception as e:
+                logger.error("Failed to init Lyria provider: %s", e)
+
     def _default_model(self) -> Optional[str]:
         if not self._providers:
             return None
@@ -225,6 +246,9 @@ class MusicGenerationTool:
             "duration": r.metadata.get("duration"),
             "output_format": r.output_format,
             "bytes": len(r.audio_data or b""),
+            # only providers with a flat published price report these (Lyria); the rest stay absent
+            **{k: r.metadata[k] for k in ("model", "cost_usd") if r.metadata.get(k) is not None},
+            **({"lyrics": r.text} if r.text else {}),
         }
 
     # ---- generate (both backends, routed by model) ----------------------

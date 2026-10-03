@@ -1,0 +1,288 @@
+/* 1.1-M3 生成頁（/make/:kind）與頂欄導覽的新樣式。
+   版面從 prototypes/generate-wall/b-two-pages/ 搬來（失敗卡借 a-workbench），改成只吃主題 token：不得出現 hex／rgba。
+   這一頁是「單墨頁」：紙＋墨四階；三支油墨只出現在 wordmark 與區塊大標 Make 的 .ovp（THEME §6.2）。
+   class 一律 mk- 開頭，免得撞到看板的 .big／.now／.tag。 */
+
+/* ============ 頂欄導覽：三組，組間一條墨 25 直線；「生成」旁的進行中件數章 ============ */
+/* 導覽多了兩項：收緊間距，讓 1440 寬放得下一整排（右側主題切換、日期、＋新對話都不折行） */
+.top { column-gap: 20px; }
+.top nav { gap: 0; align-items: center; }
+.top nav a { padding: 6px 7px 4px; white-space: nowrap; }
+.top nav a span { margin-left: 4px; }
+.top-r { gap: 14px; white-space: nowrap; }
+.navsep { display: inline-block; width: 1px; height: 30px; background: var(--ink-25); margin: 0 5px; flex: none; }
+/* 紙底墨框小章＋小滾筒（不是油墨） */
+.navct {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; vertical-align: 2px;
+  font-family: var(--font-mono); font-size: var(--fs-m11); font-weight: 600; font-style: normal; line-height: 16px; font-variant-numeric: tabular-nums;
+  color: var(--ink); border: 1.5px solid var(--ink); padding: 0 5px 0 3px; background: var(--paper);
+}
+.navct .drum { width: 11px; height: 11px; border-width: 1.5px; }
+
+/* ============ 模態章：方形楷字章，只用墨的填法區分 ============
+   圖＝實心墨 · 聲＝單框 · 曲＝框＋墨網點 · 詞＝雙框 · 字＝虛線框（事件章是圓的，這套一律方的） */
+.mk-wg {
+  width: 24px; height: 24px; flex: none; display: inline-grid; place-items: center; box-sizing: border-box;
+  font-family: var(--font-kai); font-weight: 700; font-size: 15px; line-height: 1; font-style: normal;
+  color: var(--ink); border: 1.5px solid var(--ink); background: var(--paper);
+}
+.mk-wg.k-image { background: var(--ink); color: var(--paper); }
+.mk-wg.k-music { background: radial-gradient(var(--ink-45) 1px, transparent 1.3px) 0 0 / 4px 4px, var(--paper); }
+.mk-wg.k-lyrics { border: 3.5px double var(--ink); }
+.mk-wg.k-transcript { border-style: dashed; }
+.mk-wg.sm { width: 19px; height: 19px; font-size: 12px; }
+.mk-wg.lg { width: 34px; height: 34px; font-size: var(--fs-lead); border-width: 2px; }
+
+/* ============ 版面 ============ */
+.mk { padding-top: 22px; padding-bottom: 48px; }
+.mk .sechead.mk-head { border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 22px; align-items: flex-end; }
+.mk .mk-head h2, .mk .mk-head .zh, .mk .mk-head .dp-sub { align-self: baseline; }
+.mk-sandbox { margin: -8px 0 20px; font-size: var(--fs-xs); }
+
+/* 四個分頁鈕：章＋中文＋拉丁小標；選中＝2px 墨框＋第二層紙＋實墨影 */
+.mk-tabs { margin-left: auto; display: flex; gap: 6px; align-self: center; }
+.mk-tabs button {
+  display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: 9px; align-items: center; text-align: left;
+  border: 1.5px solid var(--ink-25); padding: 7px 14px 6px 9px; min-width: 118px; color: var(--ink);
+}
+.mk-tabs button .mk-wg { grid-row: 1 / 3; }
+.mk-tabs button b { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-l); line-height: 1.15; }
+.mk-tabs button small { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); line-height: 1.2; }
+.mk-tabs button[aria-selected="true"] { border: 2px solid var(--ink); padding: 6.5px 13.5px 5.5px 8.5px; background: var(--paper-deep); box-shadow: 3px 3px 0 var(--ink); }
+.mk-tabs button:not([aria-selected="true"]):hover { border-color: var(--ink); }
+
+/* 出件口收起時兩欄（寬度還給左邊）；有東西才長出第三欄 */
+.mk-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); column-gap: 44px; align-items: start; }
+.mk-grid.with-tray { grid-template-columns: minmax(0, 1fr) 400px 316px; column-gap: 32px; }
+.mk-main, .mk-side { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+.mk-flush { margin: 0; }
+.mk-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.mk .dp-note b { color: var(--ink); font-weight: 600; }
+
+/* 主要輸入：楷書本文框（沿用 .dp-prompt），高度依模態 */
+.mk-prompt { min-height: 260px; }
+.mk-prompt.tall { min-height: 380px; }
+.mk-prompt.lyr { min-height: 300px; white-space: pre-wrap; }
+.mk-narrow { display: inline-block; width: 96px; }
+
+/* 參數列 */
+.mk-prow { display: grid; grid-template-columns: 76px minmax(0, 1fr); column-gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed var(--ink-25); }
+.mk-prow:first-child { padding-top: 0; }
+.mk-prow:last-child { border-bottom: 0; padding-bottom: 0; }
+.mk-pk { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); color: var(--ink); }
+.mk-pk small { display: block; font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); }
+.mk-pv { min-width: 0; }
+.mk-pv .dp-note { margin-top: 4px; }
+
+/* 切換鈕群：選中＝2px 墨框＋第二層紙；停用＝虛線框（不降透明度） */
+.mk-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.mk-seg button {
+  border: 1.5px solid var(--ink-25); padding: 5px 11px 4px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); color: var(--ink-70);
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+}
+.mk-seg button .code { font-weight: 500; font-size: var(--fs-m11); color: var(--ink-70); }
+.mk-seg button[aria-pressed="true"] { border: 2px solid var(--ink); padding: 4.5px 10.5px 3.5px; background: var(--paper-deep); color: var(--ink); }
+.mk-seg button[aria-pressed="true"] .code { color: var(--ink); }
+.mk-seg button:not([aria-pressed="true"]):not(:disabled):hover { border-color: var(--ink); color: var(--ink); }
+.mk-seg button:disabled { border-style: dashed; }
+.mk-ar { display: inline-block; border: 1.5px solid currentColor; flex: none; box-sizing: border-box; }
+
+/* 小鈕：label 700，淡框；strong＝墨框 */
+.mk-mini {
+  display: inline-block; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-xs); color: var(--ink); text-decoration: none; white-space: nowrap;
+  border: 1.5px solid var(--ink-25); padding: 4px 9px 3px; background: var(--paper); line-height: 1.4;
+}
+.mk-mini.strong { border-color: var(--ink); }
+.mk-mini:hover:not(:disabled) { border-color: var(--ink); background: var(--paper-deep); }
+.mk-mini:disabled { border-style: dashed; color: var(--ink-70); }
+.mk-mini[aria-pressed="true"] { border-color: var(--ink); background: var(--paper-deep); }
+
+/* ============ 模型清單（同新對話頁 dp-mrow 的語彙） ============ */
+.mk-mlist { position: relative; border: 1.5px solid var(--ink-25); background: var(--paper); max-height: 330px; overflow-y: auto; scrollbar-color: var(--ink-45) transparent; }
+.mk-mrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 9px; align-items: baseline;
+  width: 100%; text-align: left; padding: 6px 9px 5px; border-bottom: 1px dashed var(--ink-25); color: var(--ink);
+}
+.mk-mrow:last-child { border-bottom: 0; }
+.mk-mrow .code { font-size: var(--fs-xs); color: var(--ink); }
+.mk-mrow .dp-tag { grid-column: 2; grid-row: 1; }
+.mk-price { grid-column: 3; grid-row: 1; font-family: var(--font-mono); font-size: var(--fs-m11); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink); }
+.mk-price.none { font-family: var(--font-label); font-weight: 700; color: var(--ink-70); }
+.mk-prov { grid-column: 1 / -1; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); }
+.mk-why { grid-column: 1 / -1; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); color: var(--ink); margin-top: 2px; }
+.mk-why u { text-decoration: none; box-shadow: inset 0 -2px 0 var(--ink); }
+.mk-mrow:hover:not(:disabled) { background: var(--paper-deep); }
+.mk-mrow[aria-selected="true"] { background: var(--paper-deep); box-shadow: inset 0 0 0 2px var(--ink); }
+.mk-mrow:disabled { background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); }
+.mk-mrow:disabled .code, .mk-mrow:disabled .mk-price { color: var(--ink-70); }
+.mk-mmore { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 6px; }
+
+/* 聲音清單：一列＝選擇鈕＋試聽 */
+.mk-vq { margin-bottom: 6px; }
+.mk-vlist { max-height: 300px; }
+.mk-vrow { display: flex; align-items: center; gap: 8px; border-bottom: 1px dashed var(--ink-25); padding-right: 8px; }
+.mk-vrow:last-child { border-bottom: 0; }
+.mk-vpick { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; padding: 6px 9px 5px; color: var(--ink); }
+.mk-vname { font-family: var(--font-sans); font-size: var(--fs-s); font-weight: 500; }
+.mk-vid { font-size: var(--fs-m11); color: var(--ink-70); }
+.mk-vpick .mk-prov, .mk-vpick .mk-why { flex-basis: 100%; }
+.mk-vrow:hover:not([aria-disabled="true"]) { background: var(--paper-deep); }
+.mk-vrow[aria-selected="true"] { background: var(--paper-deep); box-shadow: inset 0 0 0 2px var(--ink); }
+.mk-vrow[aria-disabled="true"] { background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); }
+.mk-vrow[aria-disabled="true"] .mk-vname { color: var(--ink-70); }
+.mk-vplay { flex: none; padding: 2px 8px 1px; }
+
+/* ============ 來源圖（改圖） ============ */
+.mk-src { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: start; }
+.mk-slot {
+  width: 120px; height: 120px; box-sizing: border-box; border: 1.5px dashed var(--ink-45); display: grid; place-items: center; text-align: center;
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-xs); color: var(--ink-70); padding: 10px; position: relative; cursor: pointer;
+}
+.mk-slot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--paper-deep); }
+.mk-slot.has { border: 2px solid var(--ink); }
+.mk-slot.over, .mk-drop.over { border-style: solid; border-color: var(--ink); background: var(--paper-deep); }
+.mk-src-r { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+.mk-src-r .warn { margin-top: 0; }
+.mk-pickwrap { margin-top: 12px; border-top: 1px dashed var(--ink-25); padding-top: 10px; }
+.mk-pick { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.with-tray .mk-pick { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.mk-pick button { aspect-ratio: 1; border: 1.5px solid transparent; padding: 0; background: var(--paper-deep); overflow: hidden; }
+.mk-pick button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mk-pick button:hover { border-color: var(--ink); }
+.mk-pick button[aria-pressed="true"] { border: 2px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.mk-more { margin-top: 8px; }
+
+/* 從作品挑歌詞（歌詞框下方一排） */
+.mk-pickfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--ink-25); font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); }
+.mk-pickfoot .mk-mini { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.mk-none { color: var(--ink-70); }
+
+/* ============ 上傳區（轉錄的主角） ============ */
+.mk-drop { border: 2px dashed var(--ink); min-height: 220px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 22px; }
+.mk-dropbig { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-h3); }
+.mk-drop.has { border-style: solid; align-items: stretch; justify-content: flex-start; text-align: left; min-height: 0; padding: 16px 18px; gap: 12px; }
+.mk-file { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; align-items: center; }
+.mk-fname { font-family: var(--font-mono); font-size: var(--fs-s); font-weight: 600; overflow-wrap: anywhere; }
+.mk-fmeta { font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); margin-top: 2px; }
+.mk-fmeta .n { color: var(--ink); }
+.mk-dropfoot { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--ink-25); font-size: var(--fs-xs); color: var(--ink-70); }
+.mk-dropfoot > span { margin-right: auto; }
+.mk-alist { border: 1.5px solid var(--ink-25); max-height: 300px; overflow-y: auto; scrollbar-color: var(--ink-45) transparent; }
+.mk-arow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; column-gap: 10px; align-items: center; width: 100%; text-align: left; padding: 6px 9px; border-bottom: 1px dashed var(--ink-25); color: var(--ink); }
+.mk-arow:last-child { border-bottom: 0; }
+.mk-arow .code { font-size: var(--fs-xs); }
+.mk-arow .n { font-size: var(--fs-m11); color: var(--ink-70); }
+.mk-arow:hover:not(:disabled) { background: var(--paper-deep); }
+.mk-arow[aria-pressed="true"] { background: var(--paper-deep); box-shadow: inset 0 0 0 2px var(--ink); }
+.mk-arow:disabled { background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); }
+.mk-arow:disabled .code { color: var(--ink-70); }
+
+/* 長度：display 大數字（tabular） */
+.mk-dur { font-family: var(--font-display); font-weight: 800; font-size: var(--fs-h3); line-height: 1; letter-spacing: -0.04em; font-variation-settings: "wdth" var(--num-wdth); font-variant-numeric: tabular-nums; }
+.mk-dur.big { font-size: var(--fs-num-m); }
+
+/* ============ 播放器：播放鈕＋時間尺（不畫假波形） ============ */
+.mk-aud { display: flex; align-items: center; gap: 12px; }
+.mk-aud audio { display: none; }
+.mk-aud .mk-dur { flex: none; min-width: 3.2ch; text-align: right; }
+/* 上傳區已經有大號長度，播放器不再重複 */
+.mk-drop .mk-aud > .mk-dur { display: none; }
+.mk-play { width: 40px; height: 40px; border-radius: 50%; background: var(--ink); display: grid; place-items: center; flex: none; }
+.mk-play::before { content: ""; width: 0; height: 0; border-left: 12px solid var(--paper); border-top: 8px solid transparent; border-bottom: 8px solid transparent; margin-left: 3px; }
+/* 暫停：兩條直槓用硬邊 linear-gradient 畫，沒有漸變 */
+.mk-play.on::before { width: 12px; height: 14px; border: 0; margin: 0; background: linear-gradient(90deg, var(--paper) 0 4px, transparent 4px 8px, var(--paper) 8px 12px); }
+.mk-ruler { position: relative; height: 26px; flex: 1; min-width: 0; cursor: pointer; }
+.mk-ruler .ticks { position: absolute; left: 0; right: 0; bottom: 0; height: 12px; border-bottom: 1.5px solid var(--ink); background: repeating-linear-gradient(90deg, var(--ink-45) 0 1px, transparent 1px 10px) 0 100% / 100% 6px no-repeat; }
+.mk-ruler .fill { position: absolute; left: 0; bottom: 0; height: 5px; background: var(--ink); }
+.mk-ruler .ends { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: var(--fs-m10); color: var(--ink-70); font-variant-numeric: tabular-nums; line-height: 1; }
+
+/* ============ 送出列：章＋摘要＋預估費用＋送出 ============ */
+.mk-submitwrap .mk-err { margin: 0 0 12px; font-size: var(--fs-s); }
+.mk-submit { border-top: 2px solid var(--ink); padding-top: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 20px; row-gap: 10px; align-items: end; }
+.mk-recap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-family: var(--font-sans); font-size: var(--fs-s); color: var(--ink-70); }
+.mk-recap .code { font-size: var(--fs-xs); color: var(--ink); }
+.mk-recap > b { font-family: var(--font-label); font-weight: 700; color: var(--ink); }
+.mk-recap .mk-plain { font-family: var(--font-sans); font-weight: 500; color: var(--ink); }
+.mk-est { grid-column: 1 / 2; display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.mk-est .k { align-self: center; white-space: nowrap; flex: none; line-height: 1.3; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); }
+.mk-estbig { flex: none; font-family: var(--font-display); font-weight: 800; font-size: var(--fs-num-m); line-height: var(--lh-num); letter-spacing: -0.04em; font-variation-settings: "wdth" var(--num-wdth); font-variant-numeric: tabular-nums; color: var(--ink); }
+.mk-estbig small { font-size: 0.5em; margin-right: 1px; letter-spacing: -0.02em; }
+.mk-estna { flex: none; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-h4); color: var(--ink-70); }
+.mk-basis { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); line-height: 1.45; max-width: 320px; }
+.mk-go { grid-column: 2; grid-row: 1 / 3; align-self: center; font-size: var(--fs-l); padding: 8px 22px 7px; white-space: nowrap; }
+.mk-hint { grid-column: 1 / -1; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); }
+
+/* ============ 出件口 ============ */
+.mk-tray {
+  position: sticky; top: 16px; align-self: start; display: flex; flex-direction: column; gap: 14px;
+  max-height: calc(100vh - 34px - 32px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent;
+  /* 等待卡的 6px 實墨影不要被捲動容器裁掉 */
+  padding: 0 8px 10px 0; margin-right: -8px;
+}
+.mk-tray-h { display: flex; align-items: baseline; gap: 8px; border-bottom: 2px solid var(--ink); padding-bottom: 5px; position: sticky; top: 0; background: var(--paper); z-index: 1; }
+.mk-tray-h b { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-l); }
+.mk-tray-h .lbl { font-size: var(--fs-m11); letter-spacing: 0.14em; }
+.mk-tray-n { margin-left: auto; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); }
+.mk-oi { border: 2px solid var(--ink); background: var(--paper); position: relative; flex: none; }
+.mk-oi-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
+.mk-oi-h .live-stamp { font-size: var(--fs-s); padding: 1px 8px 0; }
+.mk-oi-h .drum { width: 16px; height: 16px; }
+.mk-oi-h .mk-smp { font-size: var(--fs-m11); }
+.mk-rid { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-m10); color: var(--ink-70); white-space: nowrap; }
+.mk-oi-b { padding: 8px 12px 12px; }
+/* 標題是提示詞摘要（不是代號）：限兩行 */
+.mk-oi-t { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-l); line-height: 1.35; margin: 2px 0 4px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mk-oi-m { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.mk-oi-m .code { color: var(--ink); font-size: var(--fs-m11); }
+.mk-oi-m .n { color: var(--ink); }
+.mk-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mk-acts-end { border-top: 1px dashed var(--ink-25); padding-top: 8px; }
+.mk-close { margin-left: auto; }
+.mk-carderr { margin-top: 8px; }
+
+/* 進行中：紙底墨框＋6px 實墨影＋滾筒＋已等 */
+.mk-oi.pending { box-shadow: 6px 6px 0 var(--ink); margin-right: 6px; }
+.mk-el { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 2px; }
+.mk-el .k { line-height: 1.3; font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); }
+.mk-elbig { font-family: var(--font-display); font-weight: 800; font-size: var(--fs-num-l); line-height: var(--lh-num); letter-spacing: -0.045em; font-variation-settings: "wdth" var(--num-wdth); font-variant-numeric: tabular-nums; color: var(--ink); }
+/* 0–4 分鐘刻度尺：虛線框＝通常 1～3 分鐘，黑點＝現在（不是進度條） */
+.mk-span { position: relative; height: 40px; margin: 20px 4px 4px; }
+.mk-span .base { position: absolute; left: 0; right: 0; top: 12px; border-top: 1.5px solid var(--ink); height: 8px; background: repeating-linear-gradient(90deg, var(--ink-45) 0 1px, transparent 1px 100%) 0 0 / calc(100% / 8) 6px repeat-x; }
+.mk-span .band { position: absolute; top: 4px; height: 8px; border: 1.5px dashed var(--ink); border-bottom: 0; box-sizing: border-box; }
+.mk-span .mk-now { position: absolute; top: 0; width: 2px; height: 22px; background: var(--ink); margin-left: -1px; }
+.mk-span .mk-now::after { content: ""; position: absolute; left: -4px; top: -2px; width: 10px; height: 10px; background: var(--ink); border-radius: 50%; }
+.mk-span .lab { position: absolute; top: 26px; font-family: var(--font-mono); font-size: var(--fs-m10); color: var(--ink-70); transform: translateX(-50%); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mk-span .lab.first { transform: none; }
+.mk-span .lab.last { transform: translateX(-100%); }
+.mk-span .lab.band-lab { top: -14px; font-family: var(--font-label); font-weight: 700; color: var(--ink); transform: none; }
+.mk-span .lab.over { top: -14px; right: 0; left: auto; transform: none; font-family: var(--font-label); font-weight: 700; color: var(--ink); }
+.mk-leave { margin-top: 12px; border-top: 1px dashed var(--ink-25); padding-top: 8px; font-size: var(--fs-xs); color: var(--ink-70); line-height: 1.6; }
+.mk-leave b { color: var(--ink); font-weight: 600; }
+
+/* 做好：成品在上（圖照原比例），動作在下 */
+.mk-imgs { display: grid; gap: 2px; background: var(--ink); border-bottom: 2px solid var(--ink); }
+.mk-imgs.n2 { grid-template-columns: 1fr 1fr; }
+.mk-imgs figure { margin: 0; background: var(--paper); display: flex; flex-direction: column; }
+.mk-imgs a { display: block; background: var(--paper-deep); }
+.mk-imgs img { display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; }
+.mk-imgs.n2 img { aspect-ratio: 1; object-fit: cover; }
+/* 單數張時最後一張橫跨兩格，不留一格墨底空洞 */
+.mk-imgs.n2 figure:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.mk-imgs.n2 figure:last-child:nth-child(odd) img { aspect-ratio: 2 / 1; }
+/* 最新一件做好的給大圖；更早的縮小，出件口不會被圖撐爆 */
+.mk-oi.done ~ .mk-oi.done .mk-imgs img { max-height: 170px; }
+.mk-imgs figcaption { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; border-top: 1px dashed var(--ink-25); }
+.mk-audbox { margin-top: 10px; }
+.mk-audbox .mk-acts { margin-top: 6px; }
+.mk-textbox { margin-top: 10px; }
+.mk-text { font-family: var(--font-kai); font-size: var(--fs-base); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 15em; overflow-y: auto; border: 1.5px solid var(--ink-25); background: var(--paper-deep); padding: 8px 10px; scrollbar-color: var(--ink-45) transparent; }
+
+/* 失敗：墨底反白章＋墨斜紋底（不用紅） */
+.mk-oi.fail .mk-oi-b { background: var(--err-stripe); box-shadow: inset 0 2px 0 var(--ink); margin-top: 10px; }
+.mk-reason { font-family: var(--font-sans); font-size: var(--fs-s); line-height: 1.5; color: var(--ink); background: var(--paper); border: 1px solid var(--ink); padding: 6px 8px; margin-top: 8px; font-weight: 500; }
+.mk-raw { font-size: var(--fs-m11); line-height: 1.5; color: var(--ink-70); background: var(--paper); padding: 5px 8px; margin-top: 4px; border: 1px dashed var(--ink-45); max-height: 7.5em; overflow-y: auto; }
+.mk-oi.fail .mk-acts .mk-mini { background: var(--paper); }
+
+/* 已中止：虛線框章、墨 70 字 */
+.mk-oi.off { border-style: dashed; border-width: 1.5px; }
+.mk-offstamp { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); letter-spacing: 0.1em; color: var(--ink-70); border: 1.5px dashed var(--ink); padding: 0 8px; transform: rotate(-3deg); display: inline-block; white-space: nowrap; background: var(--paper); }

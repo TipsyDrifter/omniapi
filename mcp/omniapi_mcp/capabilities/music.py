@@ -1042,3 +1042,115 @@ class SunoProvider(MusicProvider):
                 "type": "video",
             },
         )
+
+
+class LyriaProvider(MusicProvider):
+    """Google Lyria via the Gemini Developer API — one call, one song.
+
+    Call shape (docs/research/2026-10-02-Lyria音樂生成API查證.md):
+    ``client.interactions.create(model=..., input=prompt)`` — the Interactions
+    API, not ``generate_content``. The reply carries ``output_audio`` (base64,
+    MP3 44.1 kHz stereo by default) and ``output_text`` (lyrics / structure).
+
+    There are no parameters beyond the prompt: lyrics go into it with
+    ``[Verse]`` / ``[Chorus]`` tags, length is steered with timestamps, and
+    "no vocals" is a sentence. ``instrumental`` therefore appends that sentence.
+    The clip model always returns 30 seconds. Needs a paid tier: the free tier
+    has no Lyria quota.
+
+    NOT MEASURED against a live response (the owner's project has no billing
+    yet): the attribute names come from the docs, so the audio is looked for
+    in more than one place and a reply without any raises a clear error.
+    """
+
+    SUPPORTED_MODELS = {"lyria-3.5", "lyria-3-clip-preview"}
+    MODEL_STATUS: dict[str, str] = {"lyria-3.5": "current", "lyria-3-clip-preview": "current"}
+    DEFAULT_MODEL = "lyria-3.5"
+    #: USD per song (Gemini API pricing page, 2026-10-02)
+    PRICE_PER_SONG = {"lyria-3.5": 0.08, "lyria-3-clip-preview": 0.04}
+    INSTRUMENTAL_SUFFIX = "Instrumental only, no vocals."
+
+    def __init__(self, config: ProviderConfig):
+        super().__init__(config)
+        from google import genai
+        from google.genai import types as genai_types
+
+        http_options: Any = None
+        if config.timeout:
+            http_options = genai_types.HttpOptions(timeout=int(config.timeout * 1000))  # milliseconds
+        self.client = genai.Client(api_key=config.api_key, **({"http_options": http_options} if http_options else {}))
+
+    def get_supported_models(self) -> set[str]:
+        return set(self.SUPPORTED_MODELS)
+
+    @staticmethod
+    def _audio_of(interaction: Any) -> tuple[bytes | None, str | None]:
+        """``(audio bytes, mime type)`` from an interaction: the documented
+        ``output_audio`` first, then any audio part among its outputs / steps."""
+        import base64
+
+        def decode(data: Any) -> bytes | None:
+            if isinstance(data, (bytes, bytearray)):
+                return bytes(data)
+            if isinstance(data, str) and data:
+                try:
+                    return base64.b64decode(data)
+                except Exception:
+                    return None
+            return None
+
+        direct = getattr(interaction, "output_audio", None)
+        if direct is not None:
+            data = decode(getattr(direct, "data", direct))
+            if data:
+                return data, getattr(direct, "mime_type", None)
+        for holder in ("outputs", "steps"):
+            for item in getattr(interaction, holder, None) or []:
+                for part in [item, *(getattr(item, "content", None) or [])] if not isinstance(item, (str, bytes)) else []:
+                    mime = getattr(part, "mime_type", None)
+                    if getattr(part, "type", None) == "audio" or (isinstance(mime, str) and mime.startswith("audio/")):
+                        data = decode(getattr(part, "data", None))
+                        if data:
+                            return data, mime
+        return None, None
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        instrumental: bool = False,
+        output_format: str = "mp3",
+        **kwargs: Any,
+    ) -> MusicResult:
+        model_id = self._validate_model(model or self.DEFAULT_MODEL, self.SUPPORTED_MODELS, operation="generate")
+        text = prompt.strip()
+        if instrumental and "no vocals" not in text.lower():
+            text = f"{text}\n\n{self.INSTRUMENTAL_SUFFIX}"
+        want_wav = (output_format or "mp3").split("_")[0].lower() == "wav"
+        try:
+            self._logger.info("Generating music with %s (%d chars)", model_id, len(text))
+            interaction = await self.client.aio.interactions.create(
+                model=model_id, input=text, **({"response_format": {"type": "audio"}} if want_wav else {})
+            )
+        except Exception as e:
+            self._logger.error("Error in Lyria generation: %s", e)
+            raise ProviderError(f"Lyria generation failed: {e}", provider_name=self.name, error_code="MUSIC_FAILED")
+        audio, mime = self._audio_of(interaction)
+        if not audio:
+            raise ProviderError("Lyria returned no audio data", provider_name=self.name, error_code="MUSIC_FAILED")
+        fmt = "wav" if (mime or "").endswith(("wav", "x-wav")) or (want_wav and not mime) else "mp3"
+        lyrics = getattr(interaction, "output_text", None)
+        return MusicResult(
+            audio_data=audio,
+            output_format=fmt,
+            text=lyrics if isinstance(lyrics, str) else None,
+            metadata={
+                "provider": "google",
+                "model": model_id,
+                "operation": "generate",
+                "task_id": getattr(interaction, "id", None),
+                "cost_usd": self.PRICE_PER_SONG.get(model_id),
+                "duration": 30.0 if model_id == "lyria-3-clip-preview" else None,
+            },
+        )

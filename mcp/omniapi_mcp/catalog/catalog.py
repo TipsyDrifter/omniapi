@@ -40,8 +40,31 @@ from .discovery import (
 logger = logging.getLogger(__name__)
 
 MODALITIES = ("text", "image", "transcription", "speech", "music")
-_SNAPSHOT_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+# Fixed snapshots (gpt-5.5-2026-04-23, gpt-4-0613, …-preview-10-2025) and moving aliases
+# (gemini-flash-latest): callable, but an uncurated one is not worth a row in any listing.
+_SNAPSHOT_RE = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{2}-\d{4}|\d{4}|latest)$")
+# Gateways name real models that way (mistralai/mistral-large-2411): only the dated form is a snapshot there.
+_DATED_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
 STATUSES = ("current", "deprecated", "retired", "discovered")
+
+
+def peak_multiplier(pricing: dict[str, Any], at: float | None = None) -> float:
+    """Price multiplier at time ``at`` for a pricing object with a ``peak`` rule
+    (``{"multiplier": 2, "utc_hours": [[1, 4], [6, 10]], "weekdays": [0..4],
+    "except_dates": ["2026-10-01"]}``); 1 outside the window or without a rule.
+    The listed prices are the off-peak ones."""
+    rule = pricing.get("peak")
+    if not rule:
+        return 1.0
+    t = time.gmtime(time.time() if at is None else at)
+    if t.tm_wday not in rule.get("weekdays", range(7)):
+        return 1.0
+    if time.strftime("%Y-%m-%d", t) in rule.get("except_dates", ()):
+        return 1.0
+    hour = t.tm_hour + t.tm_min / 60
+    if any(start <= hour < end for start, end in rule.get("utc_hours", ())):
+        return float(rule.get("multiplier", 1))
+    return 1.0
 
 
 @dataclass
@@ -64,7 +87,7 @@ class ModelEntry:
     harness: str | None = None
     online: bool | None = None  # None = provider has no discovery / not run yet
     discovered_name: str | None = None
-    snapshot: bool = False  # dated snapshot id (gpt-5.5-2026-04-23): hidden by default
+    snapshot: bool = False  # uncurated snapshot / alias id (gpt-5.5-2026-04-23, gpt-4-0613, *-latest): hidden by default
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -303,7 +326,7 @@ class ModelCatalog:
                 harness=(self.providers.get(provider) or {}).get("harness"),
                 online=True,
                 discovered_name=dm.display_name,
-                snapshot=bool(_SNAPSHOT_RE.search(dm.id)),
+                snapshot=bool((_DATED_RE if "/" in dm.id else _SNAPSHOT_RE).search(dm.id)),
             )
 
     def discovery_status(self) -> dict[str, dict[str, Any]]:
@@ -319,10 +342,12 @@ class ModelCatalog:
 
     # ------------------------------------------------------------ pricing
     def estimate_text_cost(
-        self, model_id: str, usage: dict[str, Any] | None
+        self, model_id: str, usage: dict[str, Any] | None, *, at: float | None = None
     ) -> float | None:
         """USD estimate for a chat completion from token usage; ``None`` when
-        the catalog has no per-token pricing for the model."""
+        the catalog has no per-token pricing for the model. ``at`` is when the
+        call happened (epoch seconds, default now) — it only matters for models
+        with a peak-hours surcharge."""
         entry = self.get(model_id)
         if not entry or not usage or not entry.pricing:
             return None
@@ -335,7 +360,7 @@ class ModelCatalog:
         cached_rate = p.get("cached_input", p["input"])
         return (
             (prompt - cached) * p["input"] + cached * cached_rate + completion * p["output"]
-        ) / 1_000_000
+        ) / 1_000_000 * peak_multiplier(p, at)
 
     # ------------------------------------------------------------ export
     def snapshot(

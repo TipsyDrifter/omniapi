@@ -128,6 +128,35 @@ run_case "PEM 私鑰 → 停" nz --export-to "$T/out7"
 expect "" "$(has 'mcp/server.pem:1:' && echo 0 || echo 1)"
 g rm -q mcp/server.pem && g commit -q -m "unleak2d"
 
+# ---------------------------------------------------------------- 安全網 3：畫面文字的內部編號
+echo "▸ 安全網 3"
+w gui/src/pages/Demo.tsx 'export const A = () => <p>harness 跟著模型走（D18）</p>;'
+commit "leak3a"
+run_case "畫面文字露出決策編號 → 停" nz --export-to "$T/out3a"
+expect "指出 gui/src/pages/Demo.tsx" "$(has '安全網 3' && has 'gui/src/pages/Demo.tsx:1:' && echo 0 || echo 1)"
+w gui/src/pages/Demo.tsx '/* 路由（決策記錄 M4-d、D18）
+   第二行（D5） */
+export const A = () => <p>harness 跟著模型走</p>; // 見 1.1-M3-a
+export const url = "http://127.0.0.1:7788/mcp";'
+commit "comment only"
+run_case "編號只在註解裡 → 通過" 0 --export-to "$T/out3b"
+expect "" "$(has '安全網 3（畫面文字的內部編號）：通過' && echo 0 || echo 1)"
+g rm -q gui/src/pages/Demo.tsx && g commit -q -m "unleak3"
+
+# ---------------------------------------------------------------- 公開 commit 的訊息取自 tag
+echo "▸ 公開 commit 訊息"
+g commit -q --allow-empty -m "docs: owner approved the release"
+g tag -a v1.2.3 -m "Generate page and works wall"
+run_case "annotated tag → 用 tag 的訊息" 0 --tag v1.2.3 --dry-run
+expect "" "$(has '公開 commit 訊息：v1.2.3 — Generate page and works wall' && ! has 'owner approved' && echo 0 || echo 1)"
+g tag v1.2.4
+run_case "lightweight tag → Release <tag>" 0 --tag v1.2.4 --dry-run
+expect "" "$(has '公開 commit 訊息：Release v1.2.4' && echo 0 || echo 1)"
+g tag -a v1.2.5 -m "docs: 決策記錄更新"
+run_case "tag 訊息是內部用語 → 停" nz --tag v1.2.5 --dry-run
+expect "" "$(has '看起來是內部用語' && echo 0 || echo 1)"
+g tag -d v1.2.3 v1.2.4 v1.2.5 >/dev/null
+
 # 沒追蹤的 .env 本來就不會出去；追蹤了的 .env（不小心 add 進去）也要被排除規則刪掉
 printf '%s=%s\n' "PROVIDERS__OPENAI__API_KEY" "$FAKE_SK" > "$R/mcp/.env"
 g add -f mcp/.env && g commit -q -m "tracked .env"

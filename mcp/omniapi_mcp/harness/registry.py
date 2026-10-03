@@ -25,6 +25,9 @@ _PROVIDER_ROUTE: dict[str, tuple[str, Optional[str]]] = {
     "google": ("gemini", None),
 }
 
+# our provider key → the vendor prefix OpenRouter uses for the same model (openai/gpt-6-sol)
+_OPENROUTER_VENDOR = {"openai": "openai", "google": "google"}
+
 # DeepSeek's Anthropic endpoint maps claude aliases to its models (official):
 # claude-haiku/sonnet → deepseek-flash, claude-opus → deepseek-v4-pro.
 DEEPSEEK_CLI_ALIAS = {"deepseek-flash": "claude-sonnet-5", "deepseek-v4-pro": "claude-opus-5"}
@@ -77,13 +80,30 @@ class HarnessRegistry:
             if spec.harness not in ("claude", "codex", "gemini"):
                 raise ValueError(f"Unknown harness '{spec.harness}' (claude | codex | gemini)")
             if spec.harness == "claude" and endpoint is None:
-                # e.g. run an OpenAI/Google model through Claude Code via OpenRouter
+                # An OpenAI/Google model on Claude Code goes through OpenRouter, the only
+                # Anthropic-compatible door to it. OpenRouter knows the model under a
+                # vendor-prefixed id, and bills it at its own price with its own key — so
+                # from here on this run *is* an OpenRouter run.
                 endpoint = "openrouter"
                 if not self._provider_configured("openrouter"):
                     raise ValueError(
                         f"Running '{model}' on the claude harness needs OpenRouter (Anthropic-compatible gateway); "
                         "set PROVIDERS__OPENROUTER__API_KEY."
                     )
+                gateway_id = f"{_OPENROUTER_VENDOR[provider]}/{model}"
+                listed = catalog.ids(provider="openrouter", modality="text", include_snapshots=True)
+                if len(listed) > 1 and gateway_id not in listed:  # > 1: discovery has run (the static roster is one id)
+                    raise ValueError(
+                        f"OpenRouter does not list '{gateway_id}', so '{model}' cannot run on the claude harness. "
+                        f"Use its own harness ({harness}) or pick an OpenRouter 'vendor/model' id."
+                    )
+                model, provider = gateway_id, "openrouter"
+            elif spec.harness != harness:
+                # Codex speaks only to OpenAI, Gemini CLI only to Google: no gateway for those.
+                raise ValueError(
+                    f"The {spec.harness} harness cannot run '{model}' (a {provider} model). "
+                    f"Use '{harness}'" + (" or 'claude' (through OpenRouter)." if endpoint is None else ".")
+                )
             harness = spec.harness
         if endpoint == "anthropic" and (spec.auth or "").lower() == "api":
             endpoint = "anthropic-api"

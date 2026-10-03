@@ -5,6 +5,7 @@ import { usd } from "@/lib/format";
 import { useBoard } from "@/store/board";
 import { CallsLedgerCard, FOOT_NOTE, RunsLedgerCard, useRunsLedger } from "./Ledgers";
 import { dayAxis, today } from "./ledger";
+import RecentGenerations from "./RecentGenerations";
 
 /* /costs 頁的加量版兩本帳：並排（.costs-page），每本底下多一個「依日」列表（.dayrows）。
    天數由頁面切換（7／30／90）：這裡自己抓 /api/costs?days=N，不寫回 store（看板側欄固定看 30 天）。
@@ -88,6 +89,7 @@ export default function CostsDetail({ days }: CostsDetailProps) {
         <CallsLedgerCard costs={shown} axis={axis}>
           {shown && <DayRows rows={[...shown.by_day].sort((a, b) => (a.day < b.day ? 1 : -1))} unit="次" />}
         </CallsLedgerCard>
+        <RecentGenerations />
         {err && (
           <div className="warn">
             <b>費用抓取失敗</b>：{err}

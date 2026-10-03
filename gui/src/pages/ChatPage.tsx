@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ChatList, ChatView, NewChat } from "@/components/chat";
+import { ChatList, ChatView, NewChat, preloadMarkdown } from "@/components/chat";
 import { loadChats } from "@/store/chat";
 
 /* 聊天 `/chat`、`/chat/:id`（決策記錄 M6-f）：比照單筆頁兩欄。
@@ -9,6 +9,8 @@ export default function ChatPage() {
   const { id } = useParams();
   const [listErr, setListErr] = useState<string | null>(null);
   useEffect(() => {
+    // 聊天頁幾乎每則回覆都是 markdown：一進來就先抓 chunk，第一則訊息不必先閃純文字
+    preloadMarkdown();
     loadChats()
       .then(() => setListErr(null))
       .catch((e: unknown) => setListErr(e instanceof Error ? e.message : String(e)));

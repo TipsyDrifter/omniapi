@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { EventPayload, EventRow, Run } from "@/api/types";
 import { dur, glyph, seq3, summarizeInput, toolParts, usd } from "@/lib/format";
+import Markdown, { looksLikeMarkdown } from "@/components/chat/Markdown";
 
 /* 活動流的一則事件（THEME.md §5.2）。純 props 驅動；樣式全用 board.css 既有 class。
    result 事件不走 .ev 三欄格線，改渲染成結果卡 .resultcard（左緣對齊內容欄）。 */
@@ -74,6 +75,12 @@ function SessionStart({ p }: { p: EventPayload }) {
       </div>
     </>
   );
+}
+
+/* 「agent 說」：有 markdown 語法才走（延後載入的）markdown 元件；一般句子照舊純文字，不抓 chunk。
+   thinking、工具輸出不走這裡。 */
+function AgentText({ text }: { text: string }) {
+  return looksLikeMarkdown(text) ? <Markdown text={text} className="ev-md" /> : <p>{text}</p>;
 }
 
 function ThinkingItem({ e, seq, hidden }: { e: EventRow; seq: number; hidden?: boolean }) {
@@ -164,7 +171,7 @@ export default function EventItem({ event: e, seq, callSeq, run, hidden }: Event
       return (
         <Row type="text" seq={seq} hidden={hidden}>
           <div className="tag">agent 說</div>
-          <p>{str(p.text)}</p>
+          <AgentText text={str(p.text)} />
         </Row>
       );
     case "thinking":

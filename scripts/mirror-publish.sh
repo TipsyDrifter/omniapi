@@ -9,6 +9,8 @@
 #
 # 用法：
 #   bash scripts/mirror-publish.sh                              # 只推程式碼（commit 訊息＝私有 repo 的 HEAD 短 hash＋標題）
+#                                                               #   帶 --tag 時公開 commit 的訊息取自 **tag 的訊息**（git tag -a -m "…"），
+#                                                               #   不是 tag 所在那筆 commit 的標題——那筆常常是內部的文件 commit
 #   bash scripts/mirror-publish.sh --tag v1.0.0                 # 內容取自私有 repo 的 tag v1.0.0（不是當前工作樹）＋在鏡像打 tag
 #                                                               #   --tag 只吃 vX.Y.Z 而且必須是 refs/tags/ 下真的存在的 tag
 #                                                               #   （分支名／HEAD／sha 一律擋；tag ≠ HEAD 時印一行警告照發）
@@ -41,11 +43,13 @@
 #               SYSTEM_DESIGN.md、mcp/docs/、mcp/assets/、mcp/scripts/
 #   不出去：docs/、prototypes/、archive/、.claude/、.sync/
 #
-# 安全網兩道（任一命中就停，印出命中的檔案與行）：
+# 安全網三道（任一命中就停，印出命中的檔案與行）：
 #   1. 匯出的 markdown 不得引用私有文件（決策記錄、心得與雷區、點子與意見簿、執行進度表、開發路線圖、docs/research/、prototypes/）
 #   2. 匯出的所有文字檔不得含疑似密鑰（sk-／AIza／AQ. 開頭的長字串、gho_／ghp_、PEM 私鑰、API_KEY 等號後面接了真值）
 #      命中時只印「檔案:行號:前 6 個字元」，不把疑似密鑰整串印到終端機／log。
 #      誤判用下面的 SECRET_ALLOWLIST 放行（每條都要寫理由）。
+#   3. gui/src 的程式（去掉註解之後）不得含內部決策編號或私有文件名——那是會顯示在畫面上的字。
+#      註解裡可以有（編號是給開發者看的引用錨點）。
 set -euo pipefail
 
 MIRROR_REPO="${MIRROR_REPO:-TipsyDrifter/omniapi}"
@@ -119,6 +123,17 @@ fi
 SRC_SHA="$(git rev-parse "${SRC_REF}^{commit}")"
 SRC_SHORT="$(git rev-parse --short "${SRC_REF}^{commit}")"
 SRC_SUBJ="$(git log -1 --pretty=%s "$SRC_SHA")"
+# 公開 commit 的訊息。v1.0.0 用的是 tag 所在 commit 的標題，結果把一筆內部文件 commit 的標題帶到了公開 repo；
+# 改用 annotated tag 自己的訊息（寫給外人看的那一句）。lightweight tag 沒有訊息，就只寫 Release <tag>。
+if [[ -n "$TAG" ]]; then
+  TAG_SUBJ=""
+  [[ "$(git cat-file -t "refs/tags/${TAG}")" == "tag" ]] && TAG_SUBJ="$(git for-each-ref "refs/tags/${TAG}" --format='%(contents:subject)')"
+  if [[ -z "$TAG_SUBJ" ]]; then MIRROR_MSG="Release ${TAG}"
+  elif [[ "$TAG_SUBJ" == *"$TAG"* ]]; then MIRROR_MSG="$TAG_SUBJ"
+  else MIRROR_MSG="${TAG} — ${TAG_SUBJ}"; fi
+else
+  MIRROR_MSG="$SRC_SUBJ (dev@$SRC_SHORT)"
+fi
 if [[ -n "$TAG" && "$SRC_SHA" != "$(git rev-parse HEAD)" ]]; then
   say "⚠ 鏡像內容取自 tag ${TAG}（${SRC_SHORT}），非目前工作樹（HEAD $(git rev-parse --short HEAD)）"
 fi
@@ -262,6 +277,31 @@ else
   say "安全網 2（疑似密鑰）：通過（允許清單放行 ${ALLOWED2} 筆）"
 fi
 
+# 安全網 3：畫面上的字不得露出內部編號。只看 gui/src 的 .ts／.tsx，先把註解拿掉（區塊註解換成等量的換行，行號不變）。
+UI_RE='[（(]D[0-9]{1,3}[）)]|[0-9]\.[0-9]-M[0-9]+(-[a-z])?|[（(]M[0-9]-[a-z][）)]|決策記錄|心得與雷區|點子與意見簿|執行進度表|開發路線圖'
+HITS3=""
+if [[ -d "$STAGE/gui/src" ]]; then
+  while IFS= read -r -d '' f; do
+    rel="${f#"$STAGE"/}"
+    h="$(perl -0pe 's{/\*.*?\*/}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{(?<![:"\x27`])//[^\n]*}{}g' "$f" | grep -nE "$UI_RE" | LC_ALL=C.UTF-8 awk '{print substr($0,1,140)}' || true)"
+    [[ -n "$h" ]] && HITS3+="$(printf '%s\n' "$h" | sed "s#^#${rel}:#")"$'\n'
+  done < <(find "$STAGE/gui/src" -type f \( -name '*.ts' -o -name '*.tsx' \) -print0)
+fi
+if [[ -n "$HITS3" ]]; then
+  echo "✗ 安全網 3：gui/src 的顯示文字露出內部編號或私有文件名：" >&2
+  printf '%s' "$HITS3" | sed 's/^/    /' >&2
+  LEAK=1
+else
+  say "安全網 3（畫面文字的內部編號）：通過"
+fi
+# 公開 commit 的訊息也過同一道檢查（它會永久留在公開歷史裡）
+if printf '%s' "$MIRROR_MSG" | grep -qE "$PRIVATE_RE|^docs[:(]"; then
+  echo "✗ 公開 commit 的訊息看起來是內部用語：${MIRROR_MSG}" >&2
+  echo "  用 git tag -a ${TAG:-vX.Y.Z} -m \"寫給外人看的一句話\" 打 tag（已經打了就 git tag -a -f 重打，還沒 push 才可以）。" >&2
+  LEAK=1
+fi
+say "公開 commit 訊息：${MIRROR_MSG}"
+
 if [[ $LEAK -eq 1 ]]; then
   if [[ $ALLOW_LEAKS -eq 1 ]]; then
     say "⚠ --allow-leaks：安全網命中降級為警告——這份匯出不能拿去發布"
@@ -298,7 +338,7 @@ else
   (cd "$MIR" && git checkout -q -B main 2>/dev/null || true)
   find "$MIR" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
   cp -r "$STAGE/." "$MIR/"
-  (cd "$MIR" && git add -A && git -c user.name="Kosa" -c user.email="kosa@users.noreply.github.com" commit -q -m "${TAG:+$TAG — }$SRC_SUBJ (dev@$SRC_SHORT)" || true)
+  (cd "$MIR" && git add -A && git -c user.name="Kosa" -c user.email="kosa@users.noreply.github.com" commit -q -m "$MIRROR_MSG" || true)
 fi
 
 echo "▸ ③ push main${TAG:+ ＋ tag $TAG}"

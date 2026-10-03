@@ -8,7 +8,7 @@
 ![python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**OmniAPI** is a local dispatch center for external AI models. One background daemon (`omni serve`, bound to `127.0.0.1`) gives you three doors onto the same store: a web GUI (live board of agent runs, dispatch form, streaming chat, cost ledgers), an MCP server for Claude Code / Claude Desktop (19 tools: image, transcription, text, chat, speech, music, agent runs), and the `omni` CLI. Agent runs are delegated to the vendor's own headless harness — Claude Code, Codex CLI or Gemini CLI — chosen by model. Tested on Windows 11. MIT licensed.
+**OmniAPI** is a local dispatch center for external AI models. One background daemon (`omni serve`, bound to `127.0.0.1`) gives you three doors onto the same store: a web GUI (live board of agent runs, dispatch form, streaming chat, a generation page for images / speech / music / transcripts, a works wall of everything generated, cost ledgers), an MCP server for Claude Code / Claude Desktop (19 tools: image, transcription, text, chat, speech, music, agent runs), and the `omni` CLI. Agent runs are delegated to the vendor's own headless harness — Claude Code, Codex CLI or Gemini CLI — chosen by model. Tested on Windows 11. MIT licensed.
 
 ---
 
@@ -20,17 +20,23 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 |---|---|---|
 | **派工** | 把一件事交給 headless agent（Claude Code、Codex CLI、Gemini CLI，依模型自動挑）。它會進你指定的資料夾讀檔、改檔、跑指令，做完回報；可以追問、可以中途中止 | GUI、MCP `run_agent`、`omni run` |
 | **聊天** | 跟任何文字模型多輪對話，逐字顯示，每一則都能換模型 | GUI、MCP `chat`、`omni chat` |
-| **多模態工具** | 生圖與改圖、語音轉錄、語音合成、音樂生成、單次文字補全 | MCP 工具（在 Claude Code／Claude Desktop 裡使用） |
+| **生成** | 生圖與改圖、語音合成、音樂生成、語音轉錄：填表、看預估費用、送出，成品從出件口出來 | GUI 生成頁、MCP 工具（在 Claude Code／Claude Desktop 裡使用） |
 
-另外有一面**看板**：正在跑的 agent 在做什麼、跑過哪些、兩本帳各花了多少。
+另外有一面**看板**：正在跑的 agent 在做什麼、跑過哪些、兩本帳各花了多少。不管是從生成頁還是從 Claude Code 叫的，做出來的圖、聲音、歌詞與逐字稿都收進同一面**作品牆**：可以篩選，看提示詞與費用，也查得到每一張是從哪一張改出來的。
 
 ![看板：執行中的派工票券與即時活動流](gui/screenshots/board.png)
 
 | 聊天 | 費用 |
 |---|---|
-| ![聊天頁：每一則回覆標示模型、耗時、token 與費用](gui/screenshots/chat.png) | ![費用頁：派工帳與聊天・生成帳](gui/screenshots/costs.png) |
+| ![聊天頁：每一則回覆標示模型、耗時、token 與費用](gui/screenshots/chat.png) | ![費用頁：派工帳、聊天・生成帳與最近的生成](gui/screenshots/costs.png) |
 
-<sub>截圖裡的專案、對話與金額都是示範資料。</sub>
+![生成頁：左邊寫提示詞，中間挑模型、比例與解析度並看預估費用，右邊是出件口](gui/screenshots/make.png)
+
+| 作品牆 | 作品詳情 |
+|---|---|
+| ![作品牆：圖、語音、音樂、歌詞與逐字稿依日期排在一起](gui/screenshots/works.png) | ![作品詳情：大圖、提示詞、設定與費用，以及從它改出來的作品](gui/screenshots/works-detail.png) |
+
+<sub>截圖裡的專案、對話、作品與金額都是示範資料；作品是用程式畫出來、合成出來的圖與聲音。</sub>
 
 支援的供應商：OpenAI、Anthropic、Google Gemini、DeepSeek、OpenRouter（長尾模型）、ElevenLabs、kie.ai（Suno）。模型名單在啟動時向各家即時查詢，新模型上線就能用；`cheap`／`standard`／`strong` 三個等級別名會對到當下設定的模型。
 
@@ -109,6 +115,8 @@ uv run omni serve
 - **看板**：執行中的 agent 以票券顯示，右邊是它的即時活動流；下面是歷史與兩本帳
 - **＋新對話**：選「派工」或「聊天」。派工要選模型和工作目錄；聊天只要選模型
 - **聊天**：對話清單與對話內容，輸入列上方可以換下一則要用的模型、改 system prompt，可以匯出成 markdown
+- **生成**：生圖（放一張來源圖就變成改圖）、語音、音樂、轉錄。送出前顯示預估費用；送出後可以離開，做好的成品留在出件口
+- **作品**：所有做出來的作品，可依類型、來源、模型、日期篩選；點開看大圖或試聽、提示詞、費用，以及它的來源與衍生
 - **費用**：兩本帳的明細
 
 操作細節見 [USER_GUIDE.md](USER_GUIDE.md)。
@@ -183,7 +191,6 @@ cd gui && npm run dev:sandbox    # 連離線沙盒（7799）
 ## 目前的限制
 
 - 只在 Windows 11 上測試過
-- 圖片、語音、音樂、轉錄目前只能透過 MCP 工具使用，GUI 還沒有入口
 - 還不支援影片
 - 聊天不能附檔案；不能刪除對話，只能封存
 - 沒有桌面應用程式的外殼，GUI 是瀏覽器頁面

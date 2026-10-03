@@ -195,7 +195,7 @@ mcp__omniapi-mcp__complete_text(prompt="幫我規劃這個重構", model="strong
 | `eleven_turbo_v2_5` | ElevenLabs | ⚠️ deprecated → 改用 `eleven_flash_v2_5`（未公布關閉日） |
 | `gpt-4o-mini-tts` ⭐OpenAI 預設 | OpenAI | voice: alloy/echo/fable/onyx/nova/shimmer…；吃 `instructions` |
 | `tts-1` / `tts-1-hd` | OpenAI | 吃 `speed`、不吃 `instructions` |
-| `gemini-3.8-flash-tts` ⭐Gemini 預設 / `gemini-3.8-flash-lite-tts` | Google | voice 給 prebuilt 名稱如 `Kore`；**只吐 PCM → 回 WAV** |
+| `gemini-3.8-flash-tts` ⭐Gemini 預設 / `gemini-3.8-flash-lite-tts` | Google | voice 給 prebuilt 名稱如 `Kore`（共 30 個）；原始輸出是 PCM：機器上有 `ffmpeg` 時 `mp3_*` 會轉成 MP3，否則回 WAV |
 | `gemini-3.1-flash-tts-preview` | Google | ⚠️ deprecated（legacy preview，未公布關閉日） |
 
 ```
@@ -203,18 +203,19 @@ mcp__omniapi-mcp__generate_speech(text="晚安，今天辛苦了", model="gpt-4o
 ```
 > 模型路由自動：`eleven_*`→ElevenLabs、`gpt-4o-mini-tts`/`tts-1*`→OpenAI、`gemini-*-tts`→Gemini。
 > ⭐ `instructions` **只對 gpt-4o-mini-tts 有效**；tts-1/hd 改吃 `speed`；ElevenLabs 細調用 `voice_settings`。
-> ⚠️ Gemini TTS 不管你 `output_format` 填什麼都回 WAV（填 `pcm_*` 才給裸 PCM）。
+> ⚠️ Gemini TTS：`output_format` 填 `mp3_*`（預設）→ 有 ffmpeg 給 MP3、沒有給 WAV；填 `wav` 給 WAV；填 `pcm_*` 給裸 PCM。以回傳的 `output_format`／副檔名為準。
 > 📖 全參數、voice 清單、instructions 用法、output_format → **[`references/speech.md`](references/speech.md)**。
 
 ## 6️⃣ 音樂 — `generate_music` ＋ 三個 action 工具
 
-**兩個後端**：**Suno**（via kie.ai，內部輪詢，需 `PROVIDERS__KIE__API_KEY`）＋ **ElevenLabs Music**（同步，需**付費方案**）。
+**三個後端**：**Suno**（via kie.ai，內部輪詢，需 `PROVIDERS__KIE__API_KEY`）＋ **ElevenLabs Music**（同步，需**付費方案**）＋ **Google Lyria**（用 Gemini 的 key，需**付費層**）。
 
 **`generate_music`**：`prompt`★、`model`、`instrumental`、`output_format`/`music_length_ms`(ElevenLabs)、`custom_mode`+`style`+`title`+`vocal_gender`(Suno)、`negative_tags`。存到 `storage/music/<date>/`，Suno 另回 **`audio_id`** 供串接。
 
 **模型**：
 - Suno（kie.ai）：`V6`(預設)、`V6_MINI`(快/輕)、`V6_WILD`(實驗)。舊 id `V4`／`V4_5`／`V4_5PLUS`／`V4_5ALL`／`V5`／`V5_5` 上游已 **retired**，仍可送但會記 warning、隨時可能失效。
 - ElevenLabs：`music_v1`(預設)、`music_v2`、`music_v2_5`(最高品質)。
+- Google Lyria：`lyria-3.5`（完整歌曲，$0.08／首）、`lyria-3-clip-preview`（固定 30 秒，$0.04／首）。**只吃 `prompt` 與 `instrumental`**：歌詞用 `[Verse]`／`[Chorus]` 標籤直接寫進 prompt、長度用時間標記（`[0:00 - 0:10] Intro: …`）引導；`style`／`title`／`music_length_ms` 等對它無效。回傳多一個 `lyrics`（模型寫的歌詞與結構）與 `cost_usd`。
 
 **`edit_music(action)`**（Suno，6 種 action）：`extend` 延長既有曲、`cover` 翻唱上傳音檔、`upload_extend` 延長上傳音檔、`add_instrumental` 加伴奏、`add_vocals` 加人聲、`separate_vocals` 分軌。**各 action 的必填欄位見上方速查表。** `add_instrumental`／`add_vocals` 只吃 V6 家族。
 **`music_lyrics(action)`**：`generate` 寫歌詞（`prompt` ≤200 字元，另存 .txt）、`timestamped` 取字級時間軸（同步）。
@@ -224,6 +225,7 @@ mcp__omniapi-mcp__generate_speech(text="晚安，今天辛苦了", model="gpt-4o
 ```
 mcp__omniapi-mcp__generate_music(prompt="upbeat lo-fi hip-hop beat for studying", model="V6")
 mcp__omniapi-mcp__generate_music(prompt="jazzy piano ballad", model="V6", custom_mode=true, style="smooth jazz, slow", title="Midnight Keys", vocal_gender="f")
+mcp__omniapi-mcp__generate_music(prompt="city pop about a rainy evening, female vocal\n[Verse]\nRain on the window…", model="lyria-3.5")
 mcp__omniapi-mcp__edit_music(action="separate_vocals", task_id="...", audio_id="...", separation_type="split_stem")
 ```
 
@@ -271,6 +273,7 @@ mcp__omniapi-mcp__get_run(run_id="20260925130701-bf0", after_event=0)
 - `url` 是 GUI 的聊天頁（`http://127.0.0.1:7788/chat/<id>`），回報時附給使用者。
 - 回覆超過約 45 秒會回取件單（`status:"running"`、`task_id`，也帶 `conversation_id`）→ `get_job_result(task_id)` 領。
 - 錯誤回 `{error, status}`：404＝`conversation_id` 不存在；400＝模型不認得；409＝上一則還在回覆中。
+- **作品牆**：所有生成工具做出來的檔案（圖、語音、音樂、歌詞、逐字稿）都會登記進作品庫，使用者在 GUI 的 `/works` 看得到、搜得到、能下載；逐字稿會另存全文檔。`edit_image` 用 `image_path` 指到一件既有作品時，新圖會記得它的來源。
 - **費用**記在「聊天・生成帳」（GUI `/costs` 的第二本帳，工具名 `chat`；生圖、語音、音樂、轉錄的費用也在這本），跟派工帳分開。
 - 終端機裡也能聊：`omni chat "一句話" -m standard`（逐字顯示），不帶訊息進互動模式；`-r <conversation_id>` 接續同一段對話。
 

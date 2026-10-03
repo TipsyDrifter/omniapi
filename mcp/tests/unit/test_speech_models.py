@@ -350,7 +350,9 @@ class TestGeminiAudioFraming:
             assert wav.getframerate() == 16000
 
     @pytest.mark.asyncio
-    async def test_mp3_request_falls_back_to_wav_with_warning(self, caplog):
+    async def test_mp3_request_falls_back_to_wav_with_warning(self, caplog, monkeypatch):
+        # without a system ffmpeg there is nothing to encode MP3 with (with one: test_lyria_and_mp3.py)
+        monkeypatch.setattr("omniapi_mcp.capabilities.speech.ffmpeg_path", lambda: None)
         provider, _, _ = _make_gemini_provider()
         with caplog.at_level(logging.WARNING):
             result = await provider.synthesize("hi", output_format="mp3_44100_128")

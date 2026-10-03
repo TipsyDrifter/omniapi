@@ -6,6 +6,8 @@ import "./styles/board.css";
 import "./styles/dispatch.css";
 import "./styles/thread.css";
 import "./styles/chat.css";
+import "./styles/make.css";
+import "./styles/works.css";
 import App from "./App";
 
 createRoot(document.getElementById("root")!).render(

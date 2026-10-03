@@ -27,11 +27,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .artifacts import backfill, current_call, index_result
 from .bus import EventBus
 from .catalog import catalog
 from .chat import ChatManager
 from .config.settings import Settings
 from .core.job_manager import JobManager
+from .generate import GenerationManager
+from .recorder import extract_call_meta
 from .resources.image_resources import ImageResourceManager
 from .runs.manager import RunManager
 from .storage.manager import ImageStorageManager
@@ -66,6 +69,7 @@ class ServerContext:
     bus: EventBus
     runs: RunManager
     chat: Optional[ChatManager] = None  # optional so older test doubles still construct
+    generations: Optional[GenerationManager] = None
     started_at: float = field(default_factory=time.time)
     pid: int = field(default_factory=os.getpid)
     mode: str = "stdio"  # "stdio" | "daemon"
@@ -83,6 +87,16 @@ class Runtime:
 
     # ------------------------------------------------------------ build
     async def _build(self, settings: Settings, mode: str) -> ServerContext:
+        from .catalog import data_home
+        from .devmode import offline
+
+        if offline():
+            # a sandbox never writes into the owner's real works folder: its stand-in
+            # output goes under the sandbox's own data home (OMNIAPI_HOME)
+            sandbox_storage = data_home() / "storage"
+            if Path(settings.storage.base_path).resolve() != sandbox_storage.resolve():
+                logger.info("Offline sandbox: storage redirected %s -> %s", settings.storage.base_path, sandbox_storage)
+                settings.storage.base_path = str(sandbox_storage)
         storage_path = Path(settings.storage.base_path)
         for subdir in ["images", "cache", "logs"]:
             (storage_path / subdir).mkdir(parents=True, exist_ok=True)
@@ -127,6 +141,26 @@ class Runtime:
         )
         await asyncio.gather(cache_manager.initialize(), storage_manager.initialize())
 
+        # Works index (v1.1): a generation that finishes after its call returned a
+        # ticket is indexed from here; inline results are indexed by the recorder.
+        async def _index_late(result: Any) -> None:
+            call = current_call.get()
+            await index_result(ctx, call, result)
+            if call is not None and call.call_id:
+                # the ledger row of the ticketed call gets its real cost now, fetched or not
+                meta = extract_call_meta(result)
+                if not meta.get("error"):
+                    await store.settle_ticket_call(call.call_id, model=meta.get("model"), provider=meta.get("provider"), cost_usd=meta.get("cost_usd"))
+
+        ctx.jobs.on_late_result = _index_late
+
+        # GUI generation jobs (v1.1): whatever was still generating died with the last process
+        ctx.generations = GenerationManager(store, bus)
+        stale = await store.interrupt_running_generations()
+        if stale:
+            logger.info("Generation jobs left running by the previous process marked interrupted: %s", stale)
+        self._tasks.append(asyncio.create_task(self._first_backfill(ctx), name="artifact-backfill"))
+
         # Model discovery in the background: never block startup on a vendor.
         self._tasks.append(
             asyncio.create_task(self._discover(settings, bus), name="model-discovery")
@@ -139,6 +173,20 @@ class Runtime:
         else:
             logger.info("Storage retention sweep disabled — keeping all files")
         return ctx
+
+    @staticmethod
+    async def _first_backfill(ctx: ServerContext) -> None:
+        """First start with the works index: pick up what was generated before
+        it existed. Read-only on the files; later starts skip it (the CLI and
+        ``POST /api/artifacts/backfill`` re-scan on demand)."""
+        try:
+            if await ctx.store.artifact_counts():
+                return
+            res = await backfill(ctx.store, ctx.settings.storage.base_path)
+            if res["added_total"]:
+                logger.info("Works index backfilled: %s (%.1fs)", res["added"], res["seconds"])
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Works backfill failed: %s", e)
 
     @staticmethod
     async def _discover(settings: Settings, bus: EventBus) -> None:
@@ -220,6 +268,12 @@ class Runtime:
             # replies in flight store their partial text before the store closes
             if ctx.chat is not None:
                 await ctx.chat.close()
+        except Exception:
+            pass
+        try:
+            # jobs in flight record themselves as cancelled before the store closes
+            if ctx.generations is not None:
+                await ctx.generations.close()
         except Exception:
             pass
         await asyncio.gather(

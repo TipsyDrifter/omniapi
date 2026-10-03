@@ -7,6 +7,8 @@ conversations  chat threads and agent runs share this header table
 messages       chat turns (M6 fills; the daemon REST can already write them)
 runs           agent runs (M3 fills)
 events         per-run event stream (M3 fills)
+artifacts      one row per generated file — the works library (v1.1)
+uploads        reference images / audio handed in for a generation (v1.1)
 
 All JSON columns hold ``json.dumps`` text. Timestamps are unix seconds
 (REAL). Ids are strings chosen by the caller (uuid hex / run ids) except
@@ -114,6 +116,65 @@ CREATE TABLE IF NOT EXISTS events (
   payload_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, id);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  created_at REAL NOT NULL,
+  kind TEXT NOT NULL,              -- image | speech | music | transcript | lyrics
+  tool TEXT,
+  model TEXT,
+  provider TEXT,
+  title TEXT,
+  prompt TEXT,
+  params_json TEXT,
+  file_path TEXT NOT NULL UNIQUE,  -- absolute; one row per file
+  mime TEXT,
+  bytes INTEGER,
+  width INTEGER,
+  height INTEGER,
+  duration_s REAL,
+  text TEXT,                       -- transcript / lyrics body
+  cost_usd REAL,
+  source TEXT,                     -- mcp | gui | cli | backfill
+  call_id TEXT,
+  parent_id TEXT,                  -- the artifact an edit started from
+  hidden INTEGER NOT NULL DEFAULT 0,
+  meta_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_created ON artifacts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_artifacts_kind ON artifacts(kind, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS uploads (
+  id TEXT PRIMARY KEY,
+  created_at REAL NOT NULL,
+  kind TEXT NOT NULL,              -- image | audio
+  filename TEXT,
+  file_path TEXT NOT NULL,
+  mime TEXT,
+  bytes INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS generations (
+  id TEXT PRIMARY KEY,
+  created_at REAL NOT NULL,
+  finished_at REAL,
+  kind TEXT NOT NULL,              -- image | speech | music | transcript
+  tool TEXT NOT NULL,              -- the tool handler that runs it
+  model TEXT,
+  title TEXT,                      -- what the waiting card shows
+  params_json TEXT,                -- the full request, so a failed one can be sent again
+  sources_json TEXT,               -- {image|audio: {artifact_id|upload_id}} — ids, never paths
+  status TEXT NOT NULL,            -- running | done | error | cancelled | interrupted
+  error TEXT,
+  error_kind TEXT,                 -- quota | auth | rejected | timeout | too_large | unavailable | offline | interrupted | other
+  estimate_json TEXT,              -- the estimate shown before sending
+  cost_usd REAL,
+  call_id TEXT,
+  artifact_ids_json TEXT,
+  source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_generations_created ON generations(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_generations_status ON generations(status);
 """
 
 
@@ -230,7 +291,8 @@ class Store:
         sql = "SELECT * FROM calls"
         where, params = [], []
         if tool:
-            where.append("tool=?"); params.append(tool)
+            tools = [t for t in tool.split(",") if t]
+            where.append(f"tool IN ({', '.join('?' for _ in tools)})"); params += tools
         if since:
             where.append("ts>=?"); params.append(since)
         if where:
@@ -456,10 +518,245 @@ class Store:
         )
         return [_row(r) for r in await cur.fetchall()]
 
+    # ------------------------------------------------------------ artifacts / uploads (v1.1)
+    _ARTIFACT_COLS = (
+        "kind", "tool", "model", "provider", "title", "prompt", "file_path", "mime", "bytes",
+        "width", "height", "duration_s", "text", "cost_usd", "source", "call_id", "parent_id",
+    )
+
+    async def add_artifact(self, *, artifact_id: str | None = None, created_at: float | None = None,
+                           params: Any = None, meta: Any = None, **fields: Any) -> Optional[dict[str, Any]]:
+        """Index one generated file. ``file_path`` is unique: indexing the same
+        file twice is a no-op that returns ``None`` (backfill relies on this)."""
+        unknown = set(fields) - set(self._ARTIFACT_COLS)
+        if unknown:
+            raise ValueError(f"unknown artifact fields: {sorted(unknown)}")
+        aid = artifact_id or uuid.uuid4().hex[:16]
+        cols = ["id", "created_at", "params_json", "meta_json", *fields]
+        vals = [aid, created_at or time.time(), _dumps(params), _dumps(meta), *fields.values()]
+        cur = await self.db.execute(
+            f"INSERT OR IGNORE INTO artifacts ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})", vals
+        )
+        await self.db.commit()
+        if cur.rowcount == 0:
+            return None
+        return await self.artifact(aid)
+
+    async def artifact(self, artifact_id: str) -> Optional[dict[str, Any]]:
+        cur = await self.db.execute("SELECT * FROM artifacts WHERE id=?", (artifact_id,))
+        return _row(await cur.fetchone())
+
+    async def artifact_by_path(self, file_path: str) -> Optional[dict[str, Any]]:
+        cur = await self.db.execute("SELECT * FROM artifacts WHERE file_path=?", (file_path,))
+        return _row(await cur.fetchone())
+
+    async def artifacts(
+        self,
+        *,
+        limit: int = 60,
+        kind: str | None = None,
+        model: str | None = None,
+        source: str | None = None,
+        q: str | None = None,
+        before: float | None = None,
+        include_hidden: bool = False,
+        only_hidden: bool = False,
+        since: float | None = None,
+        until: float | None = None,
+        call_id: str | None = None,
+        artifact_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Newest first. ``before`` (a ``created_at``) pages backwards; ``q``
+        searches prompt, title, transcript text and the file name.
+        ``kind`` may be several, comma-separated (``music,lyrics``)."""
+        where, params = self._artifact_where(kind=kind, model=model, source=source, q=q, include_hidden=include_hidden,
+                                             only_hidden=only_hidden, since=since, until=until, call_id=call_id, artifact_id=artifact_id)
+        if before:
+            where.append("created_at<?"); params.append(before)
+        sql = "SELECT * FROM artifacts" + (" WHERE " + " AND ".join(where) if where else "")
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        cur = await self.db.execute(sql, params)
+        return [_row(r) for r in await cur.fetchall()]
+
+    @staticmethod
+    def _artifact_where(*, kind: str | None = None, model: str | None = None, source: str | None = None, q: str | None = None,
+                        include_hidden: bool = False, only_hidden: bool = False, since: float | None = None,
+                        until: float | None = None, call_id: str | None = None,
+                        artifact_id: str | None = None) -> tuple[list[str], list[Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if only_hidden:
+            where.append("hidden=1")
+        elif not include_hidden:
+            where.append("hidden=0")
+        if kind:
+            kinds = [k for k in kind.split(",") if k]
+            where.append(f"kind IN ({', '.join('?' for _ in kinds)})"); params += kinds
+        if model == "-":  # works that carry no model (backfilled audio)
+            where.append("model IS NULL")
+        elif model:
+            where.append("model=?"); params.append(model)
+        for col, val in (("source", source), ("call_id", call_id), ("id", artifact_id)):
+            if val:
+                where.append(f"{col}=?"); params.append(val)
+        if since:
+            where.append("created_at>=?"); params.append(since)
+        if until:
+            where.append("created_at<?"); params.append(until)
+        if q:
+            like = f"%{q}%"
+            where.append("(prompt LIKE ? OR title LIKE ? OR text LIKE ? OR file_path LIKE ? OR model LIKE ?)"); params += [like] * 5
+        return where, params
+
+    async def artifact_counts(self, **filters: Any) -> dict[str, int]:
+        """Visible works per kind; with filters (the wall's current ones,
+        except ``kind``) the counts follow them."""
+        where, params = self._artifact_where(**filters)
+        cur = await self.db.execute(
+            "SELECT kind, COUNT(*) AS n FROM artifacts" + (" WHERE " + " AND ".join(where) if where else "") + " GROUP BY kind", params
+        )
+        return {r["kind"]: r["n"] for r in await cur.fetchall()}
+
+    async def artifact_facets(self) -> dict[str, Any]:
+        """What the wall's filters can offer: models and doors that actually
+        occur among the visible works, the hidden count, the date span."""
+        out: dict[str, Any] = {}
+        for col in ("model", "source"):
+            cur = await self.db.execute(f"SELECT {col} AS v, COUNT(*) AS n FROM artifacts WHERE hidden=0 GROUP BY {col} ORDER BY n DESC")
+            out[col + "s"] = [{"value": r["v"], "n": r["n"]} for r in await cur.fetchall()]
+        cur = await self.db.execute("SELECT COUNT(*) AS n FROM artifacts WHERE hidden=1")
+        out["hidden"] = (await cur.fetchone())["n"]
+        cur = await self.db.execute("SELECT MIN(created_at) AS a, MAX(created_at) AS b FROM artifacts WHERE hidden=0")
+        r = await cur.fetchone()
+        out["oldest"], out["newest"] = r["a"], r["b"]
+        return out
+
+    async def artifact_children(self, artifact_id: str) -> list[dict[str, Any]]:
+        """Works made from this one (edits of an image, transcripts of an audio)."""
+        cur = await self.db.execute("SELECT * FROM artifacts WHERE parent_id=? ORDER BY created_at ASC", (artifact_id,))
+        return [_row(r) for r in await cur.fetchall()]
+
+    async def artifact_neighbours(self, created_at: float, **filters: Any) -> dict[str, Optional[str]]:
+        """The ids just newer and just older than a work, under the wall's filters."""
+        where, params = self._artifact_where(**filters)
+        base = "SELECT id FROM artifacts WHERE " + " AND ".join([*where, "created_at{op}?"]) + " ORDER BY created_at {dir} LIMIT 1"
+        cur = await self.db.execute(base.format(op=">", dir="ASC"), [*params, created_at])
+        newer = await cur.fetchone()
+        cur = await self.db.execute(base.format(op="<", dir="DESC"), [*params, created_at])
+        older = await cur.fetchone()
+        return {"newer": newer["id"] if newer else None, "older": older["id"] if older else None}
+
+    async def artifact_ids_by_call(self, call_ids: list[str]) -> dict[str, list[str]]:
+        if not call_ids:
+            return {}
+        cur = await self.db.execute(
+            f"SELECT id, call_id FROM artifacts WHERE call_id IN ({', '.join('?' for _ in call_ids)}) ORDER BY created_at ASC", call_ids
+        )
+        out: dict[str, list[str]] = {}
+        for r in await cur.fetchall():
+            out.setdefault(r["call_id"], []).append(r["id"])
+        return out
+
+    async def settle_ticket_call(self, call_id: str, *, model: str | None, provider: str | None, cost_usd: float | None) -> None:
+        """A call that returned a ticket has now really finished: put what it
+        cost on its own ledger row (it used to be recorded only if someone
+        came back for the result — on *that* call's row)."""
+        await self.db.execute(
+            "UPDATE calls SET status='ok', model=COALESCE(?, model), provider=COALESCE(?, provider), cost_usd=? WHERE id=? AND status IN ('ticket','started')",
+            (model, provider, cost_usd, call_id),
+        )
+        await self.db.commit()
+
+    async def set_artifact_hidden(self, artifact_id: str, hidden: bool) -> None:
+        """Hiding takes a work off the wall; the file is never touched."""
+        await self.db.execute("UPDATE artifacts SET hidden=? WHERE id=?", (1 if hidden else 0, artifact_id))
+        await self.db.commit()
+
+    async def add_upload(self, *, upload_id: str, kind: str, filename: str, file_path: str, mime: str, size: int) -> dict[str, Any]:
+        now = time.time()
+        await self.db.execute(
+            "INSERT INTO uploads (id, created_at, kind, filename, file_path, mime, bytes) VALUES (?,?,?,?,?,?,?)",
+            (upload_id, now, kind, filename, file_path, mime, size),
+        )
+        await self.db.commit()
+        return {"id": upload_id, "created_at": now, "kind": kind, "filename": filename, "file_path": file_path, "mime": mime, "bytes": size}
+
+    async def upload(self, upload_id: str) -> Optional[dict[str, Any]]:
+        cur = await self.db.execute("SELECT * FROM uploads WHERE id=?", (upload_id,))
+        return _row(await cur.fetchone())
+
+    async def artifacts_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        if not ids:
+            return []
+        cur = await self.db.execute(f"SELECT * FROM artifacts WHERE id IN ({', '.join('?' for _ in ids)})", ids)
+        rows = {r["id"]: _row(r) for r in await cur.fetchall()}
+        return [rows[i] for i in ids if i in rows]
+
+    async def artifact_costs(self, *, tool: str, model: str, limit: int = 200) -> list[dict[str, Any]]:
+        """What past works of one tool and model actually cost (newest first):
+        the basis for estimating token-priced models."""
+        cur = await self.db.execute(
+            "SELECT cost_usd, params_json, LENGTH(prompt) AS prompt_len FROM artifacts"
+            " WHERE tool=? AND model=? AND cost_usd IS NOT NULL AND cost_usd>0 ORDER BY created_at DESC LIMIT ?",
+            (tool, model, limit),
+        )
+        return [_row(r) for r in await cur.fetchall()]
+
+    # ------------------------------------------------------------ generation jobs (v1.1)
+    _GENERATION_COLS = ("finished_at", "model", "title", "status", "error", "error_kind", "cost_usd", "call_id")
+
+    async def create_generation(self, generation_id: str, *, kind: str, tool: str, model: str | None, title: str | None,
+                                params: Any, sources: Any, estimate: Any, source: str) -> dict[str, Any]:
+        await self.db.execute(
+            "INSERT INTO generations (id, created_at, kind, tool, model, title, params_json, sources_json, status, estimate_json, source)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (generation_id, time.time(), kind, tool, model, title, _dumps(params), _dumps(sources), "running", _dumps(estimate), source),
+        )
+        await self.db.commit()
+        return await self.generation(generation_id)  # type: ignore[return-value]
+
+    async def update_generation(self, generation_id: str, *, artifact_ids: list[str] | None = None, **fields: Any) -> None:
+        unknown = set(fields) - set(self._GENERATION_COLS)
+        if unknown:
+            raise ValueError(f"unknown generation fields: {sorted(unknown)}")
+        sets = [f"{k}=?" for k in fields]
+        vals = list(fields.values())
+        if artifact_ids is not None:
+            sets.append("artifact_ids_json=?"); vals.append(_dumps(artifact_ids))
+        if not sets:
+            return
+        await self.db.execute(f"UPDATE generations SET {', '.join(sets)} WHERE id=?", [*vals, generation_id])
+        await self.db.commit()
+
+    async def generation(self, generation_id: str) -> Optional[dict[str, Any]]:
+        cur = await self.db.execute("SELECT * FROM generations WHERE id=?", (generation_id,))
+        return _row(await cur.fetchone())
+
+    async def generations(self, *, limit: int = 30, status: str | None = None, kind: str | None = None) -> list[dict[str, Any]]:
+        where, params = [], []
+        for col, val in (("status", status), ("kind", kind)):
+            if val:
+                where.append(f"{col}=?"); params.append(val)
+        sql = "SELECT * FROM generations" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY created_at DESC LIMIT ?"
+        cur = await self.db.execute(sql, [*params, limit])
+        return [_row(r) for r in await cur.fetchall()]
+
+    async def interrupt_running_generations(self) -> int:
+        """At startup nothing can still be running: the tasks died with the
+        previous process."""
+        cur = await self.db.execute(
+            "UPDATE generations SET status='interrupted', error_kind='interrupted', finished_at=?,"
+            " error='the service restarted while this was generating' WHERE status='running'",
+            (time.time(),),
+        )
+        await self.db.commit()
+        return cur.rowcount
+
     # ------------------------------------------------------------ misc
     async def stats(self) -> dict[str, Any]:
         out: dict[str, Any] = {"path": str(self.path)}
-        for table in ("calls", "conversations", "messages", "runs", "events"):
+        for table in ("calls", "conversations", "messages", "runs", "events", "artifacts", "generations"):
             cur = await self.db.execute(f"SELECT COUNT(*) FROM {table}")
             out[table] = (await cur.fetchone())[0]
         return out

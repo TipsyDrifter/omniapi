@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -90,6 +90,11 @@ def _subdirs(parent: Path, *, prefix: str = "", limit: int = 200) -> list[str]:
 
 
 HEARTBEAT_SECONDS = 300
+
+#: upload caps follow what the vendors accept: 50 MB per reference image
+#: (gpt-image edits), 25 MB per audio file (OpenAI transcription)
+UPLOAD_MAX_IMAGE = 50 * 1024 * 1024
+UPLOAD_MAX_AUDIO = 25 * 1024 * 1024
 
 
 def _in_job() -> Optional[bool]:
@@ -196,6 +201,7 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             "bus_subscribers": c.bus.subscriber_count,
             "live_runs": c.runs.live_count,
             "live_chats": c.chat.live_count if c.chat else 0,
+            "live_generations": c.generations.live_count if c.generations else 0,
             "dev": os.environ.get("OMNIAPI_DEV") == "1",
             "offline": os.environ.get("OMNIAPI_OFFLINE") == "1",
             "data_home": str(data_home()),
@@ -228,7 +234,14 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
 
     @app.get("/api/calls")
     async def calls(limit: int = Query(50, le=500), tool: Optional[str] = None, since: Optional[float] = None) -> list[dict[str, Any]]:
-        return await ctx().store.calls(limit=limit, tool=tool, since=since)
+        """Ledger rows, newest first; ``tool`` may list several. Each row names
+        the works it produced (``artifact_ids``)."""
+        store = ctx().store
+        rows = await store.calls(limit=limit, tool=tool, since=since)
+        made = await store.artifact_ids_by_call([r["id"] for r in rows])
+        for r in rows:
+            r["artifact_ids"] = made.get(r["id"], [])
+        return rows
 
     @app.get("/api/calls/{call_id}")
     async def call(call_id: str) -> dict[str, Any]:
@@ -437,6 +450,265 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             return {"path": str(p), "parent": str(parent), "exists": False, "dirs": [str(parent / n) for n in names], "home": str(Path.home())}
         parent = str(p.parent) if p.parent != p else None
         return {"path": str(p), "parent": parent, "exists": True, "dirs": [str(p / n) for n in _subdirs(p)], "home": str(Path.home())}
+
+    # ------------------------------------------------------------ works library (v1.1)
+    async def _artifact_or_404(artifact_id: str) -> dict[str, Any]:
+        row = await ctx().store.artifact(artifact_id)
+        if not row:
+            raise HTTPException(404, "artifact not found")
+        return row
+
+    @app.get("/api/artifacts")
+    async def artifacts(
+        limit: int = Query(60, ge=1, le=500),
+        kind: Optional[str] = None,
+        model: Optional[str] = None,
+        source: Optional[str] = None,
+        q: Optional[str] = None,
+        before: Optional[float] = None,
+        hidden: bool = False,
+        only_hidden: bool = False,
+        since: Optional[float] = None,
+        until: Optional[float] = None,
+        call_id: Optional[str] = None,
+        id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Generated works, newest first, from every door (MCP, GUI, CLI, backfill).
+
+        ``kind`` may list several (``music,lyrics``); ``model=-`` means works
+        without a model; ``since`` / ``until`` bound ``created_at``; ``id`` asks about one
+        work — it comes back only if it passes the other filters (how the live
+        wall decides whether a new arrival belongs on it).
+        ``counts`` is the whole wall per kind, ``matching`` the same under the
+        current filters (``kind`` aside) — what the kind tabs show."""
+        from ..artifacts import public_row
+
+        store = ctx().store
+        filters = dict(model=model, source=source, q=q, include_hidden=hidden, only_hidden=only_hidden, since=since, until=until, call_id=call_id)
+        rows = await store.artifacts(limit=limit, kind=kind, before=before, artifact_id=id, **filters)
+        for r in rows:
+            if r.get("text") and len(r["text"]) > 400:  # the list carries a preview; the single row has it all
+                r["text"] = r["text"][:400] + "…"
+        return {"items": [public_row(r) for r in rows], "counts": await store.artifact_counts(),
+                "matching": await store.artifact_counts(**filters),
+                "next_before": rows[-1]["created_at"] if len(rows) == limit else None}
+
+    @app.get("/api/artifacts/facets")
+    async def artifact_facets() -> dict[str, Any]:
+        """What the wall can filter by: the models and doors that occur, how many are hidden, the date span."""
+        return await ctx().store.artifact_facets()
+
+    @app.post("/api/artifacts/backfill")
+    async def artifacts_backfill(dry_run: bool = False) -> dict[str, Any]:
+        """Re-scan the storage folder for files that are not indexed yet."""
+        from ..artifacts import backfill
+
+        return await backfill(ctx().store, settings.storage.base_path, dry_run=dry_run)
+
+    @app.get("/api/artifacts/{artifact_id}")
+    async def artifact(
+        artifact_id: str,
+        kind: Optional[str] = None,
+        model: Optional[str] = None,
+        source: Optional[str] = None,
+        q: Optional[str] = None,
+        only_hidden: bool = False,
+        since: Optional[float] = None,
+        until: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """One work in full, with what it was made from (``parent``), what was
+        made from it (``children``) and its neighbours on the wall under the
+        given filters (``newer`` / ``older`` ids, for stepping through)."""
+        from ..artifacts import public_row
+
+        store = ctx().store
+        row = await _artifact_or_404(artifact_id)
+        out = public_row(row)
+        slim = lambda r: {k: v for k, v in public_row(r).items() if k not in ("text", "params", "meta")}  # noqa: E731
+        parent = await store.artifact(row["parent_id"]) if row.get("parent_id") else None
+        out["parent"] = slim(parent) if parent else None
+        out["children"] = [slim(c) for c in await store.artifact_children(artifact_id)]
+        out.update(await store.artifact_neighbours(row["created_at"], kind=kind, model=model, source=source, q=q,
+                                                   only_hidden=only_hidden, since=since, until=until))
+        return out
+
+    @app.patch("/api/artifacts/{artifact_id}")
+    async def artifact_update(artifact_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """``{"hidden": true}`` takes a work off the wall. The file stays."""
+        from ..artifacts import public_row
+
+        _check_fields(body, {"hidden"})
+        await _artifact_or_404(artifact_id)
+        if "hidden" in body:
+            await ctx().store.set_artifact_hidden(artifact_id, bool(body["hidden"]))
+        return public_row(await _artifact_or_404(artifact_id))
+
+    def _send_file(path: str, mime: Optional[str], *, download: bool, name: Optional[str] = None):
+        from urllib.parse import quote
+
+        from fastapi.responses import FileResponse
+
+        from ..artifacts import mime_for
+
+        p = Path(path)
+        if not p.is_file():
+            raise HTTPException(410, "the file is no longer on disk")
+        headers = {}
+        if download:
+            headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(name or p.name)}"
+        return FileResponse(str(p), media_type=mime or mime_for(p), headers=headers)
+
+    @app.get("/api/artifacts/{artifact_id}/file")
+    async def artifact_file(artifact_id: str, download: bool = False):
+        """The work itself. Paths come from the index, never from the request,
+        so this cannot be pointed at anything that was not generated here."""
+        row = await _artifact_or_404(artifact_id)
+        return _send_file(row["file_path"], row.get("mime"), download=download)
+
+    @app.get("/api/artifacts/{artifact_id}/thumb")
+    async def artifact_thumb(artifact_id: str, w: int = Query(480, ge=64, le=1600)):
+        """A small WebP of an image work (cached under the data home)."""
+        from fastapi.responses import FileResponse
+
+        row = await _artifact_or_404(artifact_id)
+        if row["kind"] != "image":
+            raise HTTPException(400, "only images have thumbnails")
+        src = Path(row["file_path"])
+        if not src.is_file():
+            raise HTTPException(410, "the file is no longer on disk")
+        width = min((240, 480, 960, 1600), key=lambda s: abs(s - w))
+        out = data_home() / "cache" / "thumbs" / f"{artifact_id}_{width}.webp"
+        if not out.is_file() or out.stat().st_mtime < src.stat().st_mtime:
+
+            def render() -> None:
+                from PIL import Image
+
+                out.parent.mkdir(parents=True, exist_ok=True)
+                with Image.open(src) as im:
+                    im.thumbnail((width, width * 4))
+                    im.save(out, format="WEBP", quality=82)
+
+            await asyncio.to_thread(render)
+        return FileResponse(str(out), media_type="image/webp", headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.post("/api/uploads")
+    async def upload(request: Request, filename: str = Query(..., min_length=1, max_length=255)) -> dict[str, Any]:
+        """Take a reference image or an audio file (raw request body) so a
+        generation can use it. Whitelisted types, size-capped, stored under
+        ``uploads/<date>/`` in the storage folder with a name of our own."""
+        import uuid
+        from datetime import datetime, timezone
+
+        import aiofiles
+
+        from ..artifacts import mime_for
+        from ..artifacts.index import AUDIO_EXTS, IMAGE_EXTS
+
+        ext = Path(filename).suffix.lower()
+        if ext in IMAGE_EXTS:
+            kind, cap = "image", UPLOAD_MAX_IMAGE
+        elif ext in AUDIO_EXTS - {".pcm"} or ext in (".webm", ".mpga", ".mpeg"):
+            kind, cap = "audio", UPLOAD_MAX_AUDIO
+        else:
+            raise HTTPException(415, f"unsupported file type '{ext or filename}': images (png, jpg, webp, gif) and audio (mp3, wav, m4a, mp4, ogg, flac, webm) only")
+        now = datetime.now(timezone.utc)
+        upload_id = uuid.uuid4().hex[:16]
+        out_dir = Path(settings.storage.base_path) / "uploads" / now.strftime("%Y-%m-%d")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = (out_dir / f"upload_{now.strftime('%Y%m%d%H%M%S')}_{upload_id[:8]}{ext}").resolve()
+        size = 0
+        try:
+            async with aiofiles.open(path, "wb") as f:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > cap:
+                        raise HTTPException(413, f"{kind} uploads are limited to {cap // (1024 * 1024)} MB")
+                    await f.write(chunk)
+            if size == 0:
+                raise HTTPException(400, "empty upload")
+            if kind == "image":
+
+                def verify() -> None:
+                    from PIL import Image
+
+                    with Image.open(path) as im:
+                        im.verify()
+
+                try:
+                    await asyncio.to_thread(verify)
+                except Exception:
+                    raise HTTPException(400, "the file is not a readable image")
+        except HTTPException:
+            path.unlink(missing_ok=True)
+            raise
+        return await ctx().store.add_upload(upload_id=upload_id, kind=kind, filename=Path(filename).name, file_path=str(path), mime=mime_for(path), size=size)
+
+    @app.get("/api/uploads/{upload_id}/file")
+    async def upload_file(upload_id: str):
+        row = await ctx().store.upload(upload_id)
+        if not row:
+            raise HTTPException(404, "upload not found")
+        return _send_file(row["file_path"], row.get("mime"), download=False)
+
+    # ------------------------------------------------------------ generate page (v1.1)
+    def generations():
+        m = ctx().generations
+        if m is None:
+            raise HTTPException(503, "generation is not available")
+        return m
+
+    @app.get("/api/generate/options")
+    async def generate_options(refresh_voices: bool = False) -> dict[str, Any]:
+        """What the generate page can offer now: models per kind with whether
+        each can be called (and why not), image request shapes, voices."""
+        from ..generate import options
+
+        return await options(ctx(), refresh_voices=refresh_voices)
+
+    @app.post("/api/generate/estimate")
+    async def generate_estimate(body: dict[str, Any]) -> dict[str, Any]:
+        """The cost of a request before it is sent (see ``generate/estimate.py`` for ``basis``)."""
+        from ..generate import GenerationError
+
+        _check_fields(body, {"kind", "params", "sources", "duration_s"})
+        try:
+            return await generations().estimate(body.get("kind") or "", body.get("params"), body.get("sources"), duration_s=body.get("duration_s"))
+        except GenerationError as e:
+            raise _chat_error(e)
+
+    @app.get("/api/generations")
+    async def generation_list(limit: int = Query(30, ge=1, le=200), status: Optional[str] = None, kind: Optional[str] = None) -> list[dict[str, Any]]:
+        return await generations().list(limit=limit, status=status, kind=kind)
+
+    @app.post("/api/generations")
+    async def generation_start(body: dict[str, Any]) -> dict[str, Any]:
+        """Start a generation. Returns at once with ``status: running``; how it
+        ends arrives on /ws (``generation.finished``) and stays readable here."""
+        from ..generate import GenerationError
+
+        _check_fields(body, {"kind", "params", "sources", "duration_s"})
+        try:
+            return await generations().start(body.get("kind") or "", body.get("params"), body.get("sources"), duration_s=body.get("duration_s"))
+        except GenerationError as e:
+            raise _chat_error(e)
+
+    @app.get("/api/generations/{generation_id}")
+    async def generation_get(generation_id: str) -> dict[str, Any]:
+        from ..generate import GenerationError
+
+        try:
+            return await generations().get(generation_id)
+        except GenerationError as e:
+            raise _chat_error(e)
+
+    @app.post("/api/generations/{generation_id}/cancel")
+    async def generation_cancel(generation_id: str) -> dict[str, Any]:
+        from ..generate import GenerationError
+
+        try:
+            return await generations().cancel(generation_id)
+        except GenerationError as e:
+            raise _chat_error(e)
 
     @app.get("/api/events")
     async def events(limit: int = Query(100, le=500), since_seq: int = 0) -> list[dict[str, Any]]:

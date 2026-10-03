@@ -81,6 +81,17 @@ a.stamp-btn { display: inline-block; }
 .dp-mfilter .dp-in { flex: 1; min-width: 0; }
 .dp-count { font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); white-space: nowrap; }
 
+/* 廠商分類：一排小頁籤（數字跟著搜尋走）；選「全部」時清單裡按廠商分段，段落標題黏在頂端 */
+.dp-vendors { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
+.dp-vendors button { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-xs); color: var(--ink-70); border: 1.5px solid var(--ink-25); padding: 3px 8px 2px; }
+.dp-vendors button .n { font-family: var(--font-mono); font-weight: 400; font-size: var(--fs-m11); margin-left: 3px; }
+.dp-vendors button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.dp-vendors button:not([aria-pressed="true"]):not(:disabled):hover { border-color: var(--ink); color: var(--ink); }
+.dp-mgroup { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; justify-content: space-between; padding: 5px 9px 4px; background: var(--paper); border-bottom: 1px solid var(--ink-25); }
+.dp-mgroup .zh { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-xs); color: var(--ink); }
+.dp-mgroup .n { font-family: var(--font-mono); font-size: var(--fs-m11); color: var(--ink-70); }
+.dp-off .dp-vendors button { color: var(--ink-70); border-style: dashed; cursor: not-allowed; }
+
 .dp-mlist { max-height: 318px; overflow-y: auto; border: 1.5px solid var(--ink-25); background: var(--paper); scrollbar-color: var(--ink-45) transparent; }
 .dp-mrow {
   display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto; column-gap: 9px; align-items: baseline;

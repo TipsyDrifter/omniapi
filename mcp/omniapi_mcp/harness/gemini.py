@@ -17,6 +17,7 @@ import logging
 import uuid
 from typing import Any, AsyncIterator, Optional
 
+from ..capabilities.text import fold_unreported_output
 from ..catalog import catalog
 from .base import HEADLESS_SYSTEM_APPEND, HarnessAdapter, clean_env, which_cli
 from .events import RunEvent, RunSpec
@@ -112,12 +113,17 @@ class GeminiHarness(HarnessAdapter):
             if self._cancelled:
                 yield RunEvent("error", {"message": "cancelled"})
                 return
-            norm = {
-                "prompt_tokens": stats.get("input_tokens") or stats.get("prompt_tokens") or 0,
-                "completion_tokens": stats.get("output_tokens") or stats.get("candidates_tokens") or 0,
-                "cached_tokens": stats.get("cached_tokens") or stats.get("cached_content_tokens") or 0,
-                "raw": stats,
-            }
+            # The CLI's stats: input_tokens includes the cached part ("cached"), and thinking
+            # is only visible as total - input - output — billed as output, so fold it in.
+            norm = fold_unreported_output(
+                {
+                    "prompt_tokens": stats.get("input_tokens") or stats.get("prompt_tokens") or 0,
+                    "completion_tokens": stats.get("output_tokens") or stats.get("candidates_tokens") or 0,
+                    "total_tokens": stats.get("total_tokens") or 0,
+                    "cached_tokens": stats.get("cached") or stats.get("cached_tokens") or stats.get("cached_content_tokens") or 0,
+                    "raw": stats,
+                }
+            )
             yield RunEvent(
                 "result",
                 {

@@ -63,7 +63,28 @@ def test_routing_errors_and_overrides(tmp_path, monkeypatch):
         r.resolve(RunSpec(prompt="x", model="gpt-6-sol", harness="claude"))  # needs openrouter
     r2 = HarnessRegistry(_settings(openai=True, openrouter=True))
     spec = r2.resolve(RunSpec(prompt="x", model="gpt-6-sol", harness="claude"))
-    assert spec.endpoint == "openrouter"
+    # OpenRouter knows the model under a vendor-prefixed id and bills it: the run becomes an OpenRouter run
+    assert (spec.endpoint, spec.resolved_model, spec.provider) == ("openrouter", "openai/gpt-6-sol", "openrouter")
+    r3 = HarnessRegistry(_settings(openai=True, gemini=True, openrouter=True, deepseek=True))
+    spec = r3.resolve(RunSpec(prompt="x", model="gemini-2.5-pro", harness="claude"))
+    assert spec.resolved_model == "google/gemini-2.5-pro"
+    # the other two harnesses only talk to their own vendor
+    with pytest.raises(ValueError, match="codex harness cannot run 'gemini-3.8-flash'.*Use 'gemini' or 'claude'"):
+        r3.resolve(RunSpec(prompt="x", model="gemini-3.8-flash", harness="codex"))
+    with pytest.raises(ValueError, match="gemini harness cannot run 'deepseek-flash'.*Use 'claude'\\."):
+        r3.resolve(RunSpec(prompt="x", model="deepseek-flash", harness="gemini"))
+    assert r3.resolve(RunSpec(prompt="x", model="gpt-6-sol", harness="codex")).resolved_model == "gpt-6-sol"
+
+
+def test_claude_via_openrouter_refuses_a_model_the_gateway_does_not_list(monkeypatch):
+    from omniapi_mcp.harness import registry as reg
+
+    listed = {"openai/gpt-6-sol", "moonshotai/kimi-k3"}
+    monkeypatch.setattr(reg.catalog, "ids", lambda **kw: listed if kw.get("provider") == "openrouter" else set())
+    r = HarnessRegistry(_settings(openai=True, openrouter=True))
+    assert r.resolve(RunSpec(prompt="x", model="gpt-6-sol", harness="claude")).resolved_model == "openai/gpt-6-sol"
+    with pytest.raises(ValueError, match="OpenRouter does not list 'openai/gpt-5.5-pro'"):
+        r.resolve(RunSpec(prompt="x", model="gpt-5.5-pro", harness="claude"))
 
 
 def test_codex_command_shape(monkeypatch, tmp_path):
@@ -91,6 +112,13 @@ def test_codex_item_events():
     ev = CodexHarness._item_events({"id": "i3", "type": "file_change", "changes": [{"path": "a.py", "kind": "update"}], "status": "completed"}, {})
     assert ev[0].payload["name"] == "Edit" and "a.py" in ev[0].payload["input"]["file_path"]
     assert CodexHarness._item_events({"type": "todo_list"}, {}) == []
+
+
+def test_claude_hook_chatter_is_dropped_at_the_adapter():
+    """Sixteen hook_started / hook_response rows opened every run on the board."""
+    from omniapi_mcp.harness.claude import _NOISY_SYSTEM_SUBTYPES
+
+    assert {"hook_started", "hook_response", "thinking_tokens"} <= _NOISY_SYSTEM_SUBTYPES
 
 
 def test_dsk_stream_translation_and_cost():

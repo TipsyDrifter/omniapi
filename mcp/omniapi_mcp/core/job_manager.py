@@ -18,12 +18,18 @@ call keeps running and its result is available to a later get() call.
 """
 
 import asyncio
+import contextvars
 import logging
 import time
 import uuid
-from typing import Any, Coroutine
+from typing import Any, Awaitable, Callable, Coroutine
 
 logger = logging.getLogger(__name__)
+
+#: Set by a caller that has no client-side timeout to beat (the GUI's
+#: generation jobs): ``run`` then waits for the real result however long it
+#: takes instead of handing back a ticket.
+wait_to_finish: contextvars.ContextVar[bool] = contextvars.ContextVar("omniapi_wait_to_finish", default=False)
 
 
 class JobManager:
@@ -33,6 +39,10 @@ class JobManager:
         self.soft_timeout = soft_timeout
         self.retain_seconds = retain_seconds
         self._jobs: dict[str, dict[str, Any]] = {}
+        #: awaited with the result of a job that finished *after* its call had
+        #: already returned a ticket (the caller never saw this result, so
+        #: whoever needs it — the works index — has to be told here)
+        self.on_late_result: Callable[[Any], Awaitable[Any]] | None = None
 
     def _sweep(self) -> None:
         """Drop finished jobs that were never fetched within retain_seconds."""
@@ -55,6 +65,11 @@ class JobManager:
                 job["result"] = result
                 job["status"] = "completed"
                 job["finished_at"] = time.monotonic()
+                if job.get("ticketed") and self.on_late_result is not None:
+                    try:
+                        await self.on_late_result(result)
+                    except Exception as hook_err:  # noqa: BLE001 — bookkeeping never fails a job
+                        logger.warning("late-result hook failed for %s: %s", task_id, hook_err)
         except Exception as e:  # noqa: BLE001 — capture to surface on fetch
             job = self._jobs.get(task_id)
             if job is not None:
@@ -76,7 +91,9 @@ class JobManager:
     ) -> dict[str, Any]:
         """Return coro's result if it finishes within the soft window, else a ticket."""
         self._sweep()
-        timeout = self.soft_timeout if soft_timeout is None else soft_timeout
+        timeout: float | None = self.soft_timeout if soft_timeout is None else soft_timeout
+        if wait_to_finish.get():
+            timeout = None
         task_id = f"job_{uuid.uuid4().hex[:12]}"
         task = asyncio.ensure_future(self._run_bg(task_id, coro))
         self._jobs[task_id] = {
@@ -87,9 +104,16 @@ class JobManager:
             "error": None,
             "finished_at": 0.0,
         }
-        done, _ = await asyncio.wait({task}, timeout=timeout)
+        try:
+            done, _ = await asyncio.wait({task}, timeout=timeout)
+        except asyncio.CancelledError:
+            # the caller gave up (a GUI generation was cancelled): the work goes with it
+            task.cancel()
+            self._jobs.pop(task_id, None)
+            raise
         if task in done:
             return self._deliver(task_id)
+        self._jobs[task_id]["ticketed"] = True
         return {
             "status": "running",
             "task_id": task_id,

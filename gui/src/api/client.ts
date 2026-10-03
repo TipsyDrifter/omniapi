@@ -1,6 +1,17 @@
 /* REST 客戶端：同源相對路徑（dev 由 Vite proxy 到 7788，build 後由 daemon 直接掛）。 */
 import type {
+  Artifact,
+  ArtifactDetail,
+  ArtifactFacets,
+  ArtifactList,
+  CallRow,
+  WallQuery,
   BusEvent,
+  Estimate,
+  GenOptions,
+  GenRequest,
+  Generation,
+  Upload,
   ChatDetail,
   ChatParams,
   ChatSummary,
@@ -88,4 +99,51 @@ export const api = {
   /** 匯出 markdown 的網址：直接當連結的 href（瀏覽器會下載） */
   chatExportUrl: (id: string, download = true) => `/api/chat/${encodeURIComponent(id)}/export${download ? "" : "?download=false"}`,
   cancelRun: (id: string) => req<{ run_id: string; state: string; cancelled: boolean }>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+
+  /* ---- 1.1-M3 生成頁：工作在背景跑，開始／結束走 /ws（generation.started／finished） ---- */
+  generateOptions: () => req<GenOptions>("/api/generate/options"),
+  /** 預估費用（半填的表單也會回答） */
+  estimate: (body: GenRequest) =>
+    req<Estimate>("/api/generate/estimate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  /** 立刻回來，status＝running。400 的 detail 是給人看的原因 */
+  startGeneration: (body: GenRequest) =>
+    req<Generation>("/api/generations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  /** 新的在前 */
+  generations: (opts: { limit?: number; status?: string; kind?: string } = {}) => req<Generation[]>(`/api/generations${qs({ limit: opts.limit ?? 30, status: opts.status, kind: opts.kind })}`),
+  generation: (id: string) => req<Generation>(`/api/generations/${encodeURIComponent(id)}`),
+  cancelGeneration: (id: string) => req<Generation>(`/api/generations/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  /** 上傳：請求本文就是檔案內容（不是 multipart）。圖 50 MB、音檔 25 MB（413）；型別不收 415 */
+  upload: (file: File) =>
+    req<Upload>(`/api/uploads${qs({ filename: file.name })}`, { method: "POST", headers: { "content-type": file.type || "application/octet-stream" }, body: file }),
+  uploadFileUrl: (id: string) => `/api/uploads/${encodeURIComponent(id)}/file`,
+  /** 作品庫，新的在前；before＝上一頁的 next_before */
+  artifacts: (opts: { kind?: string; limit?: number; before?: number | null } = {}) =>
+    req<ArtifactList>(`/api/artifacts${qs({ kind: opts.kind, limit: opts.limit ?? 24, before: opts.before ?? undefined })}`),
+  /** 單筆（文字全文；清單裡只有預覽） */
+  artifact: (id: string) => req<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`),
+
+  /* ---- 1.1-M4 作品牆 ---- */
+  /** 牆的一頁：新的在前；before＝上一頁的 next_before；limit 上限 500 */
+  wall: (f: WallQuery, opts: { limit?: number; before?: number | null; id?: string } = {}) =>
+    req<ArtifactList>(`/api/artifacts${qs({ ...wallQs(f), limit: opts.limit ?? 60, before: opts.before ?? undefined, id: opts.id })}`),
+  facets: () => req<ArtifactFacets>("/api/artifacts/facets"),
+  /** 單筆＋parent／children＋目前篩選下的 newer／older */
+  artifactDetail: (id: string, f: WallQuery = {}) => req<ArtifactDetail>(`/api/artifacts/${encodeURIComponent(id)}${qs(wallQs(f))}`),
+  /** 從牆上移除（＝隱藏，檔案不動）／放回 */
+  setHidden: (id: string, hidden: boolean) =>
+    req<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ hidden }) }),
+  /** 聊天・生成帳的原始呼叫紀錄，新的在前；tool 可多個 */
+  calls: (opts: { tool?: string[]; limit?: number } = {}) => req<CallRow[]>(`/api/calls${qs({ tool: opts.tool?.join(","), limit: opts.limit ?? 20 })}`),
 };
+
+function wallQs(f: WallQuery): Record<string, string | number | undefined> {
+  return {
+    kind: f.kind || undefined,
+    model: f.model || undefined,
+    source: f.source || undefined,
+    q: f.q?.trim() || undefined,
+    since: f.since ?? undefined,
+    until: f.until ?? undefined,
+    only_hidden: f.only_hidden ? "true" : undefined,
+  };
+}

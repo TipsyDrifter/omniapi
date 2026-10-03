@@ -109,8 +109,69 @@ def test_estimate_text_cost(cat):
     assert cat.estimate_text_cost("gpt-6-sol", usage) == pytest.approx(2.0 + 1.0)
     cached = {"prompt_tokens": 1_000_000, "completion_tokens": 0, "cached_tokens": 500_000}
     assert cat.estimate_text_cost("gpt-6-sol", cached) == pytest.approx(0.5 * 2.0 + 0.5 * 0.2)
-    assert cat.estimate_text_cost("gpt-5.4-mini", usage) is None  # no pricing curated
+    assert cat.estimate_text_cost("gpt-5-chat-latest", usage) is None  # retired: no pricing kept
     assert cat.estimate_text_cost("gpt-6-sol", None) is None
+
+
+def test_deepseek_costs_double_in_peak_hours(cat):
+    """Peak = 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday (official pricing page)."""
+    import calendar
+
+    usage = {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000, "cached_tokens": 0}
+    off = 0.15 + 0.6
+    at = lambda *ymdhm: calendar.timegm((*ymdhm, 0, 0, 0, 0))  # noqa: E731
+    cases = {
+        at(2026, 9, 30, 2, 0): 2,    # Wed 02:00 UTC — peak
+        at(2026, 9, 30, 3, 59): 2,
+        at(2026, 9, 30, 4, 0): 1,    # the gap between the two windows
+        at(2026, 9, 30, 5, 30): 1,
+        at(2026, 9, 30, 6, 0): 2,
+        at(2026, 9, 30, 9, 59): 2,
+        at(2026, 9, 30, 10, 0): 1,
+        at(2026, 9, 30, 0, 59): 1,
+        at(2026, 10, 3, 2, 0): 1,    # Saturday
+        at(2026, 10, 4, 7, 0): 1,    # Sunday
+    }
+    for when, factor in cases.items():
+        assert cat.estimate_text_cost("deepseek-flash", usage, at=when) == pytest.approx(off * factor), when
+    assert cat.estimate_text_cost("deepseek-v4-pro", usage, at=at(2026, 9, 30, 2, 0)) == pytest.approx((0.66 + 1.98) * 2)
+    # a model without a peak rule is the same price at any hour
+    assert cat.estimate_text_cost("gpt-6-sol", usage, at=at(2026, 9, 30, 2, 0)) == pytest.approx(2.0 + 10.0)
+    # a listed holiday is off-peak all day
+    cat.get("deepseek-flash").pricing["peak"]["except_dates"] = ["2026-09-30"]
+    assert cat.estimate_text_cost("deepseek-flash", usage, at=at(2026, 9, 30, 2, 0)) == pytest.approx(off)
+
+
+def test_every_listed_text_model_is_priced_and_dated(cat):
+    """The curated list is what people pick from; discovery is only the safety
+    net for models that appeared since. So a curated text model that is still on
+    sale must carry a price, and a deprecated one its announced shutdown date."""
+    listed = [m for m in cat.models(modality="text") if m.status in ("current", "deprecated")]
+    assert len(listed) > 50
+    unpriced = [m.id for m in listed if not (m.pricing and "input" in m.pricing and "output" in m.pricing)]
+    assert unpriced == []
+    undated = [m.id for m in listed if m.status == "deprecated" and not m.shutdown]
+    assert undated == []
+    assert {"gemini-2.5-pro", "claude-sonnet-5-5", "gpt-4o", "gpt-5.6-sol"} <= {m.id for m in listed}
+
+
+def test_uncurated_snapshots_and_aliases_stay_callable_but_unlisted(cat):
+    res = DiscoveryResult(
+        provider="openai",
+        models=[DiscoveredModel(id="gpt-7-nova-0613"), DiscoveredModel(id="gpt-7-nova")],
+        fetched_at=time.time(),
+    )
+    cat._merge("openai", res)
+    cat._merge("google", DiscoveryResult(provider="google", models=[DiscoveredModel(id="gemini-flash-latest"), DiscoveredModel(id="gemini-robotics-er-2-preview")], fetched_at=time.time()))
+    listed = cat.ids(modality="text")
+    assert "gpt-7-nova" in listed and "gpt-7-nova-0613" not in listed and "gemini-flash-latest" not in listed
+    callable_ids = cat.ids(modality="text", include_snapshots=True)
+    assert {"gpt-7-nova-0613", "gemini-flash-latest"} <= callable_ids
+    assert cat.get("gemini-robotics-er-2-preview", provider="google") is None  # special-purpose endpoint: ignored
+    assert "gpt-5.1-codex" not in callable_ids  # shut down upstream even if /models still lists it
+    # a gateway's vendor/model ids end in digits for ordinary models — those stay listed
+    cat._merge("openrouter", DiscoveryResult(provider="openrouter", models=[DiscoveredModel(id="mistralai/mistral-large-2411")], fetched_at=time.time()))
+    assert "mistralai/mistral-large-2411" in cat.ids(modality="text")
 
 
 def test_snapshot_shape(cat):
@@ -146,6 +207,34 @@ def test_gemini_dialect_keeps_sampling_and_system():
     assert req["max_tokens"] == 10 and "max_completion_tokens" not in req
     assert req["reasoning_effort"] == "low"
     assert str(p.client.base_url).startswith("https://generativelanguage.googleapis.com")
+
+
+def test_gemini_thinking_tokens_are_billed_as_output(cat):
+    """Gemini's OpenAI-compatible endpoint reports thinking only inside total_tokens.
+    Figures from a real call (2026-10-01): 720 in, 110 visible out, 1480 total."""
+    from types import SimpleNamespace as NS
+
+    resp = NS(usage=NS(prompt_tokens=720, completion_tokens=110, total_tokens=1480, completion_tokens_details=None, prompt_tokens_details=None))
+    usage = GeminiTextProvider._extract_usage(resp)
+    assert usage["reasoning_tokens"] == 650 and usage["completion_tokens"] == 760 and usage["total_tokens"] == 1480
+    assert cat.estimate_text_cost("gemini-3.8-flash", usage) == pytest.approx((720 * 0.75 + 760 * 3.75) / 1e6)
+    # nothing hidden → nothing changes; and the OpenAI dialect never invents a gap
+    plain = NS(usage=NS(prompt_tokens=10, completion_tokens=5, total_tokens=15, completion_tokens_details=None, prompt_tokens_details=None))
+    assert GeminiTextProvider._extract_usage(plain) == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    assert OpenAITextProvider._extract_usage(resp)["completion_tokens"] == 110
+
+
+def test_gemini_cli_stats_count_thinking_and_the_cache_discount(cat):
+    """`gemini -o stream-json` stats from a real run: input includes the cached part,
+    thinking is the unlisted remainder of total."""
+    from omniapi_mcp.capabilities.text import fold_unreported_output
+
+    stats = {"total_tokens": 30894, "input_tokens": 30302, "output_tokens": 356, "cached": 8060}
+    norm = fold_unreported_output({"prompt_tokens": stats["input_tokens"], "completion_tokens": stats["output_tokens"],
+                                   "total_tokens": stats["total_tokens"], "cached_tokens": stats["cached"]})
+    assert norm["completion_tokens"] == 356 + 236 and norm["reasoning_tokens"] == 236
+    expected = ((30302 - 8060) * 0.75 + 8060 * 0.075 + 592 * 3.75) / 1e6
+    assert cat.estimate_text_cost("gemini-3.8-flash", norm) == pytest.approx(expected)
 
 
 def test_openrouter_accepts_unknown_ids_and_requests_cost():

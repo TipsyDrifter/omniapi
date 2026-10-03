@@ -61,7 +61,10 @@ export function HarnessPicker(props: {
       ) : null}
       {sel !== "auto" && sel !== "replay" && auto && sel !== auto ? (
         <div className="warn">
-          覆寫成 <b>{harnessName(sel)}</b>（模型預設是 {harnessName(auto)}）。非原廠組合，例如 Claude Code 跑 OpenAI 模型要經 OpenRouter。
+          覆寫成 <b>{harnessName(sel)}</b>（模型預設是 {harnessName(auto)}）。
+          {sel === "claude"
+            ? "Claude Code 跑別家的模型會改走 OpenRouter：用 OpenRouter 的 key 計費，價格可能跟直連不同；OpenRouter 沒有這個模型就會失敗。"
+            : `${harnessName(sel)} 只能跑自家的模型，這個組合送出會被拒絕。`}
         </div>
       ) : null}
       {sel === "replay" ? (

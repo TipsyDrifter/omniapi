@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from ..providers.base import ProviderConfig, ProviderError
+from ..utils.audio import ffmpeg_path, pcm_to_mp3
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,39 @@ class ElevenLabsProvider(SpeechProvider):
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
 
+    async def list_voices(self, *, max_pages: int = 5) -> list[dict[str, Any]]:
+        """The account's voices (``GET /v2/voices``, 100 per page — the v1
+        list stops working past 500 voices; docs/research/
+        2026-10-01-語音聲音清單與上傳上限查證.md §3)."""
+        voices: list[dict[str, Any]] = []
+        token: str | None = None
+        for _ in range(max_pages):
+            params: dict[str, Any] = {"page_size": 100}
+            if token:
+                params["next_page_token"] = token
+            resp = await self._http().get(
+                f"{self.base_url}/v2/voices", headers={"xi-api-key": self.config.api_key}, params=params
+            )
+            if resp.status_code != 200:
+                raise ProviderError(
+                    f"ElevenLabs voices returned HTTP {resp.status_code}: {resp.text[:300]}",
+                    provider_name=self.name,
+                    error_code="VOICES_FAILED",
+                )
+            data = resp.json()
+            for v in data.get("voices") or []:
+                labels = v.get("labels") if isinstance(v.get("labels"), dict) else {}
+                voices.append({
+                    "id": v.get("voice_id"),
+                    "name": v.get("name"),
+                    "note": " · ".join(str(x) for x in (labels.get("gender"), labels.get("accent"), v.get("category")) if x) or None,
+                    "preview_url": v.get("preview_url"),
+                })
+            token = data.get("next_page_token")
+            if not data.get("has_more") or not token:
+                break
+        return [v for v in voices if v["id"]]
+
     async def synthesize(
         self,
         text: str,
@@ -255,7 +289,11 @@ class OpenAITTSProvider(SpeechProvider):
         "tts-1": "current",
         "tts-1-hd": "current",
     }
-    DEFAULT_VOICE = "alloy"  # alloy, echo, fable, onyx, nova, shimmer, ...
+    DEFAULT_VOICE = "alloy"
+    # Built-in voices (docs/research/2026-10-01-語音聲音清單與上傳上限查證.md §1).
+    # The last four exist on gpt-4o-mini-tts only; OpenAI recommends marin / cedar.
+    VOICES = ("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar")
+    NEW_MODEL_ONLY_VOICES = frozenset({"ballad", "verse", "marin", "cedar"})
     # Natural-language tone/emotion control is only honoured by gpt-4o-mini-tts;
     # tts-1 / tts-1-hd ignore `instructions` (and instead honour `speed`).
     INSTRUCTIONS_MODELS = {"gpt-4o-mini-tts"}
@@ -386,6 +424,17 @@ class GeminiSpeechProvider(SpeechProvider):
     # A prebuilt Gemini TTS voice. Override per call; the full voice list is on
     # the speech-generation docs page.
     DEFAULT_VOICE = "Kore"
+    # Prebuilt voices with Google's one-word description (docs/research/
+    # 2026-10-01-語音聲音清單與上傳上限查證.md §2).
+    VOICES = {
+        "Zephyr": "Bright", "Puck": "Upbeat", "Charon": "Informative", "Kore": "Firm", "Fenrir": "Excitable",
+        "Leda": "Youthful", "Orus": "Firm", "Aoede": "Breezy", "Callirrhoe": "Easy-going", "Autonoe": "Bright",
+        "Enceladus": "Breathy", "Iapetus": "Clear", "Umbriel": "Easy-going", "Algieba": "Smooth", "Despina": "Smooth",
+        "Erinome": "Clear", "Algenib": "Gravelly", "Rasalgethi": "Informative", "Laomedeia": "Upbeat", "Achernar": "Soft",
+        "Alnilam": "Firm", "Schedar": "Even", "Gacrux": "Mature", "Pulcherrima": "Forward", "Achird": "Friendly",
+        "Zubenelgenubi": "Casual", "Vindemiatrix": "Gentle", "Sadachbia": "Lively", "Sadaltager": "Knowledgeable",
+        "Sulafat": "Warm",
+    }
 
     # NOTE (judgement call): Google's models page labels
     # `gemini-3.1-flash-tts-preview` a "Legacy text-to-speech preview model"
@@ -487,11 +536,14 @@ class GeminiSpeechProvider(SpeechProvider):
             )
         self._warn_if_deprecated(model_id)
 
-        # Gemini only ever returns PCM. Hand back raw PCM when asked for it,
-        # otherwise a WAV container — mp3/opus/etc. would need a transcode we
-        # deliberately do not do here.
+        # Gemini only ever returns PCM. Hand back raw PCM when asked for it, MP3
+        # when asked for it and a system ffmpeg can encode it, otherwise a WAV
+        # container.
         head = (output_format or "wav").split("_")[0].lower()
-        if head not in {"wav", "pcm"}:
+        if head == "mp3" and ffmpeg_path() is None:
+            self._logger.warning("Gemini TTS emits PCM and no ffmpeg is on PATH to encode MP3; returning WAV.")
+            head = "wav"
+        if head not in {"wav", "pcm", "mp3"}:
             self._logger.warning(
                 "Gemini TTS only emits PCM; returning WAV instead of "
                 "requested output_format=%r.",
@@ -537,9 +589,14 @@ class GeminiSpeechProvider(SpeechProvider):
                 )
 
             sample_rate = self._sample_rate_from_mime(mime_type)
-            if head == "pcm":
-                audio = pcm
-            else:
+            audio = pcm
+            if head == "mp3":
+                mp3 = await pcm_to_mp3(pcm, sample_rate=sample_rate or self.PCM_SAMPLE_RATE_HZ, channels=self.PCM_CHANNELS)
+                if mp3 is None:  # the reason is already logged; a WAV still plays everywhere
+                    head = "wav"
+                else:
+                    audio = mp3
+            if head == "wav":
                 audio = self._pcm_to_wav(pcm, sample_rate)
 
             return SpeechResult(

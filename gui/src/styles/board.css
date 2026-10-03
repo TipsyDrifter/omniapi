@@ -195,6 +195,11 @@
 .gl.t-error { background: var(--ink); color: var(--paper); border-radius: 0; width: 28px; height: 28px; }
 .ev .body { min-width: 0; }
 .ev.t-text .body p { margin: 2px 0 0; font-family: var(--font-kai); font-size: var(--fs-lead); line-height: 1.5; color: var(--ink); font-weight: 400; white-space: pre-wrap; }
+/* 「agent 說」帶 markdown 時（.md.ev-md，字級由 chat.css 的 .md 給：楷 400 19/1.5）：段落改回一般斷行與段距，
+   清單項裡的段落不留段距，最後一塊不留底距；程式碼區塊與表格在 .ev .body（min-width:0）裡自己橫捲 */
+.ev.t-text .body .ev-md { margin-top: 2px; }
+.ev.t-text .body .ev-md p { margin: 0 0 0.6em; white-space: normal; }
+.ev.t-text .body .ev-md li > p, .ev.t-text .body .ev-md > :last-child { margin-bottom: 0; }
 /* thinking 傍注：無襯線小字、墨 70，不用斜體（中文假斜體會歪） */
 .ev.t-thinking .body p { margin: 5px 0 0; font-family: var(--font-sans); font-size: var(--fs-xs); line-height: 1.55; color: var(--ink-70); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ev.t-thinking.open .body p { display: block; -webkit-line-clamp: unset; }

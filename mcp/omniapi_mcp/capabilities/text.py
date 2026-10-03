@@ -503,6 +503,26 @@ class GeminiTextProvider(OpenAITextProvider):
     def default_base_url(cls) -> str:
         return "https://generativelanguage.googleapis.com/v1beta/openai/"
 
+    @staticmethod
+    def _extract_usage(resp: Any) -> dict[str, Any] | None:
+        return fold_unreported_output(OpenAITextProvider._extract_usage(resp))
+
+
+def fold_unreported_output(usage: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Gemini leaves thinking tokens out of ``completion_tokens``: they only
+    show up as ``total - prompt - completion``. Google bills them as output, and
+    every other provider here already counts reasoning inside completion, so
+    fold the gap in (and name it ``reasoning_tokens``) — otherwise the cost is
+    understated by however much the model thought."""
+    if not usage:
+        return usage
+    prompt, completion, total = (usage.get(k) or 0 for k in ("prompt_tokens", "completion_tokens", "total_tokens"))
+    gap = total - prompt - completion
+    if gap > 0:
+        usage["completion_tokens"] = completion + gap
+        usage["reasoning_tokens"] = usage.get("reasoning_tokens") or gap
+    return usage
+
 
 class OpenRouterTextProvider(OpenAITextProvider):
     """OpenRouter — one key for the long tail (Kimi, GLM, MiniMax, Qwen, Muse

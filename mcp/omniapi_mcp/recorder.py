@@ -9,14 +9,30 @@ derives the JSON schema from the original parameters.
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import functools
 import inspect
-import json
 import logging
 import time
-from typing import Any, Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CallScope:
+    """Set by a caller that runs a tool handler on someone else's behalf (the
+    GUI's generation jobs): names the door the call came through, and gets
+    told which call row and which works it produced."""
+
+    source: str
+    call_id: Optional[str] = None
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+
+
+call_scope: contextvars.ContextVar[Optional[CallScope]] = contextvars.ContextVar("omniapi_call_scope", default=None)
 
 _MAX_ARG_CHARS = 2000
 _MAX_RESULT_CHARS = 1500
@@ -87,31 +103,46 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
 
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            from .devmode import PAID_TOOLS, offline, offline_message
+            from .artifacts import CallInfo, current_call, index_result
+            from .artifacts.fakes import FAKEABLE, fake_generate
+            from .devmode import PAID_TOOLS, dev_enabled, offline, offline_message
 
-            if tool_name in PAID_TOOLS and offline():
-                # an offline sandbox never reaches a vendor; nothing is recorded because nothing happened
-                return {"error": offline_message(f"the '{tool_name}' tool"), "status": "refused"}
             ctx = None
             try:
                 ctx = get_context()
             except Exception:
                 ctx = None
+            fake = False
+            if tool_name in PAID_TOOLS and offline():
+                # an offline sandbox never reaches a vendor. A development sandbox answers the
+                # generation tools with stand-ins (recorded and indexed like the real thing);
+                # everything else is refused, and nothing is recorded because nothing happened
+                fake = dev_enabled() and tool_name in FAKEABLE and ctx is not None
+                if not fake:
+                    return {"error": offline_message(f"the '{tool_name}' tool"), "status": "refused"}
             store = getattr(ctx, "store", None)
             bus = getattr(ctx, "bus", None)
+            scope = call_scope.get()
+            door = scope.source if scope else source
             t0 = time.perf_counter()
             call_id = None
             arg_summary = summarize_args(kwargs)
             if store is not None:
                 try:
-                    call_id = await store.call_started(tool_name, arg_summary, source=source)
+                    call_id = await store.call_started(tool_name, arg_summary, source=door)
                 except Exception as e:  # never let bookkeeping break a tool
                     logger.debug("call_started failed: %s", e)
+            if scope is not None:
+                scope.call_id = call_id
             if bus is not None:
                 await bus.publish({"type": "call.started", "call_id": call_id, "tool": tool_name, "args": arg_summary})
+            # who is calling: read by the works index, also from a job that outlives this call
+            call_info = CallInfo(tool=tool_name, args=dict(kwargs), call_id=call_id, source=door)
+            token = current_call.set(call_info)
             try:
-                result = await fn(*args, **kwargs)
-            except Exception as e:
+                result = await (fake_generate(tool_name, kwargs, ctx) if fake else fn(*args, **kwargs))
+            except (Exception, asyncio.CancelledError) as e:  # a cancelled call still closes its ledger row
+                current_call.reset(token)
                 dur = int((time.perf_counter() - t0) * 1000)
                 if store is not None and call_id:
                     try:
@@ -121,8 +152,16 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
                 if bus is not None:
                     await bus.publish({"type": "call.finished", "call_id": call_id, "tool": tool_name, "status": "error", "duration_ms": dur, "error": str(e)[:300]})
                 raise
+            current_call.reset(token)
             dur = int((time.perf_counter() - t0) * 1000)
+            indexed = await index_result(ctx, call_info, result)  # a ticket indexes nothing here; the job does when it lands
+            if scope is not None:
+                scope.artifacts.extend(indexed)
             meta = extract_call_meta(result)
+            if tool_name == "get_job_result":
+                # the cost belongs to the call that started the job (settled on its own row
+                # when the job lands); counting it here too would bill the same work twice
+                meta["cost_usd"] = None
             status = "ticket" if meta.get("ticket") else ("error" if meta.get("error") else "ok")
             if store is not None and call_id:
                 try:

@@ -1,7 +1,7 @@
 {
- "_note": "Curated overlay for the OmniAPI model catalog. Discovery (live /models) decides what is ONLINE; this file adds pricing, capabilities, status and routing. Prices are USD per 1M tokens unless the pricing object says otherwise. Sources: docs/research/2026-09-25-*.md Ids ending in -YYYY-MM-DD are dated snapshots: kept callable, hidden from default listings.",
+ "_note": "Curated overlay for the OmniAPI model catalog. Discovery (live /models) decides what is ONLINE; this file adds pricing, capabilities, status and routing. Prices are USD per 1M tokens unless the pricing object says otherwise. Sources: docs/research/2026-09-25-*.md and 2026-10-01-* Uncurated ids that are fixed snapshots (-YYYY-MM-DD, -0613 style) or moving aliases (-latest) are kept callable but hidden from listings.",
  "version": 1,
- "updated": "2026-09-25",
+ "updated": "2026-10-01",
  "tiers": {
   "cheap": "deepseek-flash",
   "standard": "gemini-3.8-flash",
@@ -128,6 +128,10 @@
     "modality": "ignore"
    },
    {
+    "match": "(robotics|customtools|computer-use|transcribe)",
+    "modality": "ignore"
+   },
+   {
     "match": "^gemini-",
     "modality": "text"
    }
@@ -177,13 +181,14 @@
    "name": "GPT-6 Astra",
    "status": "current",
    "pricing": {
-    "input": 10.0,
-    "cached_input": 1.0,
-    "output": 50.0,
+    "input": 10,
+    "cached_input": 1,
+    "output": 50,
     "long_context": {
-     "input": 20.0,
-     "output": 75.0
-    }
+     "input": 20,
+     "output": 75
+    },
+    "note": "long context = >272K input tokens"
    },
    "context": 1050000,
    "max_output": 128000,
@@ -204,14 +209,14 @@
    "name": "GPT-6 Sol",
    "status": "current",
    "pricing": {
-    "input": 2.0,
+    "input": 2,
     "cached_input": 0.2,
-    "output": 10.0,
+    "output": 10,
     "long_context": {
-     "input": 4.0,
-     "output": 15.0
+     "input": 4,
+     "output": 15
     },
-    "note": "promo price at least through 2026-11-21"
+    "note": "long context = >272K input tokens"
    },
    "context": 1050000,
    "max_output": 128000,
@@ -223,7 +228,8 @@
    },
    "leaderboard": {
     "artificial_analysis": 48
-   }
+   },
+   "note": "a newer version, gpt-6.1-sol, is available"
   },
   {
    "id": "gpt-6-luna",
@@ -231,13 +237,23 @@
    "modality": "text",
    "name": "GPT-6 Luna",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 0.1,
+    "cached_input": 0.01,
+    "output": 0.5,
+    "long_context": {
+     "input": 0.2,
+     "output": 0.75
+    },
+    "note": "long context = >272K input tokens"
+   },
    "context": 1050000,
    "max_output": 128000,
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
+    "reasoning": true,
+    "vision": true
    }
   },
   {
@@ -246,12 +262,24 @@
    "modality": "text",
    "name": "GPT-5.5",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 5,
+    "cached_input": 0.5,
+    "output": 30,
+    "long_context": {
+     "input": 10,
+     "output": 45
+    },
+    "note": "long context = >272K input tokens"
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 1050000,
+   "max_output": 128000
   },
   {
    "id": "gpt-5.5-pro",
@@ -259,12 +287,19 @@
    "modality": "text",
    "name": "GPT-5.5 Pro",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 30,
+    "output": 180
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "note": "Responses API only (not Chat Completions): use it through dispatch (Codex), not chat"
   },
   {
    "id": "gpt-5.4",
@@ -272,12 +307,24 @@
    "modality": "text",
    "name": "GPT-5.4",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 2.5,
+    "cached_input": 0.25,
+    "output": 15,
+    "long_context": {
+     "input": 5,
+     "output": 22.5
+    },
+    "note": "long context = >272K input tokens"
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 1050000,
+   "max_output": 128000
   },
   {
    "id": "gpt-5.4-pro",
@@ -285,12 +332,24 @@
    "modality": "text",
    "name": "GPT-5.4 Pro",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 30,
+    "output": 180,
+    "long_context": {
+     "input": 60,
+     "output": 270
+    },
+    "note": "long context = >272K input tokens"
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "note": "Responses API only (not Chat Completions): use it through dispatch (Codex), not chat"
   },
   {
    "id": "gpt-5.4-mini",
@@ -298,12 +357,19 @@
    "modality": "text",
    "name": "GPT-5.4 mini",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 0.75,
+    "cached_input": 0.075,
+    "output": 4.5
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 400000,
+   "max_output": 128000
   },
   {
    "id": "gpt-5.4-nano",
@@ -311,12 +377,19 @@
    "modality": "text",
    "name": "GPT-5.4 nano",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 0.2,
+    "cached_input": 0.02,
+    "output": 1.25
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 400000,
+   "max_output": 128000
   },
   {
    "id": "gpt-5.3-codex",
@@ -324,12 +397,20 @@
    "modality": "text",
    "name": "GPT-5.3 Codex",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 1.75,
+    "cached_input": 0.175,
+    "output": 14
+   },
    "capabilities": {
     "tools": true,
     "structured_output": true,
-    "reasoning": true
-   }
+    "reasoning": true,
+    "vision": true
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "note": "Responses API only (not Chat Completions): use it through dispatch (Codex), not chat"
   },
   {
    "id": "claude-fable-5-1",
@@ -338,8 +419,9 @@
    "name": "Claude Fable 5.1",
    "status": "current",
    "pricing": {
-    "input": 10.0,
-    "output": 50.0
+    "input": 10,
+    "cached_input": 0.25,
+    "output": 50
    },
    "context": 1000000,
    "capabilities": {
@@ -351,7 +433,8 @@
    "leaderboard": {
     "lmarena_text": 5,
     "artificial_analysis": 53
-   }
+   },
+   "max_output": 128000
   },
   {
    "id": "claude-fable-5",
@@ -360,8 +443,9 @@
    "name": "Claude Fable 5",
    "status": "current",
    "pricing": {
-    "input": 10.0,
-    "output": 50.0
+    "input": 10,
+    "cached_input": 1,
+    "output": 50
    },
    "context": 1000000,
    "capabilities": {
@@ -372,7 +456,9 @@
    },
    "leaderboard": {
     "lmarena_text": 1
-   }
+   },
+   "max_output": 128000,
+   "note": "legacy (still available); no shutdown date announced"
   },
   {
    "id": "claude-opus-5-5",
@@ -381,8 +467,9 @@
    "name": "Claude Opus 5.5",
    "status": "current",
    "pricing": {
-    "input": 4.0,
-    "output": 20.0
+    "input": 4,
+    "cached_input": 0.2,
+    "output": 20
    },
    "context": 1000000,
    "capabilities": {
@@ -393,7 +480,8 @@
    },
    "leaderboard": {
     "artificial_analysis": 58
-   }
+   },
+   "max_output": 128000
   },
   {
    "id": "claude-opus-5",
@@ -402,8 +490,9 @@
    "name": "Claude Opus 5",
    "status": "current",
    "pricing": {
-    "input": 5.0,
-    "output": 25.0
+    "input": 5,
+    "cached_input": 0.5,
+    "output": 25
    },
    "context": 1000000,
    "capabilities": {
@@ -411,7 +500,9 @@
     "structured_output": true,
     "reasoning": true,
     "vision": true
-   }
+   },
+   "max_output": 128000,
+   "note": "legacy (still available); no shutdown date announced"
   },
   {
    "id": "claude-opus-4-8",
@@ -420,8 +511,9 @@
    "name": "Claude Opus 4.8",
    "status": "current",
    "pricing": {
-    "input": 5.0,
-    "output": 25.0
+    "input": 5,
+    "cached_input": 0.5,
+    "output": 25
    },
    "context": 1000000,
    "capabilities": {
@@ -429,7 +521,9 @@
     "structured_output": true,
     "reasoning": true,
     "vision": true
-   }
+   },
+   "max_output": 128000,
+   "note": "legacy (still available); no shutdown date announced"
   },
   {
    "id": "claude-opus-4-7",
@@ -438,8 +532,10 @@
    "name": "Claude Opus 4.7",
    "status": "current",
    "pricing": {
-    "input": 5.0,
-    "output": 25.0
+    "input": 5,
+    "cached_input": 0.5,
+    "output": 25,
+    "note": "new tokenizer: about 30% more tokens for the same text"
    },
    "context": 1000000,
    "capabilities": {
@@ -447,7 +543,9 @@
     "structured_output": true,
     "reasoning": true,
     "vision": true
-   }
+   },
+   "max_output": 128000,
+   "note": "legacy (still available); no shutdown date announced"
   },
   {
    "id": "claude-opus-4-6",
@@ -456,8 +554,9 @@
    "name": "Claude Opus 4.6",
    "status": "current",
    "pricing": {
-    "input": 5.0,
-    "output": 25.0
+    "input": 5,
+    "cached_input": 0.5,
+    "output": 25
    },
    "context": 1000000,
    "capabilities": {
@@ -465,7 +564,9 @@
     "structured_output": true,
     "reasoning": true,
     "vision": true
-   }
+   },
+   "max_output": 128000,
+   "note": "legacy (still available); no shutdown date announced"
   },
   {
    "id": "claude-sonnet-5",
@@ -473,14 +574,20 @@
    "modality": "text",
    "name": "Claude Sonnet 5",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 2,
+    "cached_input": 0.2,
+    "output": 10
+   },
    "context": 1000000,
    "capabilities": {
     "tools": true,
     "structured_output": true,
     "reasoning": true,
     "vision": true
-   }
+   },
+   "max_output": 128000,
+   "note": "legacy (still available); no shutdown date announced"
   },
   {
    "id": "claude-haiku-4-5-20251001",
@@ -488,11 +595,19 @@
    "modality": "text",
    "name": "Claude Haiku 4.5",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 1,
+    "cached_input": 0.1,
+    "output": 5
+   },
    "capabilities": {
     "tools": true,
-    "vision": true
-   }
+    "vision": true,
+    "reasoning": true
+   },
+   "context": 200000,
+   "max_output": 64000,
+   "note": "retirement not sooner than 2026-10-15 — recheck"
   },
   {
    "id": "gemini-3.8-flash",
@@ -502,6 +617,7 @@
    "status": "current",
    "pricing": {
     "input": 0.75,
+    "cached_input": 0.075,
     "output": 3.75,
     "note": "through 2026-12-31; $1.50/$7.50 from 2027-01-01"
    },
@@ -523,6 +639,7 @@
    "status": "current",
    "pricing": {
     "input": 0.75,
+    "cached_input": 0.075,
     "output": 3.75,
     "note": "through 2026-12-31; $1.50/$7.50 from 2027-01-01"
    },
@@ -543,11 +660,11 @@
    "name": "Gemini 3.1 Pro (preview)",
    "status": "current",
    "pricing": {
-    "input": 2.0,
-    "output": 12.0,
+    "input": 2,
+    "output": 12,
     "long_context": {
-     "input": 4.0,
-     "output": 18.0
+     "input": 4,
+     "output": 18
     },
     "note": "long_context applies above 200k prompt tokens"
    },
@@ -571,17 +688,41 @@
     "deepseek-v4-flash"
    ],
    "pricing": {
-    "input": 0.22,
-    "cached_input": 0.007,
-    "output": 0.66,
-    "note": "off-peak (Taipei weekdays 12-14 & after 18, weekends); peak x2"
+    "input": 0.15,
+    "cached_input": 0.003,
+    "output": 0.6,
+    "peak": {
+     "multiplier": 2,
+     "utc_hours": [
+      [
+       1,
+       4
+      ],
+      [
+       6,
+       10
+      ]
+     ],
+     "weekdays": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "except_dates": []
+    },
+    "note": "listed price is off-peak; peak hours (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri) cost double. Chinese public holidays are off-peak all day: list them in peak.except_dates, otherwise those days are over-estimated"
    },
    "capabilities": {
     "tools": true,
-    "structured_output": "json_object",
+    "structured_output": true,
     "reasoning": true,
-    "anthropic_endpoint": true
-   }
+    "anthropic_endpoint": true,
+    "vision": true
+   },
+   "context": 1000000,
+   "max_output": 384000
   },
   {
    "id": "deepseek-v4-pro",
@@ -589,13 +730,41 @@
    "modality": "text",
    "name": "DeepSeek V4 Pro",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "input": 0.66,
+    "cached_input": 0.022,
+    "output": 1.98,
+    "peak": {
+     "multiplier": 2,
+     "utc_hours": [
+      [
+       1,
+       4
+      ],
+      [
+       6,
+       10
+      ]
+     ],
+     "weekdays": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "except_dates": []
+    },
+    "note": "listed price is off-peak; peak hours (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri) cost double. Chinese public holidays are off-peak all day: list them in peak.except_dates, otherwise those days are over-estimated"
+   },
    "capabilities": {
     "tools": true,
-    "structured_output": "json_object",
+    "structured_output": true,
     "reasoning": true,
     "anthropic_endpoint": true
-   }
+   },
+   "context": 1000000,
+   "max_output": 384000
   },
   {
    "id": "gpt-image-2.5-sunburst",
@@ -605,9 +774,9 @@
    "status": "current",
    "pricing": {
     "unit": "per_1m_tokens",
-    "text_input": 5.0,
-    "image_input": 8.0,
-    "image_output": 30.0
+    "text_input": 5,
+    "image_input": 8,
+    "image_output": 30
    },
    "capabilities": {
     "edit": true,
@@ -628,9 +797,9 @@
    "status": "current",
    "pricing": {
     "unit": "per_1m_tokens",
-    "text_input": 5.0,
-    "image_input": 8.0,
-    "image_output": 30.0
+    "text_input": 5,
+    "image_input": 8,
+    "image_output": 30
    },
    "capabilities": {
     "edit": true,
@@ -651,9 +820,9 @@
    "status": "current",
    "pricing": {
     "unit": "per_1m_tokens",
-    "text_input": 5.0,
-    "image_input": 8.0,
-    "image_output": 30.0
+    "text_input": 5,
+    "image_input": 8,
+    "image_output": 30
    },
    "capabilities": {
     "edit": true,
@@ -674,8 +843,8 @@
    "status": "current",
    "pricing": {
     "unit": "per_1m_tokens",
-    "text_input": 4.0,
-    "image_output": 32.0
+    "text_input": 4,
+    "image_output": 32
    },
    "capabilities": {
     "edit": true,
@@ -692,8 +861,8 @@
    "replacement": "gpt-image-2",
    "pricing": {
     "unit": "per_1m_tokens",
-    "text_input": 5.0,
-    "image_output": 40.0
+    "text_input": 5,
+    "image_output": 40
    },
    "capabilities": {
     "edit": true,
@@ -751,7 +920,7 @@
     "1K": 0.134,
     "2K": 0.134,
     "4K": 0.24,
-    "text_input_per_1m": 2.0
+    "text_input_per_1m": 2
    },
    "capabilities": {
     "edit": true,
@@ -881,7 +1050,7 @@
    "pricing": {
     "unit": "per_1m_tokens",
     "text_input": 0.6,
-    "audio_output": 12.0
+    "audio_output": 12
    },
    "capabilities": {
     "instructions": true
@@ -895,7 +1064,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1m_chars",
-    "text": 15.0
+    "text": 15
    }
   },
   {
@@ -906,7 +1075,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1m_chars",
-    "text": 30.0
+    "text": 30
    }
   },
   {
@@ -994,7 +1163,7 @@
    "pricing": {
     "unit": "per_1m_tokens",
     "text_input": 0.5,
-    "audio_output": 9.0,
+    "audio_output": 9,
     "note": "through 2026-12-31; $1.00/$18.00 from 2027-01-01; 25 audio tokens per second"
    }
   },
@@ -1007,7 +1176,7 @@
    "pricing": {
     "unit": "per_1m_tokens",
     "text_input": 0.5,
-    "audio_output": 6.0,
+    "audio_output": 6,
     "note": "through 2026-12-31; then $12.00 output"
    }
   },
@@ -1141,12 +1310,11 @@
    "modality": "music",
    "name": "Lyria 3.5",
    "status": "current",
-   "implemented": false,
    "pricing": {
     "unit": "per_song",
     "song": 0.08
    },
-   "note": "catalogued; generate path not yet wired (see ideas notebook)"
+   "note": "needs a paid Gemini API tier; lyrics, length and 'no vocals' go in the prompt"
   },
   {
    "id": "lyria-3-clip-preview",
@@ -1154,11 +1322,969 @@
    "modality": "music",
    "name": "Lyria 3 Clip (30s)",
    "status": "current",
-   "implemented": false,
    "pricing": {
     "unit": "per_song",
     "song": 0.04
    }
+  },
+  {
+   "id": "gpt-5",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5",
+   "status": "deprecated",
+   "shutdown": "2026-12-11",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 1.25,
+    "cached_input": 0.125,
+    "output": 10
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "shutdown date is the one announced for snapshot gpt-5-2025-08-07"
+  },
+  {
+   "id": "gpt-5-chat-latest",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5 Chat",
+   "status": "retired",
+   "shutdown": "2026-07-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 128000,
+   "max_output": 16384,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5-codex",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5-Codex",
+   "status": "retired",
+   "shutdown": "2026-07-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5-mini",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5 Mini",
+   "status": "deprecated",
+   "shutdown": "2026-12-11",
+   "replacement": "gpt-5.6-terra",
+   "pricing": {
+    "input": 0.25,
+    "cached_input": 0.025,
+    "output": 2
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "shutdown date is the one announced for snapshot gpt-5-mini-2025-08-07"
+  },
+  {
+   "id": "gpt-5-nano",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5 Nano",
+   "status": "deprecated",
+   "shutdown": "2026-12-11",
+   "replacement": "gpt-5.6-luna",
+   "pricing": {
+    "input": 0.05,
+    "cached_input": 0.005,
+    "output": 0.4
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "shutdown date is the one announced for snapshot gpt-5-nano-2025-08-07"
+  },
+  {
+   "id": "gpt-5-pro",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5 Pro",
+   "status": "deprecated",
+   "shutdown": "2026-12-11",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 15,
+    "output": 120,
+    "note": "Responses API only; no cached-input price listed"
+   },
+   "context": 400000,
+   "max_output": 272000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "Responses API only; shutdown date is the one announced for snapshot gpt-5-pro-2025-10-06"
+  },
+  {
+   "id": "gpt-5.1",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.1",
+   "status": "current",
+   "pricing": {
+    "input": 1.25,
+    "cached_input": 0.125,
+    "output": 10
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "no shutdown announced (sibling chat/codex variants were shut down 2026-07-23)"
+  },
+  {
+   "id": "gpt-5.1-chat-latest",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.1 Chat",
+   "status": "retired",
+   "shutdown": "2026-07-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 128000,
+   "max_output": 16384,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.1-codex",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.1-Codex",
+   "status": "retired",
+   "shutdown": "2026-07-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.1-codex-max",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.1-Codex-Max",
+   "status": "retired",
+   "shutdown": "2026-07-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.2",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.2",
+   "status": "current",
+   "pricing": {
+    "input": 1.75,
+    "cached_input": 0.175,
+    "output": 14
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "previous flagship; no shutdown announced"
+  },
+  {
+   "id": "gpt-5.2-chat-latest",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.2 Chat",
+   "status": "retired",
+   "shutdown": "2026-08-10",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 128000,
+   "max_output": 16384,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.2-codex",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.2-Codex",
+   "status": "retired",
+   "shutdown": "2026-07-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.2-pro",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.2 Pro",
+   "status": "current",
+   "pricing": {
+    "input": 21,
+    "output": 168,
+    "note": "Responses API only; no cached-input price listed"
+   },
+   "context": 400000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "vision": true
+   },
+   "note": "legacy; Responses API only"
+  },
+  {
+   "id": "gpt-5.3-chat-latest",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.3 Chat",
+   "status": "retired",
+   "shutdown": "2026-08-10",
+   "replacement": "gpt-5.6-sol",
+   "pricing": null,
+   "context": 128000,
+   "max_output": 16384,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.6-luna",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.6 Luna",
+   "status": "current",
+   "pricing": {
+    "input": 0.2,
+    "cached_input": 0.02,
+    "output": 1.2,
+    "long_context": {
+     "input": 0.4,
+     "output": 1.8
+    },
+    "note": "long context = >272K input tokens (2x input, 1.5x output); cache writes 1.25x input"
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.6-sol",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.6 Sol",
+   "status": "current",
+   "pricing": {
+    "input": 4,
+    "cached_input": 0.4,
+    "output": 20,
+    "long_context": {
+     "input": 8,
+     "output": 30
+    },
+    "note": "promotional pricing at least through 2026-11-21; the standard price after that is not published; long context = >272K input tokens"
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-5.6-terra",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-5.6 Terra",
+   "status": "current",
+   "pricing": {
+    "input": 2,
+    "cached_input": 0.2,
+    "output": 12,
+    "long_context": {
+     "input": 4,
+     "output": 18
+    },
+    "note": "long context = >272K input tokens; cache writes 1.25x input"
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-6.1-sol",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-6.1 Sol",
+   "status": "current",
+   "pricing": {
+    "input": 2,
+    "cached_input": 0.1,
+    "output": 10,
+    "long_context": {
+     "input": 4,
+     "output": 15
+    },
+    "note": "long context = >272K input (cached 0.2); Fast mode 2x; Batch/Flex 50% off; cache writes 2.5"
+   },
+   "context": 1050000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-3.5-turbo",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-3.5 Turbo",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-terra",
+   "pricing": {
+    "input": 0.5,
+    "output": 1.5
+   },
+   "context": 16385,
+   "max_output": 4096,
+   "capabilities": {}
+  },
+  {
+   "id": "gpt-3.5-turbo-instruct",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-3.5 Turbo Instruct",
+   "status": "retired",
+   "shutdown": "2026-09-28",
+   "replacement": "gpt-5.6-terra",
+   "pricing": null,
+   "context": 4096,
+   "max_output": 4096,
+   "capabilities": {}
+  },
+  {
+   "id": "gpt-4",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 30,
+    "output": 60
+   },
+   "context": 8192,
+   "max_output": 8192,
+   "capabilities": {}
+  },
+  {
+   "id": "gpt-4-turbo",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4 Turbo",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 10,
+    "output": 30
+   },
+   "context": 128000,
+   "max_output": 4096,
+   "capabilities": {
+    "tools": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-4.1",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4.1",
+   "status": "current",
+   "pricing": {
+    "input": 2,
+    "cached_input": 0.5,
+    "output": 8
+   },
+   "context": 1047576,
+   "max_output": 32768,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-4.1-mini",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4.1 mini",
+   "status": "current",
+   "pricing": {
+    "input": 0.4,
+    "cached_input": 0.1,
+    "output": 1.6
+   },
+   "context": 1047576,
+   "max_output": 32768,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-4.1-nano",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4.1 nano",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-luna",
+   "pricing": {
+    "input": 0.1,
+    "cached_input": 0.025,
+    "output": 0.4
+   },
+   "context": 1047576,
+   "max_output": 32768,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-4o",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4o",
+   "status": "current",
+   "pricing": {
+    "input": 2.5,
+    "cached_input": 1.25,
+    "output": 10
+   },
+   "context": 128000,
+   "max_output": 16384,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gpt-4o-mini",
+   "provider": "openai",
+   "modality": "text",
+   "name": "GPT-4o mini",
+   "status": "current",
+   "pricing": {
+    "input": 0.15,
+    "cached_input": 0.075,
+    "output": 0.6
+   },
+   "context": 128000,
+   "max_output": 16384,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "o1",
+   "provider": "openai",
+   "modality": "text",
+   "name": "o1",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 15,
+    "cached_input": 7.5,
+    "output": 60
+   },
+   "context": 200000,
+   "max_output": 100000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "o1-pro",
+   "provider": "openai",
+   "modality": "text",
+   "name": "o1-pro",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 150,
+    "output": 600
+   },
+   "context": 200000,
+   "max_output": 100000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "Responses API only"
+  },
+  {
+   "id": "o3",
+   "provider": "openai",
+   "modality": "text",
+   "name": "o3",
+   "status": "deprecated",
+   "shutdown": "2026-12-11",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 2,
+    "cached_input": 0.5,
+    "output": 8
+   },
+   "context": 200000,
+   "max_output": 100000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "shutdown date is the one announced for snapshot o3-2025-04-16; the bare alias is not listed separately"
+  },
+  {
+   "id": "o3-mini",
+   "provider": "openai",
+   "modality": "text",
+   "name": "o3-mini",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 1.1,
+    "cached_input": 0.55,
+    "output": 4.4
+   },
+   "context": 200000,
+   "max_output": 100000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true
+   }
+  },
+  {
+   "id": "o3-pro",
+   "provider": "openai",
+   "modality": "text",
+   "name": "o3-pro",
+   "status": "deprecated",
+   "shutdown": "2026-12-11",
+   "replacement": "gpt-5.6-sol",
+   "pricing": {
+    "input": 20,
+    "output": 80
+   },
+   "context": 200000,
+   "max_output": 100000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "shutdown date is the one announced for snapshot o3-pro-2025-06-10; Responses API only"
+  },
+  {
+   "id": "o4-mini",
+   "provider": "openai",
+   "modality": "text",
+   "name": "o4-mini",
+   "status": "deprecated",
+   "shutdown": "2026-10-23",
+   "replacement": "gpt-5.6-terra",
+   "pricing": {
+    "input": 1.1,
+    "cached_input": 0.275,
+    "output": 4.4
+   },
+   "context": 200000,
+   "max_output": 100000,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gemini-2.5-pro",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 2.5 Pro",
+   "status": "current",
+   "pricing": {
+    "input": 1.25,
+    "cached_input": 0.125,
+    "output": 10,
+    "long_context": {
+     "input": 2.5,
+     "output": 15
+    },
+    "note": "long_context applies above 200k prompt tokens"
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "legacy: Google limits access to accounts that already used 2.5 models; no shutdown date announced"
+  },
+  {
+   "id": "gemini-2.5-flash",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 2.5 Flash",
+   "status": "current",
+   "pricing": {
+    "input": 0.3,
+    "cached_input": 0.03,
+    "output": 2.5,
+    "note": "audio input $1.00, cached audio $0.1; access limited to past users, no shutdown date announced"
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "legacy: access limited to accounts that already used 2.5 models; no shutdown date announced"
+  },
+  {
+   "id": "gemini-2.5-flash-lite",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 2.5 Flash-Lite",
+   "status": "current",
+   "pricing": {
+    "input": 0.1,
+    "cached_input": 0.01,
+    "output": 0.4,
+    "note": "audio input $0.30, cached audio $0.03; no shutdown date announced"
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "legacy; no shutdown date announced"
+  },
+  {
+   "id": "gemini-3-flash-preview",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3 Flash Preview",
+   "status": "current",
+   "pricing": {
+    "input": 0.5,
+    "cached_input": 0.05,
+    "output": 3,
+    "note": "audio input $1.00, cached audio $0.10"
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gemini-3.1-flash-lite",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.1 Flash-Lite",
+   "status": "deprecated",
+   "shutdown": "2027-05-07",
+   "replacement": "gemini-3.5-flash-lite",
+   "pricing": {
+    "input": 0.25,
+    "cached_input": 0.025,
+    "output": 1.5,
+    "note": "audio input $0.50, cached audio $0.05"
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "model page says Stable; the deprecations page lists shutdown 2027-05-07"
+  },
+  {
+   "id": "gemini-3.5-flash",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.5 Flash",
+   "status": "current",
+   "pricing": {
+    "input": 1.5,
+    "cached_input": 0.15,
+    "output": 9
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gemini-3.5-flash-lite",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.5 Flash-Lite",
+   "status": "current",
+   "pricing": {
+    "input": 0.3,
+    "cached_input": 0.03,
+    "output": 2.5
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gemini-3.6-flash",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 3.6 Flash",
+   "status": "current",
+   "pricing": {
+    "input": 0.75,
+    "cached_input": 0.075,
+    "output": 3.75,
+    "note": "through 2026-12-31; $1.50/$7.50, cached $0.15 from 2027-01-01"
+   },
+   "context": 1048576,
+   "max_output": 65536,
+   "capabilities": {
+    "tools": true,
+    "structured_output": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "gemini-2.5-computer-use-preview-10-2025",
+   "provider": "google",
+   "modality": "text",
+   "name": "Gemini 2.5 Computer Use Preview",
+   "status": "retired",
+   "shutdown": "2026-07-28",
+   "replacement": "gemini-3.8-flash",
+   "pricing": null,
+   "context": 128000,
+   "max_output": 64000,
+   "capabilities": {}
+  },
+  {
+   "id": "claude-sonnet-5-5",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Sonnet 5.5",
+   "status": "current",
+   "pricing": {
+    "input": 2,
+    "cached_input": 0.2,
+    "output": 10,
+    "note": "1M context at standard price, no long-context surcharge; batch 50% off; cache write 5m $2.50, 1h $4"
+   },
+   "context": 1000000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-sonnet-4-6",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Sonnet 4.6",
+   "status": "current",
+   "pricing": {
+    "input": 3,
+    "cached_input": 0.3,
+    "output": 15,
+    "note": "legacy; 1M context at standard price; batch 50% off"
+   },
+   "context": 1000000,
+   "max_output": 128000,
+   "capabilities": {
+    "tools": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "legacy (still available); retirement not sooner than 2027-02-17"
+  },
+  {
+   "id": "claude-sonnet-4-5-20250929",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Sonnet 4.5",
+   "status": "deprecated",
+   "shutdown": "2026-11-30",
+   "replacement": "claude-sonnet-5-5",
+   "pricing": {
+    "input": 3,
+    "cached_input": 0.3,
+    "output": 15,
+    "note": "deprecated 2026-09-30, retires 2026-11-30; batch 50% off"
+   },
+   "context": 200000,
+   "max_output": 64000,
+   "capabilities": {
+    "tools": true,
+    "reasoning": true,
+    "vision": true
+   }
+  },
+  {
+   "id": "claude-opus-4-5-20251101",
+   "provider": "anthropic",
+   "modality": "text",
+   "name": "Claude Opus 4.5",
+   "status": "current",
+   "pricing": {
+    "input": 5,
+    "cached_input": 0.5,
+    "output": 25,
+    "note": "legacy; batch 50% off"
+   },
+   "context": 200000,
+   "max_output": 64000,
+   "capabilities": {
+    "tools": true,
+    "reasoning": true,
+    "vision": true
+   },
+   "note": "legacy (still available); retirement not sooner than 2026-11-24 — recheck before then"
   }
  ]
 }

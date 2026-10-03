@@ -389,6 +389,38 @@ def runs_cmd(limit: int = typer.Option(15), state: Optional[str] = typer.Option(
         typer.echo(f"{icon.get(r['state'], '·')} {r['id']}  {started}  {r.get('harness'):6} {str(r.get('model'))[:22]:22} {cost:>9}  {r.get('turns') or 0:>3}t  {str(r.get('dispatcher') or '')[:18]:18} {r.get('title') or ''}")
 
 
+@app.command("works")
+def works_cmd(
+    limit: int = typer.Option(20),
+    kind: Optional[str] = typer.Option(None, help="image | speech | music | transcript | lyrics"),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Search prompts, titles and transcripts"),
+    backfill: bool = typer.Option(False, "--backfill", help="Index files in the storage folder that are not in the works library yet"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="With --backfill: only count"),
+    host: str = typer.Option(DEFAULT_HOST),
+    port: int = typer.Option(DEFAULT_PORT),
+) -> None:
+    """List generated works (images, speech, music, transcripts)."""
+    import httpx
+    from datetime import datetime
+
+    _require_daemon(host, port)
+    _safe_console()
+    if backfill:
+        res = httpx.post(_api(host, port) + "/api/artifacts/backfill", params={"dry_run": dry_run}, timeout=300).json()
+        verb = "would add" if res["dry_run"] else "added"
+        typer.echo(f"scanned {res['scanned']} files in {res['base']}: {verb} {res['added_total']} {res['added'] or ''}, {res['already_indexed']} already indexed ({res['seconds']}s)")
+        return
+    params = {"limit": limit, **({"kind": kind} if kind else {}), **({"q": query} if query else {})}
+    data = httpx.get(_api(host, port) + "/api/artifacts", params=params, timeout=10).json()
+    icon = {"image": "🖼", "speech": "🗣", "music": "🎵", "transcript": "📝", "lyrics": "🎤"}
+    for a in data["items"]:
+        when = datetime.fromtimestamp(a["created_at"]).strftime("%m-%d %H:%M")
+        cost = f"${a['cost_usd']:.4f}" if a.get("cost_usd") is not None else "—"
+        label = " ".join(str(a.get("title") or a.get("prompt") or Path(a["file_path"]).name).split())[:60]
+        typer.echo(f"{icon.get(a['kind'], '·')} {a['id']}  {when}  {str(a.get('model') or '?')[:22]:22} {cost:>9}  {str(a.get('source') or ''):8} {label}")
+    typer.echo("  ".join(f"{k} {n}" for k, n in sorted(data["counts"].items())) or "no works yet")
+
+
 @app.command("run-log")
 def run_log(run_id: str, follow: bool = typer.Option(False, "--follow", "-f"), host: str = typer.Option(DEFAULT_HOST), port: int = typer.Option(DEFAULT_PORT)) -> None:
     """Show a run's events (and result); --follow tails a live run."""

@@ -167,7 +167,7 @@ export interface BusOther extends BusBase {
   type: string;
   [k: string]: unknown;
 }
-export type BusEvent = BusRunStarted | BusRunEvent | BusRunFinished | BusCall | BusChatStarted | BusChatDelta | BusChatFinished | BusChatUpdated | BusOther;
+export type BusEvent = BusRunStarted | BusRunEvent | BusRunFinished | BusCall | BusChatStarted | BusChatDelta | BusChatFinished | BusChatUpdated | BusGeneration | BusArtifactCreated | BusOther;
 
 /** /ws 額外會送的握手與心跳 */
 export interface WsHello { type: "hello"; version: string; ts: number }
@@ -182,8 +182,11 @@ export interface ModelEntry {
   provider: string;
   modality: string;
   name?: string;
-  /** current＝人工維護的名單；discovered＝各家 /models 即時抓到、沒有定價的 */
+  /** current／deprecated＝整理過的名單（deprecated＝官方已公告關閉日）；discovered＝各家 /models 即時抓到、還沒整理的 */
   status: "current" | "discovered" | "deprecated" | "retired" | string;
+  /** 官方公告的關閉日 YYYY-MM-DD */
+  shutdown?: string;
+  replacement?: string;
   online?: boolean | null;
   /** 預設走哪個 harness；沒有＝不能當 agent */
   harness?: Harness | string | null;
@@ -201,6 +204,8 @@ export interface ModelsResponse {
   /** 等級別名 → 模型 id（cheap／standard／strong） */
   tiers: Record<string, string>;
   models: Record<string, ModelEntry[]> | ModelEntry[];
+  /** 廠商 id → 顯示名稱等設定；物件的順序就是清單分組的順序 */
+  providers?: Record<string, { label?: string; [k: string]: unknown }>;
   counts?: Record<string, number>;
 }
 
@@ -362,6 +367,254 @@ export interface BusChatUpdated extends BusBase {
   type: "chat.updated";
   conversation_id: string;
   conversation: Partial<ChatSummary>;
+}
+
+/* ---------------- 1.1-M3：生成頁（後端 mcp/omniapi_mcp/generate/） ---------------- */
+
+/** 生成的四種模態（＝/make/:kind） */
+export type GenKind = "image" | "speech" | "music" | "transcript";
+/** 作品的種類（多一種歌詞） */
+export type ArtifactKind = "image" | "speech" | "music" | "transcript" | "lyrics";
+
+/** GET /api/generate/options 的一個模型：ModelEntry＋能不能叫 */
+export interface GenModel {
+  id: string;
+  provider: string;
+  modality?: string;
+  name?: string;
+  /** current／deprecated（已公告關閉日）／discovered（還沒整理） */
+  status: string;
+  shutdown?: string;
+  replacement?: string;
+  note?: string;
+  available: boolean;
+  unavailable?: { reason: "missing_key" | "not_implemented" | "offline" | string; env?: string };
+  /** 生成模型的定價：unit 決定其他欄位（per_image／per_1m_tokens／per_1k_chars／per_1m_chars／per_minute／per_song／credits） */
+  pricing?: { unit?: string; [k: string]: unknown } | null;
+  [k: string]: unknown;
+}
+
+export interface ImageCaps {
+  provider: string;
+  sizes: string[];
+  qualities: string[];
+  formats: string[];
+  max_images: number;
+  supports_background: boolean;
+  [k: string]: unknown;
+}
+
+export interface Voice {
+  id: string;
+  name: string;
+  note?: string | null;
+  /** 有值＝只有這些模型能用 */
+  only?: string[] | null;
+  preview_url?: string | null;
+}
+export interface VoiceSet {
+  default: string;
+  voices: Voice[];
+  /** ElevenLabs：清單是現查的 */
+  live?: boolean;
+  /** 現查失敗的原因（仍可用預設聲音） */
+  error?: string;
+}
+
+export interface GenKindOptions {
+  models: GenModel[];
+  default_model: string | null;
+}
+export interface GenOptions {
+  offline: boolean;
+  /** 離線開發沙盒：不呼叫供應商、不花錢、每個模型都可選 */
+  sandbox: boolean;
+  kinds: {
+    image: GenKindOptions & { capabilities: Record<string, ImageCaps> };
+    speech: GenKindOptions & { voices: Record<string, VoiceSet> };
+    music: GenKindOptions;
+    transcript: GenKindOptions;
+  };
+}
+
+export type EstimateBasis =
+  | "per_image"
+  | "per_1k_chars"
+  | "per_minute"
+  | "per_song"
+  | "history"
+  | "history_model"
+  | "history_chars"
+  | "credits"
+  | "needs_length"
+  | "unknown"
+  | "sandbox";
+
+/** POST /api/generate/estimate：basis 決定其他欄位 */
+export interface Estimate {
+  basis: EstimateBasis | string;
+  usd: number | null;
+  unit_price?: number;
+  n?: number;
+  tier?: string;
+  chars?: number;
+  seconds?: number;
+  low?: number;
+  high?: number;
+  samples?: number;
+  credit_usd?: number;
+  unit?: string;
+  [k: string]: unknown;
+}
+
+/** 來源只能是作品或上傳檔的 id（不能送路徑） */
+export type SourceRef = { artifact_id: string; upload_id?: undefined } | { upload_id: string; artifact_id?: undefined };
+export type SourceView = SourceRef & { name: string | null; file_url: string; thumb_url: string | null };
+export interface GenSources {
+  images?: SourceRef[];
+  audio?: SourceRef;
+}
+
+export type GenStatus = "running" | "done" | "error" | "cancelled" | "interrupted";
+export type GenErrorKind = "quota" | "auth" | "rejected" | "timeout" | "too_large" | "unavailable" | "offline" | "interrupted" | "invalid" | "other";
+
+/** 作品（artifacts 表的一列，去掉路徑） */
+export interface Artifact {
+  id: string;
+  created_at: number;
+  kind: ArtifactKind | string;
+  tool: string | null;
+  model: string | null;
+  provider?: string | null;
+  title: string | null;
+  prompt: string | null;
+  params: Record<string, unknown> | null;
+  mime: string | null;
+  bytes: number | null;
+  width: number | null;
+  height: number | null;
+  duration_s: number | null;
+  /** 逐字稿／歌詞的文字（清單裡超過 400 字會截成預覽） */
+  text: string | null;
+  cost_usd: number | null;
+  source: string | null;
+  parent_id: string | null;
+  file_url: string;
+  thumb_url: string | null;
+  exists: boolean;
+  /** 後端有帶，但頁面不顯示路徑 */
+  file_path?: string;
+  [k: string]: unknown;
+}
+
+export interface Generation {
+  id: string;
+  created_at: number;
+  finished_at: number | null;
+  kind: GenKind;
+  tool: string;
+  model: string | null;
+  title: string | null;
+  params: Record<string, unknown>;
+  sources: { images?: SourceView[]; audio?: SourceView };
+  status: GenStatus;
+  error: string | null;
+  error_kind: GenErrorKind | null;
+  estimate: Estimate | null;
+  cost_usd: number | null;
+  artifacts: Artifact[];
+  source?: string;
+  [k: string]: unknown;
+}
+
+export interface GenRequest {
+  kind: GenKind;
+  params: Record<string, unknown>;
+  sources?: GenSources;
+  duration_s?: number;
+}
+
+/** POST /api/uploads?filename= */
+export interface Upload {
+  id: string;
+  kind: "image" | "audio";
+  filename: string;
+  bytes: number;
+  mime: string;
+}
+
+/** GET /api/artifacts */
+export interface ArtifactList {
+  items: Artifact[];
+  /** 整面牆各模態的件數（不含已移除） */
+  counts: Record<string, number>;
+  /** 1.1-M4：套用目前篩選（kind 除外）後各模態的件數；舊 daemon 沒有 */
+  matching?: Record<string, number>;
+  next_before: number | null;
+}
+
+/* ---------------- 1.1-M4：作品牆 ---------------- */
+
+/** 牆的篩選（送給 GET /api/artifacts 與 GET /api/artifacts/{id}） */
+export interface WallQuery {
+  /** 逗號分隔，如 music,lyrics */
+  kind?: string;
+  /** `-`＝沒有模型的作品 */
+  model?: string;
+  source?: string;
+  q?: string;
+  since?: number;
+  until?: number;
+  only_hidden?: boolean;
+}
+
+/** GET /api/artifacts/facets */
+export interface ArtifactFacets {
+  models: { value: string | null; n: number }[];
+  sources: { value: string; n: number }[];
+  /** 已移除幾件 */
+  hidden: number;
+  oldest: number | null;
+  newest: number | null;
+}
+
+/** GET /api/artifacts/{id}：完整一件＋來源與衍生＋目前篩選下的鄰居 */
+export interface ArtifactDetail extends Artifact {
+  hidden?: boolean;
+  parent: Artifact | null;
+  children: Artifact[];
+  /** 比它新的那一件（燈箱的 ←）；null＝到頭了 */
+  newer: string | null;
+  /** 比它舊的那一件（燈箱的 →） */
+  older: string | null;
+}
+
+/** GET /api/calls 的一列（聊天・生成帳的原始紀錄） */
+export interface CallRow {
+  id: string;
+  ts: number;
+  tool: string;
+  status: string;
+  duration_ms: number | null;
+  model: string | null;
+  provider: string | null;
+  cost_usd: number | null;
+  error: string | null;
+  source: string | null;
+  /** 1.1-M4：這筆呼叫做出來的作品 */
+  artifact_ids?: string[];
+  [k: string]: unknown;
+}
+
+export interface BusArtifactCreated extends BusBase {
+  type: "artifact.created";
+  /** 不含 text／params／meta */
+  artifact: Artifact;
+}
+
+export interface BusGeneration extends BusBase {
+  type: "generation.started" | "generation.finished";
+  generation: Generation;
 }
 
 /** POST /api/runs 的回應 */
