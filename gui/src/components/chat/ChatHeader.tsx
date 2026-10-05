@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/api/client";
 import type { ChatDetail } from "@/api/types";
 import { usd } from "@/lib/format";
@@ -121,13 +122,85 @@ export default function ChatHeader({ conv, pathCount, live, onArchived }: ChatHe
     }
   };
 
+  /* ---------- 1.3-M3：窄的時候表頭的動作收進「⋯」（M 段在表頭右邊、S 段在返回列右邊） ---------- */
+  const [menu, setMenu] = useState(false);
+  useEffect(() => {
+    if (!menu) return;
+    const off = (e: MouseEvent) => {
+      if (!(e.target instanceof Element) || !e.target.closest(".ch-menu, .ch-kebab")) setMenu(false);
+    };
+    const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setMenu(false);
+    document.addEventListener("click", off);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("click", off);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [menu]);
+  const kebab = (
+    <button type="button" className="kebab ch-kebab" aria-label="這段聊天的動作" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
+      ⋯
+    </button>
+  );
+  const menuEl = menu ? (
+    <div className="ch-menu" role="menu">
+      {!archived ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setMenu(false);
+            start();
+          }}
+        >
+          改名
+        </button>
+      ) : null}
+      <a role="menuitem" href={api.chatExportUrl(conv.id)} download onClick={() => setMenu(false)}>
+        匯出 markdown
+      </a>
+      {!archived ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setMenu(false);
+            void archive();
+          }}
+        >
+          封存
+        </button>
+      ) : null}
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          setMenu(false);
+          openDel();
+        }}
+      >
+        刪除…
+      </button>
+    </div>
+  ) : null;
+
   // 一則有價的回覆都沒有才整個寫「未計價」；否則寫合計，另標未計價的則數（null 不當 0）
   const allUnpriced = (conv.priced ?? 0) === 0 && conv.unpriced > 0;
   const total = conv.n_messages;
   const hidden = Math.max(0, total - pathCount);
   return (
     <>
-      <div className="ch-head" ref={headRef}>
+      <div className="ctxbar">
+        <Link className="back" to="/chat">
+          ‹ 聊天
+        </Link>
+        <span className="t">{conv.title || "（未命名）"}</span>
+        <span className="ctx-r">
+          {kebab}
+          {menuEl}
+        </span>
+      </div>
+      <div className={`ch-head${editing || del ? " open" : ""}`} ref={headRef}>
         {editing ? (
           <input
             className="ch-title-in"
@@ -193,6 +266,8 @@ export default function ChatHeader({ conv, pathCount, live, onArchived }: ChatHe
           <button type="button" className="ch-act" aria-expanded={del} aria-haspopup="dialog" onClick={openDel}>
             刪除…
           </button>
+          {kebab}
+          {menuEl}
         </span>
         {del ? (
           <div className="cd-pop" role="alertdialog" aria-modal="true" aria-labelledby="cd-q" aria-describedby="cd-lead">

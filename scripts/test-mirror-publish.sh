@@ -62,17 +62,34 @@ w gui/package.json '{"version":"1.0.0"}'
 w skill/omniapi/SKILL.md "# omniapi skill"
 w docs/OmniAPI\ 決策記錄.md "私有"                                          # docs/ 整個不出去
 w prototypes/a.html "<p>私有</p>"
+# 桌面殼（1.3.0 起進白名單）：原始碼、頁面、NSIS、設定檔；註解裡的內部編號不算
+w desktop/README.md "# desktop shell"
+w desktop/src-tauri/tauri.conf.json '{"version":"1.0.0","productName":"OmniAPI"}'
+w desktop/src-tauri/src/tray.rs '//! 系統匣（1.3-M5、D45）
+/// 選單（D49）
+pub const OPEN: &str = "開啟看板"; // 見 1.3-M5-a
+pub const URL: &str = "https://example.invalid/x";'
+w desktop/ui/index.html '<!-- 正在啟動頁（1.3-M5） --><p>服務啟動中</p><script>// 1.3-M5-b
+const a = 1; /* D45 */</script>'
+w desktop/src-tauri/nsis-hooks.nsh '; installer hooks (1.3-M6)
+!macro NSIS_HOOK_PREINSTALL
+  DetailPrint "stopping the service"
+!macroend'
+w desktop/config/shell.installed.json '{"comment": "installed default", "port": 7788}'
+w gui/src/styles/a.css '/* 1.3-M3 斷點 */ .x { color: red; }'
 commit "clean"
 
 echo "▸ 乾淨內容"
 run_case "乾淨內容 --dry-run 通過" 0 --dry-run
-expect "安全網兩道都過" "$(has '安全網 1（私有文件引用）：通過' && has '安全網 2（疑似密鑰）：通過' && echo 0 || echo 1)"
+expect "安全網四道都過" "$(has '安全網 1（私有文件引用）：通過' && has '安全網 2（疑似密鑰）：通過' && has '安全網 3（畫面文字的內部編號）：通過' && has '安全網 4（開發機的路徑）：通過' && echo 0 || echo 1)"
 
 run_case "乾淨內容 --export-to 通過" 0 --export-to "$T/out1"
 bad=0
 [[ -f "$T/out1/README.md" && -f "$T/out1/mcp/.env.example" && -f "$T/out1/scripts/mirror-publish.sh" ]] || bad=1
 [[ ! -e "$T/out1/docs" && ! -e "$T/out1/prototypes" && ! -e "$T/out1/mcp/CLAUDE.md" ]] || bad=1
-expect "白名單在、docs/prototypes/mcp/CLAUDE.md 不在" "$bad"
+[[ -f "$T/out1/desktop/src-tauri/src/tray.rs" && -f "$T/out1/desktop/ui/index.html" ]] || bad=1
+expect "白名單在（含 desktop/）、docs/prototypes/mcp/CLAUDE.md 不在" "$bad"
+expect "安全網 3 掃到桌面殼的檔（tray.rs、ui、nsh、json、css 共 6 個）" "$(has '安全網 3（畫面文字的內部編號）：通過（掃了 6 個檔）' && echo 0 || echo 1)"
 
 run_case "--export-to 目標不是空的就拒絕" nz --export-to "$T/out1"
 expect "" "$(has '不是空的' && echo 0 || echo 1)"
@@ -143,9 +160,56 @@ run_case "編號只在註解裡 → 通過" 0 --export-to "$T/out3b"
 expect "" "$(has '安全網 3（畫面文字的內部編號）：通過' && echo 0 || echo 1)"
 g rm -q gui/src/pages/Demo.tsx && g commit -q -m "unleak3"
 
+# 桌面殼：選單字串、正在啟動頁、NSIS 的訊息、裝進安裝目錄的設定檔、gui 的 css
+leak3() {  # $1=案例名 $2=檔案 $3=內容；命中要停、指出檔案，還原後要過
+  local orig; orig="$(cat "$R/$2" 2>/dev/null || true)"
+  w "$2" "$3"; commit "leak3 $2"
+  run_case "$1 → 停" nz --export-to "$T/out3-$RANDOM"
+  expect "指出 $2" "$(has '安全網 3' && has "$2:" && echo 0 || echo 1)"
+  if [[ -n "$orig" ]]; then w "$2" "$orig"; else g rm -q "$2"; fi
+  commit "unleak3 $2"
+}
+leak3 "Rust 的選單字串露出里程碑編號" desktop/src-tauri/src/tray.rs 'pub const OPEN: &str = "開啟看板（1.3-M5）";'
+leak3 "正在啟動頁的文字露出決策編號" desktop/ui/index.html '<p>服務啟動中（D45）</p>'
+leak3 "NSIS 的訊息露出里程碑編號" desktop/src-tauri/nsis-hooks.nsh '  DetailPrint "stopping (1.3-M6)"'
+leak3 "安裝目錄的設定檔 comment 露出決策編號" desktop/config/shell.installed.json '{"comment": "installed default (D49)", "port": 7788}'
+leak3 "tauri.conf.json 露出私有文件名" desktop/src-tauri/tauri.conf.json '{"version":"1.0.0","longDescription":"見 執行進度表"}'
+leak3 "gui 的 css content 露出決策編號" gui/src/styles/a.css '.x::after { content: "（D44）"; }'
+run_case "還原後全部通過" 0 --export-to "$T/out3c"
+expect "" "$(has '安全網 3（畫面文字的內部編號）：通過' && echo 0 || echo 1)"
+
+# 桌面殼的產物不出去（git 有追蹤也一樣）
+w desktop/node_modules/x/index.js "module.exports = 1"
+w desktop/src-tauri/target/release/x.txt "build output"
+g add -f desktop/node_modules desktop/src-tauri/target && g commit -q -m "tracked desktop artifacts"
+run_case "desktop/node_modules、src-tauri/target 被排除" 0 --export-to "$T/out3d"
+expect "" "$( [[ ! -e "$T/out3d/desktop/node_modules" && ! -e "$T/out3d/desktop/src-tauri/target" && -e "$T/out3d/desktop/src-tauri/src/tray.rs" ]] && echo 0 || echo 1)"
+g rm -rq desktop/node_modules desktop/src-tauri/target && g commit -q -m "untrack desktop artifacts"
+
+# ---------------------------------------------------------------- 安全網 4：開發機的路徑
+echo "▸ 安全網 4"
+# 路徑在執行時才組出來——這支腳本本身也會被匯出掃描
+P1="STRI"; P2="X16"; BS='\'
+w desktop/scripts/common.ps1 "\$Main = 'D:${BS}${P1}${P2}${BS}OmniAPI${BS}mcp'"
+commit "leak4a"
+run_case "雲端同步的專案資料夾名 → 停" nz --export-to "$T/out4a"
+expect "指出 desktop/scripts/common.ps1" "$(has '安全網 4' && has 'desktop/scripts/common.ps1:1:' && echo 0 || echo 1)"
+w desktop/scripts/common.ps1 "\$Uv = 'C:${BS}Users${BS}User${BS}.local${BS}bin${BS}uv.exe'"
+commit "leak4b"
+run_case "開發機使用者的家目錄 → 停" nz --export-to "$T/out4b"
+expect "" "$(has '安全網 4' && has 'desktop/scripts/common.ps1:1:' && echo 0 || echo 1)"
+w desktop/scripts/common.ps1 "\$Uv = Join-Path \$env:USERPROFILE '.local${BS}bin${BS}uv.exe'  # C:${BS}Users${BS}Username${BS} is fine"
+commit "unleak4"
+run_case "用環境變數、別的使用者名稱 → 通過" 0 --export-to "$T/out4c"
+expect "" "$(has '安全網 4（開發機的路徑）：通過' && echo 0 || echo 1)"
+
 # ---------------------------------------------------------------- 公開 commit 的訊息取自 tag
 echo "▸ 公開 commit 訊息"
 g commit -q --allow-empty -m "docs: owner approved the release"
+run_case "--export-to 時 HEAD 是 docs: 開頭也照樣匯出（不做 commit）" 0 --export-to "$T/outmsg"
+expect "" "$(has '不會出去' && [[ -f "$T/outmsg/README.md" ]] && echo 0 || echo 1)"
+run_case "--dry-run（會做 commit 的那條路）照樣擋" nz --dry-run
+expect "" "$(has '看起來是內部用語' && echo 0 || echo 1)"
 g tag -a v1.2.3 -m "Generate page and works wall"
 run_case "annotated tag → 用 tag 的訊息" 0 --tag v1.2.3 --dry-run
 expect "" "$(has '公開 commit 訊息：v1.2.3 — Generate page and works wall' && ! has 'owner approved' && echo 0 || echo 1)"
@@ -156,6 +220,21 @@ g tag -a v1.2.5 -m "docs: 決策記錄更新"
 run_case "tag 訊息是內部用語 → 停" nz --tag v1.2.5 --dry-run
 expect "" "$(has '看起來是內部用語' && echo 0 || echo 1)"
 g tag -d v1.2.3 v1.2.4 v1.2.5 >/dev/null
+
+# Release 的附件：有 desktop/ 的版本要五個（三個發布包＋桌面版安裝包＋雜湊清單）；dry-run 只列出不齊、不停
+echo "▸ Release 附件"
+g tag -a v1.2.6 -m "Desktop app"
+run_case "--release --dry-run 列出要附的五個檔" 0 --tag v1.2.6 --release --dry-run
+expect "" "$(has '要 5 個' && has 'OmniAPI_1.2.6_x64-setup.exe' && has 'SHA256SUMS.txt' && echo 0 || echo 1)"
+mkdir -p "$R/dist"
+for f in omniapi-mcp.dxt omniapi-skill.zip omniapi-v1.2.6.zip OmniAPI_1.2.6_x64-setup.exe; do printf 'x' > "$R/dist/$f"; done
+printf '%s  %s\n' 0 omniapi-mcp.dxt 0 omniapi-skill.zip 0 omniapi-v1.2.6.zip > "$R/dist/SHA256SUMS.txt"
+run_case "雜湊清單少了安裝包 → 指出來" 0 --tag v1.2.6 --release --dry-run
+expect "" "$(has 'SHA256SUMS.txt 沒有 OmniAPI_1.2.6_x64-setup.exe' && echo 0 || echo 1)"
+printf '%s  %s\n' 0 OmniAPI_1.2.6_x64-setup.exe >> "$R/dist/SHA256SUMS.txt"
+run_case "五個都齊 → 照列 gh release create" 0 --tag v1.2.6 --release --dry-run
+expect "" "$(has 'Release v1.2.6（5 檔）' && ! has '不齊' && ! has 'SHA256SUMS.txt 沒有' && echo 0 || echo 1)"
+rm -rf "$R/dist"; g tag -d v1.2.6 >/dev/null
 
 # 沒追蹤的 .env 本來就不會出去；追蹤了的 .env（不小心 add 進去）也要被排除規則刪掉
 printf '%s=%s\n' "PROVIDERS__OPENAI__API_KEY" "$FAKE_SK" > "$R/mcp/.env"

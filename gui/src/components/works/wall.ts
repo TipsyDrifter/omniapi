@@ -125,6 +125,8 @@ export interface Row {
   cells: Cell[];
   /** 這列卡片的高度（圖的高度；文字卡、音檔卡、日期籤再加一行說明的高度） */
   h: number;
+  /** 手機（S 段）：這列只有一張日期籤，排成整列寬的組頭 */
+  head?: boolean;
 }
 
 /** 卡片的寬高比（寬／高）：圖照原比例；音檔卡、文字卡近方形（A 版的緊湊卡）；日期籤很窄 */
@@ -136,7 +138,7 @@ export function aspectOf(w: Artifact): number {
 export const SLUG_ASPECT = 0.34;
 
 /** 新到舊排、日子之間插一張日期籤 */
-export function cellsOf(items: Artifact[]): Cell[] {
+export function cellsOf(items: Artifact[], boxScale = 1): Cell[] {
   const out: Cell[] = [];
   const perDay = new Map<string, number>();
   for (const w of items) perDay.set(day(w.created_at), (perDay.get(day(w.created_at)) ?? 0) + 1);
@@ -147,16 +149,34 @@ export function cellsOf(items: Artifact[]): Cell[] {
       out.push({ t: "slug", day: d, n: perDay.get(d) ?? 0, a: SLUG_ASPECT });
       cur = d;
     }
-    out.push({ t: "work", w, a: aspectOf(w) });
+    // boxScale：手機上音檔卡、文字卡塞不下字，調寬一點（圖照原比例）
+    out.push({ t: "work", w, a: w.kind === "image" ? aspectOf(w) : aspectOf(w) * boxScale });
   }
   return out;
 }
 
 /** 依容器寬排成等高的列；最後一列不拉伸；日期籤不落單在列尾。
     列滿的那一格放不放進這列：看放進去與挪到下一列，哪個的列高比較接近 target（不讓一張寬圖把整列壓得太矮） */
-export function layoutRows(cells: Cell[], width: number, gap = 14, target = 232, maxH = 300): Row[] {
+export function layoutRows(cells: Cell[], width: number, gap = 14, target = 232, maxH = 300, slugRow = false): Row[] {
   const rows: Row[] = [];
   if (width <= 0) return rows;
+  if (slugRow) {
+    // 手機：日期籤自己一列（組頭），每組作品各自排
+    const out: Row[] = [];
+    let group: Cell[] = [];
+    const flushGroup = () => {
+      if (group.length) out.push(...layoutRows(group, width, gap, target, maxH));
+      group = [];
+    };
+    for (const c of cells) {
+      if (c.t === "slug") {
+        flushGroup();
+        out.push({ cells: [c], h: 0, head: true });
+      } else group.push(c);
+    }
+    flushGroup();
+    return out;
+  }
   const hOf = (n: number, s: number) => (width - gap * (n - 1)) / s;
   let cur: Cell[] = [];
   let sum = 0;

@@ -38,9 +38,9 @@ omniapi 的 `complete_text` 暴露：`prompt`★ **或** `messages`(多輪)、`m
 
 ## 0.5 ⭐ 等級別名：先用別名，別寫死型號
 
-`model` 除了 model id，還吃三個**等級別名**，由 catalog 的一張表決定對應：
+`model` 除了 model id，還吃三個**等級別名**。出廠對應由 catalog 的一張表決定，**使用者可以在網頁設定頁（`/settings`）覆寫**，改了立刻生效；現在實際指到哪裡看 `list_available_models` 回傳的 `tiers`：
 
-| 別名 | 目前對應（2026-09-25） | 用途 |
+| 別名 | 出廠對應（2026-09-25） | 用途 |
 |---|---|---|
 | `cheap` | `deepseek-flash` | **系統預設**；日常問答、批量整理、便宜跑量 |
 | `standard` | `gemini-3.8-flash` | 一般任務，要快要穩 |

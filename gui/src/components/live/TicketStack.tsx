@@ -1,3 +1,4 @@
+import { useState, type UIEvent } from "react";
 import type { Run } from "@/api/types";
 import { harnessClass, harnessName, isLive, splitTitle } from "@/lib/format";
 import { Drum, RunId, RunTitle, StateStamp, costTag, turnTag, useFlip } from "./Ticket";
@@ -12,16 +13,32 @@ export interface TicketStackProps {
 }
 
 export default function TicketStack({ runs, selectedId, onSelect }: TicketStackProps) {
+  // 手機（S 段）票券改橫向滑（rwd.css）：下面兩個以上的圓點標出現在看到第幾張
+  const [seen, setSeen] = useState(0);
+  const onScroll = (e: UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const first = el.firstElementChild as HTMLElement | null;
+    if (!first || el.scrollWidth <= el.clientWidth) return;
+    setSeen(Math.round(el.scrollLeft / (first.offsetWidth + 12)));
+  };
   return (
     <div className="stack" aria-label="執行中 runs">
       <div className="stack-h">
         <b>執行中</b>
         <span>{runs.length} RUNS</span>
-        <span>點票券切換 →</span>
+        <span>
+          <span className="x-s">點票券切換 →</span>
+          <span className="only-s">左右滑看下一件</span>
+        </span>
       </div>
-      <div className="stack-list">
+      <div className="stack-list" onScroll={onScroll}>
         {runs.map((r) => (
           <StackTicket key={r.id} run={r} selected={r.id === selectedId} onSelect={onSelect} />
+        ))}
+      </div>
+      <div className="stack-dots" aria-hidden="true">
+        {runs.map((r, i) => (
+          <i key={r.id} className={i === Math.min(seen, runs.length - 1) ? "on" : undefined} />
         ))}
       </div>
     </div>

@@ -131,11 +131,14 @@ export function MetaTable({ run, compact }: { run: Run; compact?: boolean }) {
     </dl>
   );
 }
+/** 手機（S 段）的票券頁首收起的列：派工者、開始（活動流的 SESSION_START 有） */
+const HIDE_S = new Set(["派工者", "開始"]);
 function MetaRow({ k, v, c }: { k: string; v: string; c?: string }) {
+  const s = HIDE_S.has(k);
   return (
     <>
-      <dt>{k}</dt>
-      <dd className={c}>{v}</dd>
+      <dt className={s ? "x-s" : undefined}>{k}</dt>
+      <dd className={[c, s ? "x-s" : ""].filter(Boolean).join(" ") || undefined}>{v}</dd>
     </>
   );
 }

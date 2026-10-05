@@ -9,7 +9,7 @@ description: 透過 OmniAPI MCP（mcp__omniapi-mcp__*）呼叫外部 AI 模型�
 
 > 先用 `health_check` 確認上線，`server_info` 看能力，`list_available_models(modality=...)` 看**當前**可用模型，再動手。
 
-> 🖥 **這些工具背後是一個常駐服務**（`omni serve`，`http://127.0.0.1:7788`）。工具整組叫不到（連線被拒）＝服務沒在跑：請使用者在 `mcp/` 下執行 `uv run omni serve`，再重新連線 MCP。同一個服務也有網頁：看板 `http://127.0.0.1:7788/`、聊天 `/chat`、費用 `/costs`——派工和聊天做的事都會出現在那裡。
+> 🖥 **這些工具背後是一個常駐服務**（`http://127.0.0.1:7788`）。工具整組叫不到（連線被拒）＝服務沒在跑：裝了桌面版的請使用者從開始功能表打開 OmniAPI（或在系統匣選「重啟服務」）；用 zip 裝的請他在 `mcp/` 下執行 `uv run omni serve`。之後重新連線 MCP。同一個服務也有網頁：看板 `http://127.0.0.1:7788/`、聊天 `/chat`、費用 `/costs`、模型 `/models`、設定 `/settings`——派工和聊天做的事都會出現在那裡。
 
 > ⏱ **長任務會回「取件單」**：生成類工具（尤其 Suno 音樂、高品質/4K 圖）若跑超過 ~45 秒，會回 `{status:"running", task_id:"..."}` 而非結果——這是為了避開 client 的 ~60 秒硬 timeout（Desktop/Cowork 尤其）。拿到取件單就用 `get_job_result(task_id)` 領成品；若 status 仍 running，等 ~20–30 秒再領。快的工具（文字、低品質圖、ElevenLabs）直接回結果、不會有取件單。
 
@@ -78,6 +78,8 @@ description: 透過 OmniAPI MCP（mcp__omniapi-mcp__*）呼叫外部 AI 模型�
 | **Suno** (via kie.ai) | 音樂生成 | `PROVIDERS__KIE__API_KEY` |
 
 每家都要配一個 `PROVIDERS__<家>__ENABLED=true` 才會註冊。沒填 key 的家不會出現在 `list_available_models` 的 `configured_providers` 裡。
+
+> 🔧 **key 也可以在網頁的設定頁（`/settings`）貼**：存在使用者資料夾的 `settings.json`、蓋在 `.env` 之上、**不用重啟就生效**（貼了就當作啟用）。缺某家的 key 時，請使用者到設定頁貼，不必改 `.env`、也不必重連 MCP。`list_available_models` 的 `providers.<家>.get_key` 是那一家拿 key 的網址與說明，可以直接轉告。**不要向使用者索取 key、也不要替他把 key 寫進任何檔案**。
 
 ---
 
@@ -153,13 +155,13 @@ mcp__omniapi-mcp__transcribe_audio(audio_path="C:/path/clip.mp3", model="whisper
 
 ### ⭐ 先用等級別名，別寫死型號
 
-| 別名 | 目前對應 | 用途 |
+| 別名 | 內建對應 | 用途 |
 |---|---|---|
 | `cheap` | `deepseek-flash` | **預設**；日常問答、批量、整理 |
 | `standard` | `gemini-3.8-flash` | 一般任務、要快要穩 |
 | `strong` | `gpt-6-sol` | 最難的推理 / 長文 / 規劃 |
 
-換模型只要改 catalog 一張表，寫別名的 prompt 不用跟著改。要指名再從下面挑：
+**使用者可以在設定頁改這張表**（例如只有 OpenAI key 的人把三個都改成 OpenAI 的模型），改了立刻生效、不用重連 MCP。**實際對應以 `list_available_models` 回傳的 `tiers` 為準**，上表只是出廠值；寫別名的 prompt 不用跟著改。`complete_text`、`chat`（新對話）、語音、音樂、轉錄沒給 `model` 時用的「預設模型」也是設定頁改得動的。要指名再從下面挑：
 
 | 家 | 代表模型 |
 |---|---|
@@ -241,7 +243,7 @@ mcp__omniapi-mcp__edit_music(action="separate_vocals", task_id="...", audio_id="
 
 > ⚠️ 派工會花使用者的錢、也會真的改檔案。使用者沒有明確要求派給外部 agent 時，不要主動用 `run_agent`。
 
-- `run_agent(task★, model="cheap", cwd, title, yolo=false, search=true, harness, max_turns, resume_run_id, dispatcher, billing)` → **立刻回 `run_id`**（不等）。`model` 用等級別名 `cheap`（deepseek-flash）／`standard`（gemini-3.8-flash）／`strong`（gpt-6-sol）或任何 id。`dispatcher` 填派工的對話標題（看板「來源」欄）。`task` 要寫成完整 brief：目標、動哪些檔、限制、要什麼回報；查證任務要求附 URL＋引文＋日期。
+- `run_agent(task★, model="cheap", cwd, title, yolo=false, search=true, harness, max_turns, resume_run_id, dispatcher, billing)` → **立刻回 `run_id`**（不等）。`model` 用等級別名 `cheap`／`standard`／`strong`（出廠是 deepseek-flash／gemini-3.8-flash／gpt-6-sol，使用者可能在設定頁改過，以 `list_available_models` 的 `tiers` 為準）或任何 id。`dispatcher` 填派工的對話標題（看板「來源」欄）。`task` 要寫成完整 brief：目標、動哪些檔、限制、要什麼回報；查證任務要求附 URL＋引文＋日期。
 - `get_run(run_id★, after_event=0, include_events=true, max_events=200)` → state（starting／running／done／error／cancelled／dead）、turns、cost_usd、`result`（最終回報）、`events`（text／tool_call／tool_result…）。**輪詢**：先等 60–120 秒再拉，帶上次最大的 event id 當 `after_event` 只拿增量。
 - `list_runs(limit, state)`、`cancel_run(run_id)`。
 - **續接**：`run_agent(task="再補第 3 點", resume_run_id=<舊 run>)` 在同一個 harness session 裡接著做（三個 harness 都支援）。
@@ -268,7 +270,7 @@ mcp__omniapi-mcp__get_run(run_id="20260925130701-bf0", after_event=0)
 
 - `chat(message★, conversation_id, model, system, title, reasoning_effort, temperature, max_completion_tokens)` → 等回覆完才回：`{conversation_id, title, state, text, model, requested_model, reasoning?, usage, cost_usd, error?, n_messages, url}`。
 - **多輪一定要把回傳的 `conversation_id` 帶回下一次呼叫**；不帶就是開新對話（模型看不到前面的內容）。
-- `model`：新對話預設 `cheap`；既有對話不給就沿用上次的模型，給了就從這一則起換模型（每則回覆各自記是誰答的）。
+- `model`：新對話不給就用設定頁的「預設聊天」（出廠是 `cheap`）；既有對話不給就沿用上次的模型，給了就從這一則起換模型（每則回覆各自記是誰答的）。
 - `system`：新對話設定 system prompt；對既有對話給，會**取代**它原本的 system prompt。
 - `url` 是 GUI 的聊天頁（`http://127.0.0.1:7788/chat/<id>`），回報時附給使用者。
 - 回覆超過約 45 秒會回取件單（`status:"running"`、`task_id`，也帶 `conversation_id`）→ `get_job_result(task_id)` 領。
@@ -306,9 +308,10 @@ mcp__omniapi-mcp__chat(message="換你從讀者角度看", conversation_id=r.con
 1. `health_check` — 整體 + 各 provider 健康（會 ping provider 的免費 endpoint）。
 2. `server_info` — 看 capabilities 與預設值。
 3. `list_available_models(modality=...)` — **跨模態**即時名單（`text`/`image`/`transcription`/`speech`/`music`，省略＝全部），含 provider、線上狀態、定價、棄用／關閉日與等級別名。旗標：`include_retired`、`include_snapshots`、`refresh`。
+   回傳裡值得看的：`tiers`（**現在**的等級對應，含使用者在設定頁的覆寫）、`configured_providers`（有 key 的家）、`default_text_model`、`providers.<家>.get_key`（拿 key 的網址與說明）、`providers.<家>.suggested_tiers`（這家的便宜／一般／最強建議值；OpenRouter 沒有）。只有一家 key、等級別名卻指到別家時，可以建議使用者到設定頁照 `suggested_tiers` 改。
 
 ## 🚫 界線
 - **影片 / 對嘴 / 變聲** → 用 VPick（另一台 canvas MCP），不是 omniapi。
 - **程式化逐格動畫 / 資料視覺化影片** → 用 Remotion。
 - omniapi 的範圍：圖 / 轉錄 / 文字 / 語音 / 音樂的 API 呼叫、跟外部模型多輪聊天、把任務派給 headless agent。
-- 圖片、語音、音樂目前只有 MCP 工具，網頁上還沒有入口；生出來的檔案路徑在工具回傳裡。
+- 圖片、語音、音樂、轉錄在網頁上也有入口（生成頁 `/make`）；從 MCP 做的作品一樣收進作品牆 `/works`，檔案路徑在工具回傳裡。

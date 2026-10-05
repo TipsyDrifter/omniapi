@@ -211,7 +211,9 @@ function SystemEditor({ value, mode, onSave, onClose }: { value: string; mode: "
         </div>
       ) : null}
       <div className="cs-acts">
-        <span className="cs-hint">Ctrl+Enter 儲存 · Esc 關閉</span>
+        <span className="cs-hint">
+          <span className="x-touch">Ctrl+Enter 儲存 · Esc 關閉</span>
+        </span>
         <button type="button" className="cs-act" onClick={onClose}>
           取消
         </button>

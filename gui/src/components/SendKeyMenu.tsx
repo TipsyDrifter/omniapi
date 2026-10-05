@@ -77,11 +77,13 @@ function usePop() {
 
 /** 追問、派工、生成頁的「Ctrl+Enter 送出」小字：可以點，開送出鍵選單。
  *  children 沒給＝顯示提示字本身；up＝選單往上長（輸入列在頁面底部時） */
-export function SendKeyHint({ up, cap, before }: { up?: boolean; cap?: boolean; before?: ReactNode }) {
+export function SendKeyHint({ up, cap, before, sep }: { up?: boolean; cap?: boolean; before?: ReactNode; sep?: boolean }) {
   const [key] = useSendKey();
   const { open, setOpen, ref } = usePop();
   return (
     <span className={`ck-wrap${cap ? " cap" : ""}`} ref={ref}>
+      {/* 跟前面字數之間的「·」放在這一塊裡：觸控時整塊藏起來，不會留下一個孤單的點 */}
+      {sep ? " · " : null}
       <button type="button" className={cap ? "ck-capbtn" : "ck-hint"} aria-expanded={open} aria-haspopup="dialog" title="選送出鍵" onClick={() => setOpen((o) => !o)}>
         {before}
         {cap ? <SendKeyCap mode={key} /> : sendHint(key)}

@@ -1,0 +1,4 @@
+node_modules/
+# cargo output normally goes to CARGO_TARGET_DIR in %TEMP% (scripts/build.ps1); these catch a plain `cargo build`
+src-tauri/target/
+src-tauri/gen/

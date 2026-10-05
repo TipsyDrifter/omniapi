@@ -3,6 +3,7 @@ import type { EventRow, Run, Thread } from "@/api/types";
 import { FEED_CHIPS, FeedList, NO_PRINT_OVER, STICK_PX, feedCounts, type FeedFilter } from "@/components/feed";
 import { StateStamp } from "@/components/live";
 import { dt, harnessClass, usd } from "@/lib/format";
+import { useTier } from "@/lib/rwd";
 import { isLiveRun, loadRunEvents, useBoard } from "@/store/board";
 import CancelButton from "./CancelButton";
 import Composer from "./Composer";
@@ -49,10 +50,26 @@ export default function ThreadView({ thread, targetId, onStarted }: ThreadViewPr
   const segRefs = useRef<Record<string, HTMLElement | null>>({});
   const stick = useRef(false);
   const scrolledFor = useRef<string | null>(null);
+  // 1.3-M3：手機（S 段）串不內捲、跟著整頁捲（追問框貼底），捲動對象換成視窗
+  const pageScroll = useTier() === "s";
+  const pageRef = useRef(pageScroll);
+  pageRef.current = pageScroll;
   const toBottom = () => {
+    if (pageRef.current) {
+      window.scrollTo({ top: document.documentElement.scrollHeight });
+      return;
+    }
     const el = feedRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
+  useEffect(() => {
+    if (!pageScroll) return;
+    const onWin = () => {
+      stick.current = document.documentElement.scrollHeight - window.scrollY - window.innerHeight < STICK_PX;
+    };
+    window.addEventListener("scroll", onWin, { passive: true });
+    return () => window.removeEventListener("scroll", onWin);
+  }, [pageScroll]);
 
   // 網址指到的那段：它和它前面的段都載完才定位（前面的段長高會把它往下推）
   const ti = ids.indexOf(targetId);
@@ -69,7 +86,9 @@ export default function ThreadView({ thread, targetId, onStarted }: ThreadViewPr
     } else {
       const seg = segRefs.current[targetId];
       stick.current = false;
-      el.scrollTop = seg && ti > 0 ? seg.offsetTop : 0;
+      if (pageRef.current) {
+        if (seg && ti > 0) window.scrollTo({ top: seg.getBoundingClientRect().top + window.scrollY - 60 });
+      } else el.scrollTop = seg && ti > 0 ? seg.offsetTop : 0;
     }
   }, [readyToAim, targetId, thread.leaf_id, leafLive, ti]);
 
@@ -93,7 +112,7 @@ export default function ThreadView({ thread, targetId, onStarted }: ThreadViewPr
 
   const onScroll = () => {
     const el = feedRef.current;
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+    if (el && !pageRef.current) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
   };
 
   // 送出追問：新段接在下面、捲到底

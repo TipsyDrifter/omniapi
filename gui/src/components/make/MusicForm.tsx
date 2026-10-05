@@ -76,7 +76,7 @@ export function MusicForm({ opts, optsError, busy, error, onSend }: FormProps) {
             htmlFor="mk-mprompt"
             aside={
               <>
-                <span className="n">{[...d.prompt].length}</span> 字 · <SendKeyHint />
+                <span className="n">{[...d.prompt].length}</span> 字<SendKeyHint sep />
               </>
             }
           >

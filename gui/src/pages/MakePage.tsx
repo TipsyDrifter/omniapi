@@ -115,7 +115,10 @@ function Make({ kind }: { kind: GenKind }) {
       ) : null}
 
       <div className={`mk-grid${open ? " with-tray" : ""}`} data-kind={kind}>
-        {kind === "image" ? <ImageForm {...formProps} /> : kind === "speech" ? <SpeechForm {...formProps} /> : kind === "music" ? <MusicForm {...formProps} /> : <TranscriptForm {...formProps} />}
+        {/* .mk-form：寬版 display:contents（兩欄照舊是 grid 的直接子項）；窄的時候併成一欄、送出列排最後（rwd.css） */}
+        <div className="mk-form">
+          {kind === "image" ? <ImageForm {...formProps} /> : kind === "speech" ? <SpeechForm {...formProps} /> : kind === "music" ? <MusicForm {...formProps} /> : <TranscriptForm {...formProps} />}
+        </div>
         {open ? <Tray ids={trayIds} /> : null}
       </div>
     </section>

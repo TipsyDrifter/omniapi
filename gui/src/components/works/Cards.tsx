@@ -15,11 +15,12 @@ export const CAP = 25;
 const fmtWd = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", weekday: "short" });
 const todayYmd = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
-export function DateSlug({ day, n, width, h }: { day: string; n: number; width: number; h: number }) {
+/** head：手機（S 段）的日期籤是整列寬的組頭「10 04 TODAY …… 5 件」（1.3-M3） */
+export function DateSlug({ day, n, width, h, head }: { day: string; n: number; width: number; h: number; head?: boolean }) {
   const [, mm, dd] = day.split("-");
   const wd = day === todayYmd() ? "TODAY" : fmtWd.format(new Date(`${day}T12:00:00+08:00`)).toUpperCase();
   return (
-    <div className="wk-cell wk-slug" style={{ width, height: h + CAP }} aria-label={`${day}，${n} 件`}>
+    <div className={`wk-cell wk-slug${head ? " head" : ""}`} style={head ? { width } : { width, height: h + CAP }} aria-label={`${day}，${n} 件`}>
       <b className="n">{mm}</b>
       <b className="n">{dd}</b>
       <span>{wd}</span>

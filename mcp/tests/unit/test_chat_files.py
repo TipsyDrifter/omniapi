@@ -884,7 +884,7 @@ def client(ctx, monkeypatch, tmp_path):
 
     monkeypatch.setenv("OMNIAPI_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(runtime, "context", ctx)
-    return TestClient(daemon_app.create_app(ctx.settings))
+    return TestClient(daemon_app.create_app(ctx.settings), base_url="http://127.0.0.1")  # loopback Host (1.3-M2 guard)
 
 
 async def test_the_generate_page_still_gets_images_and_audio_only(ctx, client):
@@ -948,7 +948,7 @@ async def test_a_slow_extraction_answers_later(ctx, monkeypatch, tmp_path):
 
     monkeypatch.setattr(F, "extract_path", slow)
     app = daemon_app.create_app(ctx.settings)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as http:  # this loop: background work goes on
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as http:  # this loop: background work goes on
         up = (await http.post("/api/uploads", params={"filename": "t.txt", "purpose": "chat"}, content="一二三".encode())).json()
         assert up["info"] is None and up["info_pending"] is True
         for _ in range(100):

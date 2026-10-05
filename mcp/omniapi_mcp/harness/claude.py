@@ -12,10 +12,14 @@ Claude Code session variables are scrubbed so the child never looks nested.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
+import os
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Callable, Optional
 
 from ..catalog import catalog
 from .base import HEADLESS_SYSTEM_APPEND, HarnessAdapter, clean_env, harness_home, search_mcp_servers
@@ -23,6 +27,88 @@ from .events import RunEvent, RunSpec
 from .registry import DEEPSEEK_CLI_ALIAS
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------ which claude.exe (1.3-M5)
+# The SDK looks for the CLI itself, bundled copy first. The desktop build will not ship that
+# 230 MB copy (Q7, prototype one), so we pick the executable ourselves and always pass
+# ``cli_path``: the user's own install first (it is the one their login belongs to), the
+# bundled copy last. Order: setting / env → PATH → ~/.local/bin/claude.exe → SDK bundled.
+
+#: env var naming the executable directly (same meaning as the ``harness.claude_cli`` setting)
+CLAUDE_CLI_ENV = "HARNESS__CLAUDE_CLI"
+
+
+@dataclass(frozen=True)
+class ClaudeCli:
+    """Where the Claude Code executable is: ``path`` is ``None`` when none was found,
+    and ``reason`` then says why in words a user can act on."""
+
+    path: Optional[str]
+    source: str  # setting | path | local-bin | sdk-bundled | none
+    reason: str = ""
+
+
+def _native(path: str) -> bool:
+    """A file CreateProcess runs directly. npm's ``claude.cmd`` shim is not one: the SDK
+    refuses batch files on Windows (quoting through cmd.exe is not safe)."""
+    if os.name != "nt":
+        return True
+    return Path(path).suffix.lower() in (".exe", ".com")
+
+
+def _sdk_bundled() -> Optional[Path]:
+    """``claude_agent_sdk/_bundled/claude(.exe)`` when the installed wheel carries it
+    (an sdist build does not). Located without importing the SDK."""
+    spec = importlib.util.find_spec("claude_agent_sdk")
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    name = "claude.exe" if os.name == "nt" else "claude"
+    for loc in spec.submodule_search_locations:
+        p = Path(loc) / "_bundled" / name
+        if p.is_file():
+            return p
+    return None
+
+
+def find_claude_cli(
+    settings: Any = None,
+    *,
+    which: Callable[[str], Optional[str]] = shutil.which,
+    home: Optional[Path] = None,
+    bundled: Callable[[], Optional[Path]] = _sdk_bundled,
+) -> ClaudeCli:
+    """Pick the Claude Code executable for agent runs (see the comment above for the order).
+
+    An explicitly configured path that does not exist is reported, not silently replaced by
+    another copy: the user asked for that one."""
+    configured = (getattr(getattr(settings, "harness", None), "claude_cli", "") or os.environ.get(CLAUDE_CLI_ENV, "")).strip().strip('"')
+    if configured:
+        p = Path(configured).expanduser()
+        if p.is_file() and _native(str(p)):
+            return ClaudeCli(str(p), "setting")
+        why = "is not a file" if not p.is_file() else "is a script, not claude.exe"
+        return ClaudeCli(None, "none", f"the configured Claude Code executable ({CLAUDE_CLI_ENV} / harness.claude_cli = {configured}) {why}")
+    shim = None
+    hit = which("claude")
+    if hit and _native(hit):
+        return ClaudeCli(hit, "path")
+    if hit:
+        shim = hit
+        exe = which("claude.exe")
+        if exe and _native(exe):
+            return ClaudeCli(exe, "path")
+    local = (home or Path.home()) / ".local" / "bin" / ("claude.exe" if os.name == "nt" else "claude")
+    if local.is_file():
+        return ClaudeCli(str(local), "local-bin")
+    b = bundled()
+    if b is not None:
+        return ClaudeCli(str(b), "sdk-bundled")
+    if shim:
+        return ClaudeCli(None, "none", f"Claude Code is not installed as claude.exe (only npm's shim {shim}, which cannot be run headless on Windows); "
+                         "install the native build: irm https://claude.ai/install.ps1 | iex")
+    return ClaudeCli(None, "none", "Claude Code is not installed (no claude.exe on PATH or in ~/.local/bin); "
+                     "install it: irm https://claude.ai/install.ps1 | iex — or set HARNESS__CLAUDE_CLI to its path")
 
 # Claude Code emits these system subtypes by the thousand (or, for the hook
 # pair, sixteen at the head of every run); they carry no information the
@@ -120,7 +206,13 @@ class ClaudeHarness(HarnessAdapter):
         if spec.system_append:
             append += "\n" + spec.system_append
 
+        cli = find_claude_cli(self.settings)
+        if cli.path is None:
+            # the registry refuses such runs up front; this is the last line of defence
+            raise RuntimeError(cli.reason)
+
         opts = ClaudeAgentOptions(
+            cli_path=cli.path,
             model=self._cli_model(spec),
             cwd=spec.cwd,
             permission_mode="bypassPermissions" if spec.yolo else "acceptEdits",
@@ -158,7 +250,11 @@ class ClaudeHarness(HarnessAdapter):
             UserMessage,
         )
 
-        opts = self.build_options(spec)
+        try:
+            opts = self.build_options(spec)
+        except RuntimeError as e:  # no Claude Code executable: say so as the run's error
+            yield RunEvent("error", {"message": str(e)})
+            return
         model_id = spec.resolved_model or spec.model
         tool_names: dict[str, str] = {}
         session_id: Optional[str] = None

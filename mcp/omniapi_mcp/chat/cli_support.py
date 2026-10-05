@@ -563,7 +563,8 @@ class ChatSession:
 
     def ensure(self) -> str:
         if not self.cid:
-            conv = self.api.create(model=self.model or "cheap", system=self.system)
+            # no model: the daemon's chat default (cheap unless changed in the settings)
+            conv = self.api.create(model=self.model, system=self.system)
             self.cid = conv["id"]
         return self.cid
 

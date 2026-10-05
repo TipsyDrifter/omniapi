@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { ChatMessage } from "@/api/types";
 import { sendHint, useSendKey } from "@/lib/sendKey";
 import { createChat, localMessage, type OutgoingAttachment } from "@/store/chat";
+import { useSettings } from "@/store/settings";
 import ChatDock from "./ChatDock";
 import { UserMessage } from "./Message";
 
@@ -12,7 +13,10 @@ import { UserMessage } from "./Message";
 
 export default function NewChat() {
   const navigate = useNavigate();
-  const [model, setModel] = useState("cheap");
+  // 1.3-M4：一開始用設定頁的「預設聊天」（等級別名或模型 id）；使用者在細列挑過就照挑的
+  const defChat = useSettings((s) => s.settings?.defaults.chat.model ?? null);
+  const [picked, setModel] = useState<string | null>(null);
+  const model = picked ?? defChat ?? "cheap";
   const [system, setSystem] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState<ChatMessage | null>(null);
@@ -46,7 +50,7 @@ export default function NewChat() {
           <h1>開一段新聊天</h1>
           <p>在下面的輸入列寫第一則，{sendHint(sendKey)}；回覆會一個字一個字出現。</p>
           <p>
-            送出前可以先在細列換模型（預設 <span className="code">cheap</span>）、填 system prompt；之後每一則都能換模型，每則回覆會標明是誰答的、花了多少。
+            送出前可以先在細列換模型（預設 <span className="code">{defChat ?? "cheap"}</span>，在設定頁可以改）、填 system prompt；之後每一則都能換模型，每則回覆會標明是誰答的、花了多少。
           </p>
           <p>要問圖或檔案的事：把檔案貼上、拖進輸入框，或按「附件」從電腦或作品牆挑；PDF、試算表、文件、錄音都可以，只有附件沒有字也能送。</p>
           <p>聊天只讀你附上的檔案，碰不到電腦裡的其他東西。要 agent 動手做事，從頂欄「＋新對話」選「派工」。</p>

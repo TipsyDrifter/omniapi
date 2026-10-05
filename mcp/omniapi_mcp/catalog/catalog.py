@@ -207,6 +207,8 @@ class ModelCatalog:
         self._entries: dict[tuple[str, str], ModelEntry] = {}  # (provider, id)
         self._alias_index: dict[str, str] = {}  # alias/tier -> canonical id
         self._discovery: dict[str, DiscoveryResult] = {}
+        #: the owner's tier choices (settings.json / env), laid over catalog.json's tiers
+        self._tier_overrides: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self.loaded_at: float | None = None
         self.load()
@@ -240,14 +242,38 @@ class ModelCatalog:
             self._entries[(entry.provider, entry.id)] = entry
             for a in entry.aliases:
                 self._alias_index[a] = entry.id
-        for tier, target in (self._raw.get("tiers") or {}).items():
+        for tier, target in self.tiers.items():
             self._alias_index[tier] = target
         self.loaded_at = time.time()
+
+    def set_tier_overrides(self, overrides: dict[str, str] | None) -> dict[str, str]:
+        """Lay the owner's tier choices over ``catalog.json`` (the file is never
+        written). Only the tiers the catalog defines can be overridden; an
+        empty value or a tier left out falls back to the catalog's own.
+        Returns the tiers now in effect."""
+        known = set((self._raw.get("tiers") or {}).keys())
+        clean = {k: str(v).strip() for k, v in (overrides or {}).items() if k in known and v and str(v).strip()}
+        ignored = sorted(set(overrides or {}) - known)
+        if ignored:
+            logger.warning("Ignoring overrides for unknown tiers: %s", ignored)
+        self._tier_overrides = clean
+        for tier, target in self.tiers.items():
+            self._alias_index[tier] = target
+        return self.tiers
+
+    @property
+    def tier_overrides(self) -> dict[str, str]:
+        return dict(self._tier_overrides)
+
+    @property
+    def catalog_tiers(self) -> dict[str, str]:
+        """The tiers as ``catalog.json`` ships them (no overrides)."""
+        return dict(self._raw.get("tiers") or {})
 
     # ------------------------------------------------------------ queries
     @property
     def tiers(self) -> dict[str, str]:
-        return dict(self._raw.get("tiers") or {})
+        return {**(self._raw.get("tiers") or {}), **self._tier_overrides}
 
     @property
     def providers(self) -> dict[str, dict[str, Any]]:
@@ -343,22 +369,37 @@ class ModelCatalog:
             return lambda: fetch_elevenlabs(key)
         return None
 
-    async def refresh(self, settings: Any, *, force: bool = False) -> dict[str, DiscoveryResult]:
+    async def refresh(self, settings: Any, *, force: bool = False, only: Iterable[str] | None = None) -> dict[str, DiscoveryResult]:
         """Run discovery for every configured provider and merge results.
 
         ``settings.providers.<name>`` objects need ``api_key``/``base_url``/
         ``enabled``. Providers without a key or with discovery=None are
-        skipped (their entries keep ``online=None``).
+        skipped (their entries keep ``online=None``). ``only`` limits the run
+        to those catalog providers (a key just changed in the settings).
+
+        An offline sandbox lists nothing, whoever asks (startup, a forced
+        refresh from the API or the MCP tool, a settings change): no request
+        leaves, and no key is filed as working by a listing that never happened.
         """
+        from ..devmode import offline
+        from . import health
+
+        if offline():
+            return {}
         jobs: dict[str, Any] = {}
+        keys: dict[str, str] = {}
+        wanted = set(only) if only is not None else None
         for provider, pcfg in self.providers.items():
+            if wanted is not None and provider not in wanted:
+                continue
             settings_key = (pcfg or {}).get("settings_key") or provider
             cfg = getattr(getattr(settings, "providers", None), settings_key, None)
             if cfg is None or not getattr(cfg, "enabled", False):
                 continue
             fetcher = self._fetcher_for(provider, cfg)
             if fetcher:
-                jobs[provider] = discover(provider, fetcher, force=force)
+                keys[provider] = getattr(cfg, "api_key", "") or ""
+                jobs[provider] = discover(provider, fetcher, force=force, key_fp=health.fingerprint(keys[provider]))
         if not jobs:
             return {}
         results = await asyncio.gather(*jobs.values(), return_exceptions=True)
@@ -369,7 +410,35 @@ class ModelCatalog:
                     continue
                 self._discovery[provider] = res
                 self._merge(provider, res)
+        for provider, res in zip(jobs, results):
+            if not isinstance(res, Exception):
+                await asyncio.to_thread(self._record_health, provider, keys[provider], res)
         return dict(self._discovery)
+
+    @staticmethod
+    def _record_health(provider: str, key: str, res: DiscoveryResult) -> None:
+        """File what this listing said about the key (1.3-M4, ``health.py``).
+        A cache hit counts only when that cache was made with this very key."""
+        from . import health
+
+        if res.error:
+            info = res.error_info or {"reason": "error", "message": res.error}
+            health.record(provider, key, ok=False, source="discovery", **info)
+        elif not res.from_cache:
+            health.record(provider, key, ok=True, source="discovery", at=res.fetched_at, listed=len(res.models))
+        elif res.key_fp and res.key_fp == health.fingerprint(key):
+            health.record(provider, key, ok=True, source="discovery", at=res.fetched_at, listed=len(res.models))
+
+    def online_count(self, provider: str) -> int | None:
+        """How many of ``provider``'s listed models (curated or discovered,
+        snapshots and retired ones aside) the last listing saw online; ``None``
+        when it has not been listed in this process."""
+        if provider not in self._discovery:
+            return None
+        entries = self.models(provider=provider)
+        if not any(e.online is not None for e in entries):
+            return None
+        return sum(1 for e in entries if e.online)
 
     def _merge(self, provider: str, res: DiscoveryResult) -> None:
         if res.error and not res.models:

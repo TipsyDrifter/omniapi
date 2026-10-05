@@ -15,9 +15,10 @@
 #                                                               #   --tag 只吃 vX.Y.Z 而且必須是 refs/tags/ 下真的存在的 tag
 #                                                               #   （分支名／HEAD／sha 一律擋；tag ≠ HEAD 時印一行警告照發）
 #   bash scripts/mirror-publish.sh --tag v1.0.0 --release --notes <notes.md>
-#                                                               # 再把 dist/ 的三個發布包發成鏡像的 GitHub Release
+#                                                               # 再把 dist/ 的發布檔發成鏡像的 GitHub Release
 #                                                               #   （omniapi-mcp.dxt、omniapi-skill.zip、omniapi-v<版本>.zip；
-#                                                               #    先跑 scripts/build_release.py 產出）
+#                                                               #    有 desktop/ 的版本另加 OmniAPI_<版本>_x64-setup.exe 與 SHA256SUMS.txt；
+#                                                               #    先跑 desktop/scripts/package.ps1，再 scripts/build_release.py --desktop-installer）
 #   --dry-run：①（匯出＋安全網）照做並印統計；②③④ 只印指令不執行。
 #   --allow-older：明知故犯地把比鏡像現有最新版舊的 tag 發上去（Release 會標 --latest=false）。
 #   --export-to <資料夾>：只做 ①（匯出＋安全網），把結果留在指定資料夾——給 build_release.py 打包、
@@ -35,21 +36,24 @@
 #
 # 公開名單（白名單思維——沒列的一律不出去）：
 #   根目錄檔：README.md USER_GUIDE.md LICENSE .gitignore .gitattributes（不存在就略過；但 README.md、LICENSE 缺一個，正式發布就停）
-#   目錄：mcp/ gui/ skill/ scripts/
+#   目錄：mcp/ gui/ skill/ scripts/ desktop/（桌面殼的原始碼與打包腳本；安裝包本身是 Release 的附件，不進 repo）
 #   目錄內排除：mcp/CLAUDE.md（內部開發指示）、任何 .env*（.env.example 留著）、mcp/storage/、mcp/.venv/、
-#               gui/node_modules/、gui/dist/、__pycache__/、*.pyc
+#               gui/node_modules/、gui/dist/、desktop/node_modules/、desktop/src-tauri/target/、
+#               desktop/src-tauri/gen/（cargo 與 tauri 的產物）、__pycache__/、*.pyc
 #               （git archive 只匯出有追蹤的檔，這些照理本來就不會出來；仍然寫明規則並在匯出後逐條斷言）
 #               另外排除 v1.0 沒驗證過的舊部署與文件：mcp/deploy/、Dockerfile、docker-compose*、run.sh、start-mcp.sh、
 #               SYSTEM_DESIGN.md、mcp/docs/、mcp/assets/、mcp/scripts/
 #   不出去：docs/、prototypes/、archive/、.claude/、.sync/
 #
-# 安全網三道（任一命中就停，印出命中的檔案與行）：
+# 安全網四道（任一命中就停，印出命中的檔案與行）：
 #   1. 匯出的 markdown 不得引用私有文件（決策記錄、心得與雷區、點子與意見簿、執行進度表、開發路線圖、docs/research/、prototypes/）
 #   2. 匯出的所有文字檔不得含疑似密鑰（sk-／AIza／AQ. 開頭的長字串、gho_／ghp_、PEM 私鑰、API_KEY 等號後面接了真值）
 #      命中時只印「檔案:行號:前 6 個字元」，不把疑似密鑰整串印到終端機／log。
 #      誤判用下面的 SECRET_ALLOWLIST 放行（每條都要寫理由）。
-#   3. gui/src 的程式（去掉註解之後）不得含內部決策編號或私有文件名——那是會顯示在畫面上的字。
-#      註解裡可以有（編號是給開發者看的引用錨點）。
+#   3. 會顯示給使用者的文字（去掉註解之後）不得含內部決策編號或私有文件名。註解裡可以有（編號是給開發者看的引用錨點）。
+#      範圍：gui/src 的 .ts／.tsx／.css 與 gui/index.html；desktop/ 的 Rust 原始碼（系統匣選單與訊息）、ui/ 的頁面、
+#      NSIS 的 .nsh 與安裝目錄裡的 nsis-stop.ps1、會被裝進安裝目錄或讀成設定的 .json（JSON 沒有註解，整份都算）。
+#   4. 匯出的所有文字檔不得含開發機的路徑（雲端同步的專案資料夾名、開發機使用者的家目錄）。
 set -euo pipefail
 
 MIRROR_REPO="${MIRROR_REPO:-TipsyDrifter/omniapi}"
@@ -64,7 +68,7 @@ while [[ $# -gt 0 ]]; do
     --allow-older) ALLOW_OLDER=1; shift;;
     --export-to) EXPORT_TO="${2:-}"; [[ -n "$EXPORT_TO" ]] || { echo "✗ --export-to 要帶目的資料夾" >&2; exit 2; }; shift 2;;
     --allow-leaks) ALLOW_LEAKS=1; shift;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0;;
+    -h|--help) sed -n '2,55p' "$0"; exit 0;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
 done
@@ -161,11 +165,12 @@ fi
 
 WHITELIST_FILES=(README.md USER_GUIDE.md LICENSE .gitignore .gitattributes)
 REQUIRED_FILES=(README.md LICENSE)           # 正式發布缺這兩個就停（--dry-run／--export-to 只警告）
-WHITELIST_DIRS=(mcp gui skill scripts)
+WHITELIST_DIRS=(mcp gui skill scripts desktop)
 # 目錄內排除（相對於匯出根目錄）。.env* 與 __pycache__／*.pyc 另外用 find 全樹處理。
 # 第二行是 v0／上游留下、v1.0 沒有驗證過的部署與文件（Docker、VPS 腳本、舊的系統設計與 API 筆記、v0 截圖、
 # 舊的開發小工具）：私有 repo 保留，但不帶進公開鏡像——公開出去的每一份文件都該是照著做得通的。
 EXCLUDE_INSIDE=(mcp/CLAUDE.md mcp/storage mcp/.venv gui/node_modules gui/dist
+  desktop/node_modules desktop/src-tauri/target desktop/src-tauri/gen
   mcp/deploy mcp/Dockerfile mcp/.dockerignore mcp/docker-compose.dev.yml mcp/docker-compose.prod.yml
   mcp/run.sh mcp/start-mcp.sh mcp/SYSTEM_DESIGN.md mcp/docs mcp/assets mcp/scripts)
 
@@ -178,6 +183,21 @@ SECRET_ALLOWLIST=(
   'mcp/tests/unit/test_config.py|OPENAI__API_KEY[=]test-|單元測試寫進暫存 .env 的假值'
   'mcp/docs/mcp_guide.md|mcp install server.py -v API_KEY[=]abc123 |MCP 官方文件範例（abc123）'
   'mcp/run.sh|grep -q "^PROVIDERS__OPENAI__API_KEY[=]sk-" |腳本在檢查 .env 有沒有填 key，值只有前綴 sk-'
+  # 設定頁的測試（1.3.0 起）：編出來的假 key，每一把都寫明 fake／test，從沒在任何供應商有效過
+  'mcp/tests/e2e/settings_e2e.py|KEY = "sk-e2e-fake-|端到端測試的假 key（離線沙盒，不送出）'
+  'mcp/tests/e2e/settings_m4_e2e.py|PROVIDERS__KIE__API_KEY[=]kie-e2e-fake-|端到端測試寫進暫存 .env 的假 key'
+  'mcp/tests/e2e/settings_m4_e2e.py|KEY = "sk-e2e-m4-fake-|端到端測試的假 key'
+  'mcp/tests/e2e/settings_m4_e2e.py|"AQ.new-style-|測 key 格式檢查用的假 Google 新式 key'
+  'mcp/tests/e2e/settings_m4_e2e.py|"sk-e2e-m4-another-|端到端測試的第二把假 key'
+  'mcp/tests/unit/test_settings_api.py|KEY = "sk-deepseek-test-|單元測試的假 key'
+  'mcp/tests/unit/test_settings_m4.py|KEY = "sk-m4-settings-|單元測試的假 key'
+  'mcp/tests/unit/test_settings_m4.py|ENV_KEY = "sk-m4-environment-|單元測試的假環境 key'
+  'mcp/tests/unit/test_settings_m4.py|"sk-another-key-0000|單元測試的假 key'
+  'mcp/tests/unit/test_settings_m4.py|"sk-openai-wrong-0000|單元測試的假 key（故意是錯的）'
+  'mcp/tests/unit/test_settings_m4.py|"AQ.Ab8RN6-new-auth-|測 key 格式檢查用的假 Google 新式 key'
+  'mcp/tests/unit/test_settings_m4.py|API_KEY[=]{ENV_KEY}|f-string 寫進暫存 .env，值是上面的假 ENV_KEY'
+  'mcp/tests/unit/test_user_settings.py|KEY = "sk-settingsjson-|單元測試的假 key'
+  'mcp/tests/unit/test_user_settings.py|ENV_KEY = "sk-environment-|單元測試的假環境 key'
 )
 # API_KEY 等號後面視為「沒填／範例」的值（不算密鑰）：空值、your_／your-、sk-your、sk-xxx、<…>、${…}／$VAR、中文「您的」
 PLACEHOLDER_RE='^(your[-_]|sk-your|sk-您|sk-xxx|sk-\.\.\.|<|\$|您|xxx|\.\.\.|changeme|placeholder)'
@@ -277,25 +297,74 @@ else
   say "安全網 2（疑似密鑰）：通過（允許清單放行 ${ALLOWED2} 筆）"
 fi
 
-# 安全網 3：畫面上的字不得露出內部編號。只看 gui/src 的 .ts／.tsx，先把註解拿掉（區塊註解換成等量的換行，行號不變）。
+# 安全網 3：會顯示給使用者的字不得露出內部編號。先把註解拿掉（拿掉的部分換成等量的換行，行號不變）再比對。
 UI_RE='[（(]D[0-9]{1,3}[）)]|[0-9]\.[0-9]-M[0-9]+(-[a-z])?|[（(]M[0-9]-[a-z][）)]|決策記錄|心得與雷區|點子與意見簿|執行進度表|開發路線圖'
-HITS3=""
+# 依副檔名拿掉註解，印到 stdout
+strip_comments() {
+  local f="$1"
+  case "$f" in
+    # C 家族（TS／TSX／Rust）：/* */ 與 //（前面是 : " ' ` 的 // 是網址或字串，不算）
+    *.ts|*.tsx|*.rs)
+      perl -0pe 's{/\*.*?\*/}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{(?<![:"\x27`])//[^\n]*}{}g' "$f";;
+    *.css)
+      perl -0pe 's{/\*.*?\*/}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse' "$f";;
+    # 網頁：<!-- -->、<script>／<style> 裡的 /* */ 與 //
+    *.html)
+      perl -0pe 's{<!--.*?-->}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{/\*.*?\*/}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{(?<![:"\x27`])//[^\n]*}{}g' "$f";;
+    # NSIS：; 與 # 開頭的整行註解、/* */
+    *.nsh|*.nsi)
+      perl -0pe 's{/\*.*?\*/}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{^[ \t]*[;#][^\n]*}{}mg' "$f";;
+    # PowerShell：<# #> 與 # 開頭的整行註解（行尾的 # 註解保守地留著比對）
+    *.ps1)
+      perl -0pe 's{<#.*?#>}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{^[ \t]*#[^\n]*}{}mg' "$f";;
+    # JSON 沒有註解：comment 欄位也會被讀到、被裝進安裝目錄，整份都算
+    *) cat "$f";;
+  esac
+}
+UI_FILES=()
 if [[ -d "$STAGE/gui/src" ]]; then
-  while IFS= read -r -d '' f; do
-    rel="${f#"$STAGE"/}"
-    h="$(perl -0pe 's{/\*.*?\*/}{ my $c = ($& =~ tr/\n//); "\n" x $c }gse; s{(?<![:"\x27`])//[^\n]*}{}g' "$f" | grep -nE "$UI_RE" | LC_ALL=C.UTF-8 awk '{print substr($0,1,140)}' || true)"
-    [[ -n "$h" ]] && HITS3+="$(printf '%s\n' "$h" | sed "s#^#${rel}:#")"$'\n'
-  done < <(find "$STAGE/gui/src" -type f \( -name '*.ts' -o -name '*.tsx' \) -print0)
+  while IFS= read -r -d '' f; do UI_FILES+=("$f"); done < <(find "$STAGE/gui/src" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) -print0)
 fi
+[[ -f "$STAGE/gui/index.html" ]] && UI_FILES+=("$STAGE/gui/index.html")
+if [[ -d "$STAGE/desktop" ]]; then
+  while IFS= read -r -d '' f; do UI_FILES+=("$f"); done < <(find "$STAGE/desktop" -type f \( \
+    \( -path "$STAGE/desktop/src-tauri/src/*" -name '*.rs' \) -o -path "$STAGE/desktop/ui/*" \
+    -o \( -path "$STAGE/desktop/src-tauri/*" \( -name '*.nsh' -o -name '*.nsi' -o -name 'nsis-*.ps1' \) \) \
+    -o \( -path "$STAGE/desktop/config/*" -name '*.json' \) -o -path "$STAGE/desktop/src-tauri/tauri.conf.json" \
+    -o \( -path "$STAGE/desktop/src-tauri/capabilities/*" -name '*.json' \) \
+    \) -print0)
+fi
+HITS3=""
+for f in ${UI_FILES[@]+"${UI_FILES[@]}"}; do
+  [[ -f "$f" ]] || continue
+  rel="${f#"$STAGE"/}"
+  h="$(strip_comments "$f" | grep -nE "$UI_RE" | LC_ALL=C.UTF-8 awk '{print substr($0,1,140)}' || true)"
+  [[ -n "$h" ]] && HITS3+="$(printf '%s\n' "$h" | sed "s#^#${rel}:#")"$'\n'
+done
 if [[ -n "$HITS3" ]]; then
-  echo "✗ 安全網 3：gui/src 的顯示文字露出內部編號或私有文件名：" >&2
+  echo "✗ 安全網 3：會顯示給使用者的文字露出內部編號或私有文件名：" >&2
   printf '%s' "$HITS3" | sed 's/^/    /' >&2
   LEAK=1
 else
-  say "安全網 3（畫面文字的內部編號）：通過"
+  say "安全網 3（畫面文字的內部編號）：通過（掃了 ${#UI_FILES[@]} 個檔）"
 fi
-# 公開 commit 的訊息也過同一道檢查（它會永久留在公開歷史裡）
-if printf '%s' "$MIRROR_MSG" | grep -qE "$PRIVATE_RE|^docs[:(]"; then
+
+# 安全網 4：開發機的路徑（雲端同步的專案資料夾、開發機使用者的家目錄）不得出現在任何匯出的文字檔。
+#   規則的寫法刻意讓這一行自己不會被比對到（[X]、]: 前面不是字母）。
+HOST_RE='STRI[X]16|[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}User[\\/]'
+HITS4="$(cd "$STAGE" && grep -rIniE "$HOST_RE" . 2>/dev/null | sed 's#^\./##' | LC_ALL=C.UTF-8 awk '{print substr($0,1,160)}' || true)"
+if [[ -n "$HITS4" ]]; then
+  echo "✗ 安全網 4：匯出內容含開發機的路徑（$(printf '%s\n' "$HITS4" | wc -l) 行）：" >&2
+  printf '%s\n' "$HITS4" | sed 's/^/    /' >&2
+  LEAK=1
+else
+  say "安全網 4（開發機的路徑）：通過"
+fi
+# 公開 commit 的訊息也過同一道檢查（它會永久留在公開歷史裡）。--export-to 不做 commit，訊息用不到：只提醒、不擋
+#   （不然 build_release.py 在 HEAD 是 docs: 開頭的 commit 時就打不了包）
+if [[ -n "$EXPORT_TO" ]] && printf '%s' "$MIRROR_MSG" | grep -qE "$PRIVATE_RE|^docs[:(]"; then
+  say "（--export-to 不做 commit；正式發布時的公開 commit 訊息取自 tag，現在的「${MIRROR_MSG%% (dev@*}」不會出去）"
+elif printf '%s' "$MIRROR_MSG" | grep -qE "$PRIVATE_RE|^docs[:(]"; then
   echo "✗ 公開 commit 的訊息看起來是內部用語：${MIRROR_MSG}" >&2
   echo "  用 git tag -a ${TAG:-vX.Y.Z} -m \"寫給外人看的一句話\" 打 tag（已經打了就 git tag -a -f 重打，還沒 push 才可以）。" >&2
   LEAK=1
@@ -351,10 +420,22 @@ fi
 if [[ $DO_RELEASE -eq 1 ]]; then
   [[ -n "$TAG" ]] || { echo "✗ --release 需要 --tag" >&2; exit 1; }
   V="${TAG#v}"
-  ASSETS=()
-  for a in "dist/omniapi-mcp.dxt" "dist/omniapi-skill.zip" "dist/omniapi-v${V}.zip"; do [[ -f "$a" ]] && ASSETS+=("$a"); done
-  # 三個都要在：少一個多半是忘了重跑 build_release.py（或跑的是別的版本）
-  [[ ${#ASSETS[@]} -eq 3 ]] || { echo "✗ dist/ 裡 ${V} 的發布包不齊（要 3 個，找到 ${#ASSETS[@]} 個）——先跑 scripts/build_release.py" >&2; [[ $DRY -eq 1 ]] || exit 1; }
+  ASSETS=(); WANT=("dist/omniapi-mcp.dxt" "dist/omniapi-skill.zip" "dist/omniapi-v${V}.zip")
+  # 有桌面殼的版本（1.3.0 起）：桌面版安裝包與雜湊清單也要附上——安裝包沒有程式碼簽章，雜湊是使用者唯一能對的東西。
+  #   安裝包先用 desktop/scripts/package.ps1 打，再 build_release.py --desktop-installer 放進 dist/
+  if [[ -f "$STAGE/desktop/src-tauri/tauri.conf.json" ]]; then
+    WANT+=("dist/OmniAPI_${V}_x64-setup.exe" "dist/SHA256SUMS.txt")
+  fi
+  for a in "${WANT[@]}"; do [[ -f "$a" ]] && ASSETS+=("$a"); done
+  if [[ -f dist/SHA256SUMS.txt ]]; then
+    for a in "${WANT[@]}"; do
+      [[ "$a" == dist/SHA256SUMS.txt ]] && continue
+      grep -qF "  ${a#dist/}" dist/SHA256SUMS.txt \
+        || { echo "✗ dist/SHA256SUMS.txt 沒有 ${a#dist/}——重跑 build_release.py（要帶 --desktop-installer）" >&2; [[ $DRY -eq 1 ]] || exit 1; }
+    done
+  fi
+  # 全部都要在：少一個多半是忘了重跑 build_release.py（或跑的是別的版本、忘了 --desktop-installer）
+  [[ ${#ASSETS[@]} -eq ${#WANT[@]} ]] || { echo "✗ dist/ 裡 ${V} 的發布檔不齊（要 ${#WANT[@]} 個：${WANT[*]}；找到 ${#ASSETS[@]} 個）——先跑 scripts/build_release.py" >&2; [[ $DRY -eq 1 ]] || exit 1; }
   echo "▸ ④ 鏡像 Release $TAG（${#ASSETS[@]} 檔）"
   if [[ $DRY -eq 0 ]] && gh release view "$TAG" -R "$MIRROR_REPO" >/dev/null 2>&1; then
     run gh release upload "$TAG" "${ASSETS[@]}" -R "$MIRROR_REPO" --clobber

@@ -192,6 +192,11 @@ class MusicGenerationTool:
     def _default_model(self) -> Optional[str]:
         if not self._providers:
             return None
+        from ..config.user_settings import default_model
+
+        preferred = default_model(getattr(self, "settings", None), "music")
+        if preferred and preferred in self._model_map:
+            return preferred
         first = self._providers[0]
         return getattr(first, "DEFAULT_MODEL", None) or next(
             iter(first.get_supported_models()), None

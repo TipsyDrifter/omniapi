@@ -36,7 +36,14 @@ export default function RunPage() {
   const n = thread?.runs.length ?? 0;
   return (
     <section className="runpage wrap">
-      <div>
+      {/* 手機（S 段）的返回列：頂欄與分頁列收起（rwd.css）。單筆頁沒有表頭動作，所以不放「⋯」 */}
+      <div className="ctxbar">
+        <Link className="back" to="/">
+          ‹ 看板
+        </Link>
+        <span className="t">{leaf?.title?.replace(/^↩+\s*/, "") || (error ? "找不到這筆 run" : "載入中…")}</span>
+      </div>
+      <div className="run-l">
         <div className="crumbs">
           <Link to="/">BOARD</Link> › RUN <span className="n">{thread?.root_id ?? id}</span>
           {n > 1 ? (

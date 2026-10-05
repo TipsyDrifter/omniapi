@@ -6,6 +6,7 @@ import { SendKeyHint } from "@/components/SendKeyMenu";
 import { harnessClass, harnessName } from "@/lib/format";
 import { enterSends, isSendKey, sendKeyName, useSendKey } from "@/lib/sendKey";
 import { createChat } from "@/store/chat";
+import { useSettings } from "@/store/settings";
 import {
   CwdPicker,
   Field,
@@ -17,8 +18,10 @@ import {
   buildSpec,
   claudeEndpoint,
   flattenModels,
+  hasSavedDraft,
   indexModels,
   loadDraft,
+  modelSelOf,
   providerOf,
   resolveModel,
   routeHarness,
@@ -36,6 +39,17 @@ export default function NewRunPage() {
   // 草稿＋URL 預填（預填蓋過草稿；套用後把 query 拿掉，免得重新整理又蓋一次）
   const [d, setD] = useState<Draft>(() => applyQuery(loadDraft(), params));
   const set = (patch: Partial<Draft>) => setD((o) => ({ ...o, ...patch }));
+
+  // 這個瀏覽器沒存過草稿、網址也沒指定模型：模型用設定頁的「預設派工」（設定讀到時套一次；
+  // 使用者在那之前已經自己選了模型就不蓋）
+  const useDefault = useRef(!hasSavedDraft() && !params.get("model"));
+  const initialModel = useRef(d.model);
+  const defDispatch = useSettings((s) => s.settings?.defaults.dispatch?.model ?? null);
+  useEffect(() => {
+    if (!useDefault.current || !defDispatch) return;
+    useDefault.current = false;
+    setD((o) => (o.model === initialModel.current ? { ...o, model: modelSelOf(defDispatch) } : o));
+  }, [defDispatch]);
 
   useEffect(() => {
     if (params.has("cwd") || params.has("model") || params.has("prompt")) {
@@ -151,7 +165,7 @@ export default function NewRunPage() {
 
       <form className="dp-grid" onSubmit={onSubmit} onKeyDown={onKey} aria-busy={busy}>
         <div className="dp-main">
-          <Field lbl="Prompt" zh={d.toolbox ? "要交代的事" : "第一則訊息"} htmlFor="dp-prompt" aside={<><span className="n">{chars}</span> 字 · <SendKeyHint /></>}>
+          <Field lbl="Prompt" zh={d.toolbox ? "要交代的事" : "第一則訊息"} htmlFor="dp-prompt" aside={<><span className="n">{chars}</span> 字<SendKeyHint sep /></>}>
             <textarea
               id="dp-prompt"
               data-enter-sends=""

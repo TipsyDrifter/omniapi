@@ -2,6 +2,7 @@
    聊天、追問、派工、生成頁的輸入框共用這一個設定與這一個判斷函式；記在這個瀏覽器（localStorage），
    別的分頁改了也跟著變（storage 事件）。之後有設定頁會搬過去。 */
 import { useSyncExternalStore } from "react";
+import { isTouch } from "./rwd";
 
 export type SendKey = "ctrl" | "enter";
 
@@ -75,6 +76,8 @@ export function isSendKey(e: KeyLike, opts: { mode?: SendKey; plain?: boolean } 
   const n = e.nativeEvent ?? e;
   if (n.isComposing || n.keyCode === 229) return false;
   if (e.ctrlKey || e.metaKey) return true;
+  // 1.3-M3：觸控裝置的軟鍵盤 Enter 一律換行，按鈕送出（外接鍵盤的 Ctrl+Enter 照樣送）
+  if (isTouch()) return false;
   const mode = opts.mode ?? current;
   return mode === "enter" && opts.plain !== false && !e.shiftKey && !e.altKey;
 }
@@ -97,6 +100,7 @@ export const onSendKey =
 
 /** 提示字：「Ctrl+Enter 送出」／「Enter 送出，Shift+Enter 換行」 */
 export function sendHint(mode: SendKey = current): string {
+  if (isTouch()) return "按鈕送出";
   return mode === "enter" ? "Enter 送出，Shift+Enter 換行" : "Ctrl+Enter 送出";
 }
 

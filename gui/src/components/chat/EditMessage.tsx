@@ -143,7 +143,7 @@ export default function EditMessage({ msg, after, model, caps, live, onCancel, o
       ) : null}
       <div className="ce-foot">
         <span className="cs-hint">
-          {sendHint(sendKey)} · Esc 取消 · 由 <span className="code">{model}</span> 回覆
+          <span className="x-touch">{sendHint(sendKey)} · Esc 取消 · </span>由 <span className="code">{model}</span> 回覆
         </span>
         <button type="button" className="cs-act" onClick={onCancel}>
           取消

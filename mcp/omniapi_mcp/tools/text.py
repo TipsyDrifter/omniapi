@@ -97,11 +97,14 @@ class TextTool:
         return None
 
     def _default_model(self) -> Optional[str]:
-        """``cheap`` tier when its provider is configured, else the first
-        registered provider's default."""
-        cheap = catalog.resolve("cheap")
-        if cheap and self._provider_for(cheap):
-            return cheap
+        """The configured chat default (``cheap`` unless the settings say
+        otherwise) when its provider is configured, else the first registered
+        provider's default."""
+        from ..config.user_settings import default_model
+
+        preferred = catalog.resolve(default_model(self.settings, "chat"))
+        if preferred and self._provider_for(preferred):
+            return preferred
         if not self._providers:
             return None
         return self._providers[0].DEFAULT_MODEL

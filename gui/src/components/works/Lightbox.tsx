@@ -2,7 +2,7 @@
    左＝舞台（圖 w=1600、點了開原圖；音檔＝大播放器；文字＝可捲動的全文），右＝資訊欄：
    章＋標題、主要動作兩顆、次要動作、提示詞全文（可複製）、設定與費用表、來源與衍生。
    鍵盤：← 比較新的一件、→ 比較舊的一件（照後端給的 newer／older）、Esc 關。 */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import type { Artifact, ArtifactDetail, WallQuery } from "@/api/types";
@@ -183,11 +183,28 @@ export function Lightbox({ id, query, pos, onClose, onGo }: LightboxProps) {
     navigate("/make/music");
   };
 
+  // 1.3-M3 觸控：在舞台上左右滑換一件（手指往左＝下一件，比較舊的）
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: TouchEvent) => {
+    const t = e.touches[0];
+    swipe.current = t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    const s = swipe.current;
+    const t = e.changedTouches[0];
+    swipe.current = null;
+    if (!s || !t) return;
+    const dx = t.clientX - s.x;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(t.clientY - s.y) * 1.5) return;
+    if (dx < 0 && older) onGo(older);
+    else if (dx > 0 && newer) onGo(newer);
+  };
+
   return (
     <div className="wk-lb" role="dialog" aria-modal="true" aria-label="作品詳情">
       <div className="wk-lb-bar">
-        <button type="button" className="wk-back" onClick={onClose}>
-          ← 作品牆
+        <button type="button" className="wk-back" onClick={onClose} aria-label="回作品牆">
+          ← <span className="x-s">作品</span>牆
         </button>
         {a ? (
           <>
@@ -201,12 +218,13 @@ export function Lightbox({ id, query, pos, onClose, onGo }: LightboxProps) {
           </span>
         ) : null}
         <div className="wk-nav2">
-          <span className="wk-esc">Esc 關閉 · ← → 換一件</span>
-          <button type="button" className="mk-mini" disabled={!newer} onClick={() => newer && onGo(newer)} title="比較新的一件">
-            ← 上一件
+          <span className="wk-esc x-touch">Esc 關閉 · ← → 換一件</span>
+          <span className="wk-esc only-touch">左右滑換一件</span>
+          <button type="button" className="mk-mini" disabled={!newer} onClick={() => newer && onGo(newer)} title="比較新的一件" aria-label="上一件">
+            ←<span className="x-s"> 上一件</span>
           </button>
-          <button type="button" className="mk-mini" disabled={!older} onClick={() => older && onGo(older)} title="比較舊的一件">
-            下一件 →
+          <button type="button" className="mk-mini" disabled={!older} onClick={() => older && onGo(older)} title="比較舊的一件" aria-label="下一件">
+            <span className="x-s">下一件 </span>→
           </button>
         </div>
       </div>
@@ -215,7 +233,7 @@ export function Lightbox({ id, query, pos, onClose, onGo }: LightboxProps) {
         <div className="wk-lb-msg">{st.id === id && st.err ? <div className="warn">讀不到這件作品：{st.err}</div> : <span className="dp-note">讀取作品…</span>}</div>
       ) : (
         <div className="wk-lb-body">
-          <div className="wk-stage">
+          <div className="wk-stage" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
             <Stage a={a} />
           </div>
           <div className="wk-info">
@@ -333,7 +351,7 @@ export function ImageViewer({ images, start, onClose }: { images: ViewerImage[];
           </span>
         ) : null}
         <div className="wk-nav2">
-          <span className="wk-esc">{n > 1 ? "Esc 關閉 · ← → 換一張" : "Esc 關閉"}</span>
+          <span className="wk-esc x-touch">{n > 1 ? "Esc 關閉 · ← → 換一張" : "Esc 關閉"}</span>
           {img.artifact_id ? (
             <button type="button" className="mk-mini" onClick={() => navigate(`/works/${encodeURIComponent(img.artifact_id ?? "")}`)}>
               在作品牆打開

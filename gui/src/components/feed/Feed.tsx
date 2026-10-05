@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import { Link } from "react-router-dom";
 import type { EventRow, Run } from "@/api/types";
 import { harnessClass } from "@/lib/format";
+import { useTier } from "@/lib/rwd";
 import EventItem from "./EventItem";
 
 /* 即時活動流（THEME.md §5.2）：表頭（Live／ON AIR／篩選 chips）＋捲動區。
@@ -20,6 +21,8 @@ export interface FeedProps {
   emptyText?: string;
   /** 表頭最右側的自訂內容（例如樣本章、連結） */
   headRight?: ReactNode;
+  /** 手機（S 段）只放最近幾則，底下接「看完整活動流與追問 →」（1.3-M3，D48 第 5 題：看板最多 20 則） */
+  phoneLimit?: number;
 }
 
 /** 超過這個數量關掉進場動畫（歷史還原不要每則都印一次） */
@@ -158,12 +161,15 @@ export function FeedList({ events, run, filter }: FeedListProps) {
   );
 }
 
-export default function Feed({ events, run, live, title = "即時活動流", emptyText = "還沒有事件", headRight }: FeedProps) {
+export default function Feed({ events: allEvents, run, live, title = "即時活動流", emptyText = "還沒有事件", headRight, phoneLimit }: FeedProps) {
   const [filter, setFilter] = useState<FeedFilter>("all");
+  const tier = useTier();
+  const cut = phoneLimit != null && tier === "s" && allEvents.length > phoneLimit;
+  const events = useMemo(() => (cut ? allEvents.slice(-phoneLimit) : allEvents), [cut, allEvents, phoneLimit]);
   const feedRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
-  const counts = useMemo(() => feedCounts(events), [events]);
+  const counts = useMemo(() => feedCounts(allEvents), [allEvents]);
   const lastId = events.length ? events[events.length - 1].id : 0;
 
   // 換 run 時：執行中的貼底跟著跑；已結束的從頭讀起（歷史還原不該先看到結尾）
@@ -212,8 +218,18 @@ export default function Feed({ events, run, live, title = "即時活動流", emp
         {headRight}
       </div>
       <div ref={feedRef} className={`feed${events.length > NO_PRINT_OVER ? " no-print" : ""}`} aria-live="polite" onScroll={onScroll}>
+        {cut ? (
+          <div className="feed-empty feed-cut">
+            前面 <span className="n">{allEvents.length - events.length}</span> 則沒有列出
+          </div>
+        ) : null}
         {events.length === 0 ? <div className="feed-empty">{emptyText}</div> : <FeedList events={events} run={run} filter={filter} />}
       </div>
+      {phoneLimit != null && run ? (
+        <Link className="feed-more" to={`/runs/${encodeURIComponent(run.id)}`}>
+          看完整活動流與追問 →
+        </Link>
+      ) : null}
     </div>
   );
 }

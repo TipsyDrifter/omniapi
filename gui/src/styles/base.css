@@ -24,13 +24,16 @@
 /* 未知 harness：墨色面積、紙色字 */
 .h-unknown, :root { --run-ink: var(--ink); --run-on: var(--paper); }
 
+/* 版面變數（1.3-M3 RWD，不是色字 token，不隨主題換）：頂欄高、狀態列高、底部分頁列高。
+   寬版（≥1440）就是原本寫死的 76／34／0；各段的值在 rwd.css 覆寫。高度算式一律吃這三個變數。 */
+:root { --top-h: 76px; --foot-h: 34px; --tab-h: 0px; }
+
 @layer base {
   html, body { margin: 0; }
   body {
     background: var(--paper);
     color: var(--ink);
     font: var(--fs-base) / var(--lh-body) var(--font-sans);
-    min-width: 1440px;
     -webkit-font-smoothing: antialiased;
   }
   /* 紙紋：整頁 multiply 一層雜訊（雜訊著墨色） */

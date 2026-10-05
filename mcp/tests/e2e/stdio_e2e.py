@@ -4,13 +4,16 @@ and one cheap complete_text."""
 
 import asyncio
 import json
+import os
+import shutil
 import sys
+from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-MCP_DIR = r"C:\STRIX16\Claude\ClaudeCode\Media\OmniAPI\mcp"
-UV = r"C:\Users\User\miniconda3\Scripts\uv.exe"
+MCP_DIR = str(Path(__file__).resolve().parents[2])
+UV = os.environ.get("UV") or shutil.which("uv") or "uv"
 
 
 async def main():

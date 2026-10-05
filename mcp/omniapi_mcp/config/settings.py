@@ -430,6 +430,27 @@ class SearchSettings(BaseModel):
     enabled: bool = Field(True, description="Attach search MCP servers to agent runs by default")
 
 
+class HarnessSettings(BaseModel):
+    """Agent CLIs used by runs (1.3-M5)."""
+
+    claude_cli: str = Field(
+        "",
+        description="Path to the Claude Code executable (claude.exe) for agent runs; empty = look for it "
+        "(PATH, then ~/.local/bin, then the copy bundled with claude-agent-sdk). Env: HARNESS__CLAUDE_CLI",
+    )
+
+
+class DefaultModelsSettings(BaseModel):
+    """Default model per job (1.3-M2). The image default stays in
+    ``images.default_model``; ``None`` means "the tool's own choice"."""
+
+    chat: str = Field("cheap", description="New chats / complete_text without a model (tier or model id)")
+    dispatch: str = Field("cheap", description="Agent runs without a model (tier or model id)")
+    speech: str | None = Field(None, description="Text-to-speech model")
+    music: str | None = Field(None, description="Music model")
+    transcript: str | None = Field(None, description="Transcription model (gpt-transcribe when unset)")
+
+
 class ServerSettings(BaseModel):
     """Server configuration."""
 
@@ -467,7 +488,13 @@ class Settings(BaseSettings):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    harness: HarnessSettings = Field(default_factory=HarnessSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
+    # 1.3-M2: user-writable layer (settings.json) lands here too
+    defaults: DefaultModelsSettings = Field(default_factory=DefaultModelsSettings)
+    tiers: dict[str, str] = Field(
+        default_factory=dict, description="Tier alias overrides on top of catalog.json (cheap/standard/strong)"
+    )
 
     @classmethod
     def from_env(cls):

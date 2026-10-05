@@ -149,11 +149,11 @@ def load_settings(
     global settings
 
     try:
-        # Override config path if specified
-        if config_path:
-            settings_instance = Settings(_env_file=config_path)
-        else:
-            settings_instance = Settings()
+        from .config.user_settings import load_settings as _load_user_settings
+
+        # .env: --config when given, else the same candidates the daemon uses
+        # (layout.env_file_candidates); settings.json is laid over it (1.3-M2)
+        settings_instance = _load_user_settings(Path(config_path) if config_path else "auto")
 
         # Override log level from command line if specified
         if override_log_level:
@@ -322,8 +322,9 @@ async def get_job_result(
         "Gemini CLI for Google) with Read/Write/Edit/Bash tools in a working "
         "directory. Returns immediately with a run_id — the agent keeps working in "
         "the background; poll get_run(run_id) for events and the final report. "
-        "Use model tiers: cheap (deepseek-flash, default) / standard (gemini-3.8-flash) / "
-        "strong (gpt-6-sol), or any model id. Set resume_run_id to continue a "
+        "Use model tiers: cheap (default) / standard / strong — which model each "
+        "tier means is configurable; list_available_models shows the current "
+        "mapping under 'tiers' — or any model id. Set resume_run_id to continue a "
         "previous run's session with a follow-up instruction."
     ),
 )
@@ -461,7 +462,7 @@ def _chat_url(server_ctx: Any, cid: str) -> tuple[str, Optional[str]]:
 async def chat(
     message: str = Field(..., description="What to say to the model (this turn's user message)."),
     conversation_id: Optional[str] = Field(default=None, description="Continue this conversation (the conversation_id a previous chat call returned). Leave empty to start a new one."),
-    model: Optional[str] = Field(default=None, description="Tier alias (cheap/standard/strong) or model id. New conversation: defaults to cheap. Existing conversation: defaults to the model it used last; giving one switches models from this turn on."),
+    model: Optional[str] = Field(default=None, description="Tier alias (cheap/standard/strong) or model id. New conversation: defaults to the configured chat default (the cheap tier unless changed). Existing conversation: defaults to the model it used last; giving one switches models from this turn on."),
     system: Optional[str] = Field(default=None, description="System prompt. Sets it for a new conversation; on an existing one it replaces the conversation's system prompt."),
     title: Optional[str] = Field(default=None, description="Conversation title (defaults to the first message)."),
     reasoning_effort: Optional[str] = Field(default=None, description="Reasoning depth for reasoning models (e.g. low/medium/high)."),
@@ -1020,8 +1021,10 @@ async def complete_text(
     model: Optional[str] = Field(
         default=None,
         description=(
-            "Model id or tier alias. Tiers: 'cheap' (deepseek-flash, default), "
-            "'standard' (gemini-3.8-flash), 'strong' (gpt-6-sol). Examples: "
+            "Model id or tier alias. Tiers: 'cheap', 'standard', 'strong' (the "
+            "models behind them are configurable — see 'tiers' in "
+            "list_available_models). Default: the configured chat default "
+            "(the 'cheap' tier unless changed). Examples: "
             "gpt-6-astra, gpt-6-sol, gpt-5.4-mini, claude-opus-5-5, "
             "claude-sonnet-5, gemini-3.8-flash, deepseek-flash, deepseek-v4-pro, "
             "moonshotai/kimi-k3 (OpenRouter, vendor/model). Call "

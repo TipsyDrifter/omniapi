@@ -219,7 +219,7 @@
 /* ============ 出件口 ============ */
 .mk-tray {
   position: sticky; top: 16px; align-self: start; display: flex; flex-direction: column; gap: 14px;
-  max-height: calc(100vh - 34px - 32px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent;
+  max-height: calc(100vh - var(--foot-h) - 32px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent;
   /* 等待卡的 6px 實墨影不要被捲動容器裁掉 */
   padding: 0 8px 10px 0; margin-right: -8px;
 }

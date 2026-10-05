@@ -2,6 +2,7 @@ import { memo, useId, useState, type ReactNode } from "react";
 import type { ChatAttachment, ChatLive, ChatMessage, ChatVersions } from "@/api/types";
 import { dt, dur, usd } from "@/lib/format";
 import { ImageViewer, type ViewerImage } from "@/components/works/Lightbox";
+import Sheet from "@/components/Sheet";
 import CopyButton from "./CopyButton";
 import { FileNotes, FileSlip, ReadLine } from "./files";
 import Markdown from "./Markdown";
@@ -121,6 +122,65 @@ function Act({ label, onClick, main, title, off }: { label: string; onClick: () 
   );
 }
 
+/* 1.3-M3 觸控：較早訊息的動作（平常滑過才出現）收成資訊列最右邊一顆常駐的「⋯」，點了從底部升起動作單子
+   （D48 第 4 題 A）。最後一則回覆的動作照舊常駐，不另給「⋯」。滑鼠裝置上這顆鈕藏著（rwd.css）。 */
+interface MenuAct {
+  label: string;
+  hint: string;
+  off?: string | null;
+  run: () => void | Promise<void>;
+}
+function MsgMenu({ acts, what }: { acts: MenuAct[]; what: string }) {
+  const [open, setOpen] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  if (!acts.length) return null;
+  return (
+    <>
+      <button type="button" className="kebab cm-kebab" aria-label={`${what}的動作`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+        ⋯
+      </button>
+      <Sheet
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          setDone(null);
+        }}
+        label={`${what}的動作`}
+      >
+        {acts.map((a) => (
+          <button
+            key={a.label}
+            type="button"
+            className={`sheet-it${a.off ? " dis" : ""}`}
+            aria-disabled={a.off ? "true" : undefined}
+            onClick={async () => {
+              if (a.off) return;
+              await a.run();
+              if (a.label === "複製") {
+                setDone("已複製");
+                window.setTimeout(() => {
+                  setOpen(false);
+                  setDone(null);
+                }, 700);
+              } else setOpen(false);
+            }}
+          >
+            <b>{a.label === "複製" && done ? done : a.label}</b>
+            <span className="r">{a.off ?? a.hint}</span>
+          </button>
+        ))}
+      </Sheet>
+    </>
+  );
+}
+const copyText = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* 沒有剪貼簿權限：不擋單子 */
+  }
+};
+
 /** ‹ n/m ›：同一個 parent 底下的版本（使用者訊息＝改寫留下的、回覆＝重新生成留下的） */
 export function VersionSwitch({ v, user, off, onSwitch }: { v?: ChatVersions; user: boolean; off?: string | null; onSwitch?: (to: string, dir: -1 | 1) => void }) {
   const tip = useId();
@@ -188,6 +248,15 @@ export const UserMessage = memo(function UserMessage({ msg, after = 0, off, onEd
             />
           </span>
         ) : null}
+        {onEdit && !msg.local ? (
+          <MsgMenu
+            what="這則訊息"
+            acts={[
+              { label: "編輯這則", hint: after ? `從這裡分岔，後面 ${after} 則留在原本那條` : "改這一則再送出", off: offText(off, "編輯"), run: () => onEdit(msg) },
+              ...(msg.content ? [{ label: "複製", hint: "複製這則的文字", run: () => copyText(msg.content ?? "") }] : []),
+            ]}
+          />
+        ) : null}
       </div>
       {msg.attachments?.length ? <Attachments atts={msg.attachments} /> : null}
       {msg.content ? <div className="cm-utext">{msg.content}</div> : null}
@@ -240,12 +309,12 @@ export const AssistantMessage = memo(function AssistantMessage({ msg, last, afte
         <ModelName requested={meta.requested_model} actual={msg.model} />
         <span className="n">{dt(msg.created_at)}</span>
         {meta.duration_ms != null ? (
-          <span>
+          <span className="cm-dur">
             <span className="k">耗時</span> <span className="n">{fmtMs(meta.duration_ms)}</span>
           </span>
         ) : null}
         {u && (u.prompt_tokens != null || u.completion_tokens != null) ? (
-          <span title="輸入 token / 輸出 token">
+          <span className="cm-tok" title="輸入 token / 輸出 token">
             <span className="k">token</span> <span className="n">{u.prompt_tokens ?? "—"}</span> / <span className="n">{u.completion_tokens ?? "—"}</span>
           </span>
         ) : null}
@@ -256,6 +325,15 @@ export const AssistantMessage = memo(function AssistantMessage({ msg, last, afte
           {onRegenerate ? <Act label="重新生成" main={last} onClick={() => onRegenerate(msg)} title={regenTitle} off={offText(off, "重新生成")} /> : null}
           {msg.content ? copyOff ? <Act label="複製" onClick={() => undefined} off={copyOff} /> : <CopyButton text={msg.content} className="cm-act" /> : null}
         </span>
+        {last ? null : (
+          <MsgMenu
+            what="這則回覆"
+            acts={[
+              ...(onRegenerate ? [{ label: "重新生成", hint: made ? "原本這版和它的作品留著，用 ‹ › 換回去" : "原本這版留著，用 ‹ › 換回去", off: offText(off, "重新生成"), run: () => onRegenerate(msg) }] : []),
+              ...(msg.content ? [{ label: "複製", hint: "複製這則回覆的文字", off: copyOff, run: () => copyText(msg.content ?? "") }] : []),
+            ]}
+          />
+        )}
       </div>
       {note}
       <ImageNotes notes={notes} />

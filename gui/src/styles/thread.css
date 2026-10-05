@@ -24,10 +24,10 @@
 /* .hero-r .feedbox 是 flex:1（basis 0），會蓋掉 height；這裡改 flex:none 讓固定高度生效 */
 /* 高度＝視窗扣掉頂欄 76、狀態列 34、頁面上緣 22、下緣留 24：追問列貼著狀態列上方，其餘全給閱讀區。
    下緣留 24 而不是 12：視窗比 1440 窄時會多一條橫向捲軸（約 15px），留白要吃得下它，追問列才不會被狀態列蓋到。 */
-.runpage:has(.feedbox.thread) { --thread-h: calc(100vh - 76px - 34px - 22px - 24px); padding-bottom: 24px; min-height: 0; }
+.runpage:has(.feedbox.thread) { --thread-h: calc(100vh - var(--top-h) - var(--foot-h) - 22px - 24px); padding-bottom: 24px; min-height: 0; }
 .runpage .feedbox.thread { flex: none; height: var(--thread-h); min-height: 420px; }
 /* 左欄（麵包屑＋票券）不准把整頁撐高：比閱讀區高就在欄內捲，頁面本身不出現直向捲軸 */
-.runpage:has(.feedbox.thread) > div:first-child { max-height: max(var(--thread-h), 420px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent; }
+.runpage:has(.feedbox.thread) > .run-l { max-height: max(var(--thread-h), 420px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ink-45) transparent; }
 .runpage:has(.feedbox.thread) .ticket { position: static; }
 .runpage .thread .thread-feed { max-height: none; position: relative; padding-top: 0; }
 .thread .feedhead .tag { flex: none; }

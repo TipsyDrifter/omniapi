@@ -41,12 +41,25 @@ def _log_dir() -> Path:
     return d
 
 
+#: how long `omni stop` waits for a graceful shutdown before killing
+STOP_GRACE_SECONDS = 15
+
+
 def _env_file() -> Optional[Path]:
-    """The server's .env: repo mcp/.env (dev) or ~/.omniapi/.env (installed)."""
-    for cand in (Path(__file__).resolve().parents[1] / ".env", data_home() / ".env"):
-        if cand.exists():
-            return cand
-    return None
+    """The server's .env (same candidates as the stdio server, see ``layout``)."""
+    from .layout import env_file
+
+    return env_file()
+
+
+def _trim(path: Path, max_bytes: int = 5 * 1024 * 1024) -> None:
+    """Keep one old copy of a launch-time log that grew past ``max_bytes``
+    (best effort: a daemon still holding it just means no trim this time)."""
+    try:
+        if path.exists() and path.stat().st_size > max_bytes:
+            os.replace(path, path.with_name(path.name + ".1"))
+    except OSError:
+        pass
 
 
 def _health(host: str, port: int, timeout: float = 1.5) -> Optional[dict]:
@@ -88,9 +101,9 @@ def _root() -> None:
     # console: sys.stdout/err are None and any echo would raise, leaving the
     # launcher process hanging. Route everything to the daemon log instead.
     if sys.stdout is None or sys.stderr is None:
-        log_fh = open(_log_dir() / "daemon.log", "a", encoding="utf-8", buffering=1)
-        sys.stdout = sys.stdout or log_fh
-        sys.stderr = sys.stderr or log_fh
+        from .daemon.logfile import install
+
+        install(_log_dir() / "daemon.log", release_fds=False)  # size-capped like the detached daemon's (1.3-M2)
 
 
 @app.command()
@@ -104,6 +117,7 @@ def serve(
     host: str = typer.Option(DEFAULT_HOST, help="Bind address (keep 127.0.0.1)"),
     port: int = typer.Option(DEFAULT_PORT, help="Port"),
     log_level: str = typer.Option("info", help="uvicorn log level"),
+    log_file: Optional[str] = typer.Option(None, "--log-file", hidden=True, help="(internal) write stdout/stderr to this size-capped, rotated log"),
 ) -> None:
     """Start the daemon (MCP at /mcp, REST at /api, WebSocket at /ws)."""
     existing = _health(host, port)
@@ -112,13 +126,26 @@ def serve(
         raise typer.Exit(0)
 
     if not foreground:
+        from .layout import service_workdir
+
         log_path = _log_dir() / "daemon.log"
-        cmd = [_python_for_daemon(), "-m", "omniapi_mcp.cli", "serve", "--foreground", "--host", host, "--port", str(port), "--log-level", log_level]
+        # -I carried over: the desktop install's omni.cmd runs `python -I` (no PYTHON* variables, no
+        # current folder on sys.path), and the service it starts must be the same kind the desktop app starts
+        isolated = ["-I"] if sys.flags.isolated else []
+        cmd = [_python_for_daemon(), *isolated, "-m", "omniapi_mcp.cli", "serve", "--foreground", "--host", host, "--port", str(port), "--log-level", log_level,
+               "--log-file", str(log_path)]
         creation = 0
         if os.name == "nt":
             creation = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        popen_kw: dict = dict(stdin=subprocess.DEVNULL, cwd=str(Path(__file__).resolve().parents[1]), close_fds=True)
-        with open(log_path, "ab") as log:
+        # repo: mcp/ as always; installed: the data home (1.3-M2, layout.service_workdir)
+        popen_kw: dict = dict(stdin=subprocess.DEVNULL, cwd=str(service_workdir()), close_fds=True)
+        # The child writes daemon.log itself (--log-file, rotated). Its raw stdout/stderr -- only what comes
+        # before that is set up, e.g. an import error -- go to daemon.stderr.log: a handle on daemon.log held
+        # by anyone else (the venv's pythonw.exe shim keeps the child's std handles for its whole life)
+        # would stop the rename on Windows (1.3-M2, checked on a sandbox).
+        boot_path = _log_dir() / "daemon.stderr.log"
+        _trim(boot_path)
+        with open(log_path, "ab") as log, open(boot_path, "ab") as boot:
             if os.name == "nt":
                 # 呼叫端若在 Job Object 裡（Claude Code 的 shell、CI runner…），指令一結束整個 job 會被收掉，
                 # daemon 跟著陪葬（2026-09-29 實證：log 無關機訊息、pid 檔沒清）。先試著脫離 job；
@@ -127,16 +154,16 @@ def serve(
                 stamp = time.strftime("%Y-%m-%d %H:%M:%S")
                 who = f"launcher pid={os.getpid()} ppid={os.getppid()} exe={Path(sys.executable).name}"
                 try:
-                    child = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, creationflags=creation | breakaway, **popen_kw)
+                    child = subprocess.Popen(cmd, stdout=boot, stderr=subprocess.STDOUT, creationflags=creation | breakaway, **popen_kw)
                     how = "breakaway"
                 except OSError as e:
-                    child = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, creationflags=creation, **popen_kw)
+                    child = subprocess.Popen(cmd, stdout=boot, stderr=subprocess.STDOUT, creationflags=creation, **popen_kw)
                     how = f"no breakaway ({e.__class__.__name__}: winerror {getattr(e, 'winerror', '?')})"
                 # 留一行給事後查：誰啟動的、有沒有脫離 job（daemon 無聲消失時，這是判斷是不是被 job 連坐的線索）
                 log.write(f"{stamp} - omni.launcher - INFO - {who} started daemon pid={child.pid} [{how}]\n".encode("utf-8"))
                 log.flush()
             else:
-                subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, **popen_kw)
+                subprocess.Popen(cmd, stdout=boot, stderr=subprocess.STDOUT, start_new_session=True, **popen_kw)
         # 等它回應。全新安裝第一次啟動要 50～70 秒（第一次 import 很慢），所以用實際經過的時間算，
         # 不要用「重試次數」——Windows 連一個還沒開的埠，每次失敗就要一秒多，次數換算出來的秒數不準。
         t0 = time.monotonic()
@@ -151,18 +178,23 @@ def serve(
                 hinted = True
                 typer.echo("starting… (the first start after an install can take about a minute)", err=True)
         typer.echo(
-            f"daemon did not answer within {SERVE_WAIT_SECONDS}s — it may still be starting; check `omni status` and {log_path}",
+            f"daemon did not answer within {SERVE_WAIT_SECONDS}s — it may still be starting; check `omni status`, {log_path} and {boot_path}",
             err=True,
         )
         raise typer.Exit(1)
 
     # foreground
-    from .config.settings import Settings
+    if log_file:
+        # the detached daemon: everything it prints goes to a rotated daemon.log
+        # (set up before logging / uvicorn bind their handlers to sys.stderr)
+        from .daemon.logfile import install
+
+        install(Path(log_file))
+    from .config.user_settings import load_settings
     from .daemon.app import serve as _serve
     from .server import configure_logging
 
-    env = _env_file()
-    settings = Settings(_env_file=str(env)) if env else Settings()
+    settings = load_settings()  # .env (layout candidates) with settings.json over it
     configure_logging(settings.server.log_level)
     _serve(settings, host=host, port=port, log_level=log_level)
 
@@ -191,9 +223,12 @@ def status(host: str = typer.Option(DEFAULT_HOST), port: int = typer.Option(DEFA
     typer.echo(f"OmniAPI v{s['version']}  pid {s['pid']}  http://{s['host']}:{s['port']}  up {s['uptime_s']:.0f}s")
     typer.echo(f"  MCP:        http://{s['host']}:{s['port']}/mcp")
     if not s["providers"]["configured"]:
+        from .layout import suggested_env_file
+
         env = _env_file()
-        where = str(env) if env else str(Path(__file__).resolve().parents[1] / ".env")
-        typer.echo(f"  providers:  (none — no API key is configured; copy .env.example to {where}, fill in a key and set its ENABLED=true, then restart)")
+        where = str(env) if env else str(suggested_env_file())
+        typer.echo(f"  providers:  (none — no API key is configured; set one with PATCH /api/settings (no restart), "
+                   f"or copy .env.example to {where}, fill in a key and set its ENABLED=true, then restart)")
     else:
         typer.echo(f"  providers:  {', '.join(s['providers']['configured'])}")
     typer.echo(f"  text:       {', '.join(s['providers']['text'])}   image: {', '.join(s['providers']['image'])}")
@@ -232,44 +267,101 @@ def stop_target(info: Optional[dict], health: Optional[dict], port: int, pid_ali
     return file_pid, True, ""
 
 
+def request_shutdown(host: str, port: int, pid: int, timeout: float = 3.0) -> bool:
+    """Ask the daemon on ``port`` to shut down by itself (``POST /api/shutdown``).
+
+    ``True`` when it accepted — and it is the process we meant to stop (the
+    answer names its pid). An older daemon without the endpoint says 404/405."""
+    import httpx
+
+    try:
+        r = httpx.post(f"http://{host}:{port}/api/shutdown", timeout=timeout)
+    except Exception:
+        return False
+    if r.status_code != 200:
+        return False
+    try:
+        return int(r.json().get("pid") or 0) == pid
+    except Exception:
+        return False
+
+
+def _wait_gone(pid: int, seconds: float, alive: Any = None) -> bool:
+    alive = alive or _pid_alive
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not alive(pid):
+            return True
+        time.sleep(0.3)
+    return not alive(pid)
+
+
 @app.command()
-def stop(host: str = typer.Option(DEFAULT_HOST), port: int = typer.Option(DEFAULT_PORT)) -> None:
-    """Stop the daemon listening on --port."""
-    pid, clear, note = stop_target(read_pid(), _health(host, port), port)
+def stop(
+    host: str = typer.Option(DEFAULT_HOST),
+    port: int = typer.Option(DEFAULT_PORT),
+    grace: float = typer.Option(STOP_GRACE_SECONDS, help="Seconds to wait for a graceful shutdown before killing"),
+) -> None:
+    """Stop the daemon listening on --port: ask it to shut down cleanly (replies
+    and generations in flight are closed out as on any shutdown), kill it only
+    when it has not exited after --grace seconds."""
+    health = _health(host, port)
+    pid, clear, note = stop_target(read_pid(), health, port)
     if not pid:
         if clear:
             clear_pid()
         typer.echo(note or "not running")
         raise typer.Exit(0)
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+    how = "killed"
+    # only a daemon that answers on this port can be asked; one found through the pid file is killed as before
+    if health and request_shutdown(host, port, pid) and _wait_gone(pid, grace):
+        how = "stopped"
     else:
-        os.kill(pid, 15)
-    for _ in range(20):
-        time.sleep(0.2)
-        if not _pid_alive(pid):
-            break
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        else:
+            os.kill(pid, 15)
+        _wait_gone(pid, 4.0)
     if clear:
         clear_pid()
-    typer.echo(f"stopped pid {pid}")
+    typer.echo(f"stopped pid {pid}" + ("" if how == "stopped" else " (forced)"))
+    if _desktop_app_running():
+        typer.echo("note: the OmniAPI desktop app is running and starts the service again when it stops; "
+                   "to stop both, choose 結束 in its tray menu")
+
+
+def _desktop_app_running() -> bool:
+    """Is the OmniAPI desktop app (OmniAPI.exe, 1.3-M5) running for this user?"""
+    if os.name != "nt":
+        return False
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OmniAPI.exe", "/NH"], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return False
+    return "omniapi.exe" in out.lower()
 
 
 @app.command("mcp-config")
 def mcp_config(apply: bool = typer.Option(False, "--apply", help="Write the entry into ~/.claude.json"), host: str = typer.Option(DEFAULT_HOST), port: int = typer.Option(DEFAULT_PORT)) -> None:
-    """Show (or apply) the Claude Code MCP entry that points at the daemon."""
-    entry = {"type": "http", "url": f"http://{host}:{port}/mcp"}
-    typer.echo(json.dumps({"omniapi-mcp": entry}, indent=2))
+    """Show (or apply) the Claude Code MCP entry that points at the daemon.
+
+    The same code backs ``POST /api/claude-mcp`` (``config/claude_mcp.py``)."""
+    from .config import claude_mcp
+
+    typer.echo(json.dumps({claude_mcp.ENTRY_NAME: claude_mcp.entry(host, port)}, indent=2))
     if not apply:
         return
-    cfg_path = Path.home() / ".claude.json"
-    data = json.loads(cfg_path.read_text(encoding="utf-8"))
-    servers = data.setdefault("mcpServers", {})
-    old = servers.get("omniapi-mcp")
-    if old and old != entry:
-        (data_home() / "claude-mcp-entry.backup.json").write_text(json.dumps(old, indent=2), encoding="utf-8")
-    servers["omniapi-mcp"] = entry
-    cfg_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    typer.echo(f"applied to {cfg_path} (previous entry backed up under {data_home()})")
+    try:
+        res = claude_mcp.apply(host, port)
+    except claude_mcp.ClaudeConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    if not res["changed"]:
+        typer.echo(f"{res['path']} already has this entry; nothing changed")
+    elif res["backed_up"]:
+        typer.echo(f"applied to {res['path']} (previous entry backed up to {claude_mcp.backup_path()})")
+    else:
+        typer.echo(f"applied to {res['path']}")
 
 
 # ---------------------------------------------------------------- agent runs
@@ -310,7 +402,7 @@ def _print_run_header(r: dict) -> None:
 @app.command()
 def run(
     task: str = typer.Argument(..., help="The task brief (quote it)"),
-    model: str = typer.Option("cheap", "--model", "-m", help="Tier (cheap/standard/strong) or model id"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Tier (cheap/standard/strong) or model id (default: the daemon's dispatch default, cheap unless changed)"),
     cwd: Optional[str] = typer.Option(None, "--cwd", help="Working directory (default: current)"),
     title: Optional[str] = typer.Option(None, "--title", "-t"),
     harness: Optional[str] = typer.Option(None, help="claude | codex | gemini (default: by model)"),
@@ -462,7 +554,7 @@ def _safe_console() -> None:
 @app.command()
 def chat(
     message: Optional[str] = typer.Argument(None, help="One message (quote it). Leave out for an interactive session."),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Tier (cheap/standard/strong) or model id. New chats default to cheap; --resume keeps the conversation's."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Tier (cheap/standard/strong) or model id. New chats use the daemon's chat default (cheap unless changed); --resume keeps the conversation's."),
     system: Optional[str] = typer.Option(None, "--system", "-s", help="System prompt"),
     resume: Optional[str] = typer.Option(None, "--resume", "-r", help="Continue this conversation id"),
     no_stream: bool = typer.Option(False, "--no-stream", help="Wait for the whole reply instead of printing it as it comes"),
@@ -521,7 +613,7 @@ def chat(
                 if summary.get("state") == "cancelled":
                     raise typer.Exit(130)
                 return
-            err(f"OmniAPI 聊天 · 模型 {model or ('（沿用）' if resume else 'cheap')} · /help 看指令，/exit 離開\n")
+            err(f"OmniAPI 聊天 · 模型 {model or ('（沿用）' if resume else '預設')} · /help 看指令，/exit 離開\n")
             def read_line(prompt: str) -> str:
                 if sys.stdout.isatty():
                     return input(prompt)  # the console's own line editing
@@ -573,19 +665,61 @@ def _startup_script() -> Path:
     return _startup_dir() / "OmniAPI Daemon.vbs"
 
 
+#: the desktop app's logon entry (1.3-M5): tauri-plugin-autostart writes a value with the app's
+#: name under HKCU\...\Run; Task Manager's "disabled" lives in the StartupApproved twin key
+DESKTOP_RUN_VALUE = "OmniAPI"
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+
+
+def desktop_autostart(read: Any = None) -> Optional[dict]:
+    """The desktop app's logon entry, or ``None`` when it has none.
+
+    ``{"command": <what Windows runs>, "enabled": False}`` when the entry is there but
+    switched off in Task Manager (StartupApproved: first byte odd = disabled).
+    ``read(key, name)`` is injectable for tests; it returns the value or ``None``."""
+    if read is None:
+        if os.name != "nt":
+            return None
+
+        def read(key: str, name: str) -> Any:
+            import winreg
+
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+                    return winreg.QueryValueEx(k, name)[0]
+            except OSError:
+                return None
+
+    command = read(_RUN_KEY, DESKTOP_RUN_VALUE)
+    if not command:
+        return None
+    approved = read(_APPROVED_KEY, DESKTOP_RUN_VALUE)
+    enabled = not (isinstance(approved, (bytes, bytearray)) and len(approved) > 0 and approved[0] % 2 == 1)
+    return {"command": str(command), "enabled": enabled}
+
+
 @autostart_app.command("install")
 def autostart_install(
     port: int = typer.Option(DEFAULT_PORT),
     task: bool = typer.Option(False, "--task", help="Use a scheduled task (needs an elevated shell) instead of the Startup folder"),
+    force: bool = typer.Option(False, "--force", help="Install even though the desktop app already starts the service at logon"),
 ) -> None:
     """Start the daemon at Windows logon.
 
     Default: a hidden launcher (.vbs) in the user's Startup folder — no admin
     rights needed. ``--task`` registers a schtasks ONLOGON task instead
     (Windows refuses that from a non-elevated shell: "access denied").
+    Refused when the OmniAPI desktop app already starts at logon (it starts and
+    watches the service itself); ``--force`` installs anyway.
     """
     if os.name != "nt":
         typer.echo("autostart is Windows-only for now")
+        raise typer.Exit(1)
+    desk = desktop_autostart()
+    if desk and desk["enabled"] and not force:
+        typer.echo("the OmniAPI desktop app already starts at logon and starts the service itself "
+                   f"({desk['command']}); a second launcher is not needed. Use --force to install anyway.")
         raise typer.Exit(1)
     py = _python_for_daemon()
     if task:
@@ -593,7 +727,9 @@ def autostart_install(
         r = subprocess.run(["schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", TASK_NAME, "/TR", tr, "/RL", "LIMITED"], capture_output=True, text=True)
         typer.echo((r.stdout or r.stderr).strip())
         raise typer.Exit(r.returncode)
-    workdir = Path(__file__).resolve().parents[1]
+    from .layout import service_workdir
+
+    workdir = service_workdir()  # repo: mcp/ as always; installed: the data home
     script = _startup_script()
     script.parent.mkdir(parents=True, exist_ok=True)
     # WScript.Shell.Run with window style 0 = hidden; False = do not wait.
@@ -625,10 +761,21 @@ def autostart_remove() -> None:
 
 @autostart_app.command("status")
 def autostart_status() -> None:
+    desk = desktop_autostart()
+    if desk is None:
+        typer.echo("desktop app:    not set to start at logon")
+    elif desk["enabled"]:
+        typer.echo(f"desktop app:    starts at logon and runs the service — the desktop app has taken over  ({desk['command']})")
+    else:
+        typer.echo(f"desktop app:    entry present but disabled in Task Manager  ({desk['command']})")
     script = _startup_script()
     typer.echo(f"startup folder: {'installed' if script.exists() else 'not installed'}  ({script})")
     r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "LIST"], capture_output=True, text=True)
-    typer.echo(f"scheduled task: {'installed' if r.returncode == 0 else 'not installed'}")
+    task = r.returncode == 0
+    typer.echo(f"scheduled task: {'installed' if task else 'not installed'}")
+    if desk and desk["enabled"] and (script.exists() or task):
+        typer.echo("note: both the desktop app and the old launcher start at logon; the desktop app adopts a service "
+                   "that is already running, but one is enough — `omni autostart remove` removes the old launcher")
 
 
 if __name__ == "__main__":

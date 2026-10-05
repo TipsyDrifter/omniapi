@@ -669,9 +669,15 @@ class ChatManager:
             r["generation_cost_usd"] = gen.get(r["id"])
         return rows
 
+    def default_model(self) -> str:
+        """The chat default from the settings (`cheap` unless changed, 1.3-M2)."""
+        from ..config.user_settings import default_model
+
+        return default_model(getattr(self.text, "settings", None), "chat") or "cheap"
+
     # ------------------------------------------------------------ create / update / delete
     async def create(self, *, model: str | None = None, system: str | None = None, title: str | None = None, source: str = "gui") -> dict[str, Any]:
-        model = (model or "cheap").strip()
+        model = (model or self.default_model()).strip()
         try:
             self.text.route(model)  # fail now, not on the first message
         except RuntimeError as e:
@@ -745,7 +751,7 @@ class ChatManager:
 
     # ------------------------------------------------------------ turns
     def _route(self, model: Optional[str], conv: dict[str, Any]) -> tuple[str, str, Any]:
-        requested = (model or conv.get("model") or "cheap").strip()
+        requested = (model or conv.get("model") or self.default_model()).strip()
         try:
             resolved, provider = self.text.route(requested)
         except RuntimeError as e:

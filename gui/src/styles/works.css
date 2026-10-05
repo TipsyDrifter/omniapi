@@ -13,7 +13,7 @@ html.wk-lock { overflow: hidden; }
 
 /* ============ 頭：區塊大標＋各模態總數 ============ */
 /* 篩選後只剩幾件時，頁尾還是貼在底下 */
-.wk { padding-top: 22px; padding-bottom: 40px; min-height: calc(100vh - 76px - 34px); }
+.wk { padding-top: 22px; padding-bottom: 40px; min-height: calc(100vh - var(--top-h) - var(--foot-h)); }
 .wk .wk-head { padding-bottom: 12px; margin-bottom: 0; align-items: flex-end; }
 .wk .wk-head h2, .wk .wk-head .zh, .wk .wk-head .dp-sub { align-self: baseline; }
 .wk-count { margin-left: auto; display: flex; gap: 22px; align-self: flex-end; }
@@ -26,7 +26,7 @@ html.wk-lock { overflow: hidden; }
 .wk-tool {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
   border-top: 2px solid var(--ink); border-bottom: 1px solid var(--ink-25); padding: 10px 0;
-  position: sticky; top: 76px; z-index: 20; background: var(--paper);
+  position: sticky; top: var(--top-h); z-index: 20; background: var(--paper);
 }
 .wk-grp { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .wk-grp .k, .wk-tool .k { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); margin-right: 4px; }
@@ -129,7 +129,7 @@ html.wk-lock { overflow: hidden; }
 
 /* ============ 詳情燈箱：壓在頂欄下（頂欄導覽照常可用），頁尾留著 ============ */
 .wk-lb {
-  position: fixed; left: 0; right: 0; top: 76px; bottom: 34px; z-index: 40; background: var(--paper);
+  position: fixed; left: 0; right: 0; top: var(--top-h); bottom: var(--foot-h); z-index: 40; background: var(--paper);
   display: grid; grid-template-rows: auto minmax(0, 1fr); border-bottom: 2px solid var(--ink); overscroll-behavior: contain;
 }
 .wk-lb-bar { display: flex; align-items: center; gap: 14px; padding: 10px var(--m); border-bottom: 2px solid var(--ink); }

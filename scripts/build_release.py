@@ -12,15 +12,20 @@
 執行（這台的 python 是 Store 空殼，一律走 uv）：
   cd mcp && uv run python ../scripts/build_release.py
 
-  --allow-version-mismatch  五處版本號不一致時照樣打包（只給「先驗打包機制」用；正式發布不要帶）
+  --allow-version-mismatch  七處版本號不一致時照樣打包（只給「先驗打包機制」用；正式發布不要帶）
   --allow-missing-docs      鏡像內容缺 README.md／LICENSE 時照樣打包（同上）
   --allow-leaks             鏡像安全網命中時照樣打包（傳給 mirror-publish.sh；同上）
   --out <資料夾>            輸出位置，預設 <repo>/dist
+  --check-versions          只檢查七處版本號就結束（desktop/scripts/package.ps1 開頭用這個）
+  --desktop-installer <檔>  把桌面版安裝包（desktop/scripts/package.ps1 打的 OmniAPI_<版本>_x64-setup.exe）
+                            一起放進 dist/ 與 SHA256SUMS；檔名的版本要跟七處一致。安裝包要 Rust、Node、uv 與
+                            十幾分鐘，所以不在這裡打，跟這支並列
 
-版本號五處要一致才打包：mcp/pyproject.toml、mcp/omniapi_mcp/__init__.py、mcp/manifest.json、gui/package.json，
-  以及 mcp/uv.lock 裡 omniapi-mcp 自己那一筆（改了 pyproject 沒重鎖，它會停在舊版）。
-  manifest.json 必須是 semver 寫法（Claude Desktop 的 dxt 規格）；比對時把 pre-release 正規化，
-  所以 pyproject 的 1.0.0a1 與 manifest 的 1.0.0-alpha.1 算一致。
+版本號七處要一致才打包：mcp/pyproject.toml、mcp/omniapi_mcp/__init__.py、mcp/manifest.json、gui/package.json，
+  mcp/uv.lock 裡 omniapi-mcp 自己那一筆（改了 pyproject 沒重鎖，它會停在舊版），
+  以及桌面殼的 desktop/src-tauri/tauri.conf.json 與 desktop/src-tauri/Cargo.toml（1.3-M5）。
+  manifest.json、tauri.conf.json、Cargo.toml 必須是 semver 寫法（dxt 規格；Cargo 與 Tauri 也只收 semver）；
+  比對時把 pre-release 正規化，所以 pyproject 的 1.0.0a1 與 manifest 的 1.0.0-alpha.1 算一致。
 
 gui/dist 不在這裡 build：gui/dist 是主人正式 daemon 正在提供的檔案，在正式 gui/ 裡 build 會當場換掉它。
   這裡只檢查 gui/dist/index.html 存在、而且比 gui/src 新；不是就停下來請你先跑 `npm run build --prefix gui`。
@@ -86,24 +91,10 @@ def is_semver(raw: str | None) -> bool:
 
 
 def read_versions(root: Path) -> dict[str, str | None]:
-    """讀五處版本號；讀不到的值是 None（不猜）。"""
+    """讀七處版本號；讀不到的值是 None（不猜）。"""
     out: dict[str, str | None] = {}
 
-    pyproject = root / "mcp" / "pyproject.toml"
-    v = None
-    if pyproject.exists():
-        section = None
-        for line in pyproject.read_text(encoding="utf-8").splitlines():
-            s = line.strip()
-            if s.startswith("[") and s.endswith("]"):
-                section = s.strip("[]").strip()
-                continue
-            if section == "project":
-                m = re.match(r'^version\s*=\s*["\']([^"\']+)["\']', s)
-                if m:
-                    v = m.group(1)
-                    break
-    out["mcp/pyproject.toml"] = v
+    out["mcp/pyproject.toml"] = read_toml_section_version(root / "mcp" / "pyproject.toml", "project")
 
     init = root / "mcp" / "omniapi_mcp" / "__init__.py"
     v = None
@@ -123,7 +114,36 @@ def read_versions(root: Path) -> dict[str, str | None]:
         out[rel] = v
 
     out["mcp/uv.lock"] = read_lock_version(root / "mcp" / "uv.lock")
+
+    # 桌面殼（1.3-M5）：tauri.conf.json 管安裝包、登錄與殼讀到的版本；Cargo.toml 管 exe 的檔案版本——
+    # 只改前者，裝好的 exe 檔案版本還是舊的（原型二實證），所以兩處都查
+    p = root / "desktop" / "src-tauri" / "tauri.conf.json"
+    v = None
+    if p.exists():
+        try:
+            v = json.loads(p.read_text(encoding="utf-8")).get("version")
+        except (json.JSONDecodeError, AttributeError):
+            v = None
+    out["desktop/src-tauri/tauri.conf.json"] = v
+    out["desktop/src-tauri/Cargo.toml"] = read_toml_section_version(root / "desktop" / "src-tauri" / "Cargo.toml", "package")
     return out
+
+
+def read_toml_section_version(path: Path, section_name: str) -> str | None:
+    """``[section_name]`` 段裡的 ``version = "…"``（相依套件那些段的 version 不算）。"""
+    if not path.exists():
+        return None
+    section = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            section = s.strip("[]").strip()
+            continue
+        if section == section_name:
+            m = re.match(r'^version\s*=\s*["\']([^"\']+)["\']', s)
+            if m:
+                return m.group(1)
+    return None
 
 
 def read_lock_version(lock: Path, package: str = "omniapi-mcp") -> str | None:
@@ -150,7 +170,7 @@ def read_lock_version(lock: Path, package: str = "omniapi-mcp") -> str | None:
 
 
 def check_versions(versions: dict[str, str | None]) -> list[str]:
-    """回傳問題清單；空清單＝五處一致而且 manifest 是 semver。"""
+    """回傳問題清單；空清單＝七處一致，而且只收 semver 的那幾處是 semver。"""
     problems: list[str] = []
     norm = {k: normalize_version(v) for k, v in versions.items()}
     for k, v in versions.items():
@@ -158,13 +178,22 @@ def check_versions(versions: dict[str, str | None]) -> list[str]:
             problems.append(f"{k}：讀不到版本號")
         elif norm[k] is None:
             problems.append(f"{k}：認不得的版本寫法 {v!r}")
-    manifest = versions.get("mcp/manifest.json")
-    if manifest is not None and not is_semver(manifest):
-        problems.append(f"mcp/manifest.json：{manifest!r} 不是 semver（dxt 規格要求，例如 1.0.0-alpha.1）")
+    for k, why in SEMVER_ONLY.items():
+        v = versions.get(k)
+        if v is not None and not is_semver(v):
+            problems.append(f"{k}：{v!r} 不是 semver（{why}，例如 1.0.0-alpha.1）")
     distinct = {n for n in norm.values() if n is not None}
     if len(distinct) > 1:
-        problems.append("五處版本號不一致")
+        problems.append(f"{len(versions)} 處版本號不一致")
     return problems
+
+
+#: 只收 semver 寫法的版本位置 → 誰要求的
+SEMVER_ONLY = {
+    "mcp/manifest.json": "dxt 規格要求",
+    "desktop/src-tauri/tauri.conf.json": "Tauri 要求",
+    "desktop/src-tauri/Cargo.toml": "Cargo 要求",
+}
 
 
 # ---------------------------------------------------------------- 打包
@@ -251,6 +280,22 @@ def build_bundle(export_dir: Path, gui_dist: Path, out: Path, version: str) -> l
     return names
 
 
+def desktop_installer_name(version: str) -> str:
+    """發布用的檔名：只有 ASCII（GitHub 的 Release 資產會剝掉非 ASCII 字元），版本照 tauri.conf.json 的寫法。"""
+    return f"OmniAPI_{version}_x64-setup.exe"
+
+
+def check_desktop_installer(path: Path, version: str) -> str | None:
+    """桌面版安裝包可以放進發布包就回 None；否則回理由。安裝包是 desktop/scripts/package.ps1 打的
+    （要 Rust、Node、uv 與十幾分鐘，所以不在這裡打），這裡只確認拿到的是同一版。"""
+    if not path.is_file():
+        return f"{path} 不存在——先跑 desktop/scripts/package.ps1"
+    m = re.match(r"^OmniAPI_(.+)_x64-setup\.exe$", path.name)
+    if not m or normalize_version(m.group(1)) != normalize_version(version):
+        return f"{path.name} 不是 v{version} 的桌面版安裝包（檔名要是 {desktop_installer_name(version)}）"
+    return None
+
+
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -309,6 +354,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--allow-leaks", action="store_true")
     ap.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--check-versions", action="store_true",
+                    help="只檢查七處版本號（desktop/scripts/package.ps1 開頭用），不打包")
+    ap.add_argument("--desktop-installer", type=Path, default=None,
+                    help="把桌面版安裝包（desktop/scripts/package.ps1 的產出）一起放進 dist/ 與 SHA256SUMS")
     args = ap.parse_args(argv)
 
     root: Path = args.root.resolve()
@@ -320,17 +369,29 @@ def main(argv: list[str] | None = None) -> int:
     print("▸ 版本號")
     for k, v in versions.items():
         print(f"    {k:<{width}}  {v}")
+    if args.check_versions:
+        for p in problems:
+            print(f"  ✗ {p}")
+        return 1 if problems else 0
     if problems:
         for p in problems:
             print(f"  ✗ {p}")
         if not args.allow_version_mismatch:
-            print("✗ 版本號要五處一致才打包（只想驗打包機制：加 --allow-version-mismatch）", file=sys.stderr)
+            print(f"✗ 版本號要 {len(versions)} 處一致才打包（只想驗打包機制：加 --allow-version-mismatch）", file=sys.stderr)
             return 1
         print("  ⚠ --allow-version-mismatch：照樣打包，檔名用 pyproject.toml 的版本——這批產出不能拿去發布")
     version = versions["mcp/pyproject.toml"]
     if not version:
         print("✗ 讀不到 mcp/pyproject.toml 的版本號", file=sys.stderr)
         return 1
+
+    installer: Path | None = None
+    if args.desktop_installer:
+        installer = args.desktop_installer.resolve()
+        problem = check_desktop_installer(installer, version)
+        if problem:
+            print(f"✗ {problem}", file=sys.stderr)
+            return 1
 
     gui_problem = check_gui_dist(root / "gui")
     if gui_problem:
@@ -370,6 +431,10 @@ def main(argv: list[str] | None = None) -> int:
         produced.append((skill, len(build_skill_zip(root / "skill" / "omniapi", skill))))
         bundle = out_dir / f"omniapi-v{version}.zip"
         produced.append((bundle, len(build_bundle(export_dir, root / "gui" / "dist", bundle, version))))
+        if installer is not None:
+            dest = out_dir / desktop_installer_name(version)
+            shutil.copyfile(installer, dest)
+            produced.append((dest, 1))
 
     sums = out_dir / "SHA256SUMS.txt"
     lines = []

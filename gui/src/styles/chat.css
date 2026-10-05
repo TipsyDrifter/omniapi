@@ -7,7 +7,7 @@
 /* ============ 版面：兩欄，整頁不出現直向捲軸 ============ */
 /* 高度＝視窗扣掉頂欄 76、狀態列 34、上緣 22、下緣 24（同 thread.css：下緣 24 吃得下窄視窗的橫向捲軸） */
 .chatpage {
-  --chat-h: max(calc(100vh - 76px - 34px - 22px - 24px), 420px);
+  --chat-h: max(calc(100vh - var(--top-h) - var(--foot-h) - 22px - 24px), 420px);
   display: grid; grid-template-columns: 432px minmax(0, 1fr); column-gap: var(--g);
   padding-top: 22px; padding-bottom: 24px;
 }

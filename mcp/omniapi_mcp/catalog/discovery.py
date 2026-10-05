@@ -45,6 +45,10 @@ class DiscoveryResult:
     fetched_at: float
     from_cache: bool = False
     error: str | None = None
+    #: fingerprint of the key the listing was made with (``health.fingerprint``); ``None`` in older caches
+    key_fp: str | None = None
+    #: ``health.classify`` of the failure: ``{reason, status?, message}`` (1.3-M4)
+    error_info: dict[str, Any] | None = None
 
     @property
     def ids(self) -> set[str]:
@@ -218,6 +222,7 @@ def load_cached(provider: str) -> DiscoveryResult | None:
             models=[DiscoveredModel(**m) for m in raw.get("models", [])],
             fetched_at=float(raw.get("fetched_at", 0)),
             from_cache=True,
+            key_fp=raw.get("key_fp"),
         )
     except Exception as e:  # corrupt cache is not fatal
         logger.warning("Ignoring corrupt discovery cache for %s: %s", provider, e)
@@ -231,6 +236,7 @@ def save_cached(result: DiscoveryResult) -> None:
                 {
                     "provider": result.provider,
                     "fetched_at": result.fetched_at,
+                    "key_fp": result.key_fp,
                     "models": [asdict(m) for m in result.models],
                 },
                 ensure_ascii=False,
@@ -251,27 +257,42 @@ async def discover(
     *,
     force: bool = False,
     ttl: float = CACHE_TTL_SECONDS,
+    key_fp: str | None = None,
 ) -> DiscoveryResult:
     """Run one provider's fetcher with cache-first semantics.
 
-    - fresh cache (younger than ``ttl``) and not ``force`` → return cache
+    - fresh cache (younger than ``ttl``) and not ``force`` → return cache —
+      unless ``key_fp`` is given and the cache was made with another key (or
+      does not say which): then it is listed again with the key in effect
     - otherwise fetch; on success write cache
     - on failure → stale cache if any, else an empty result carrying ``error``
+      (``error_info`` classifies it, see ``health.classify``)
     """
+    from .health import classify
+
     cached = load_cached(provider)
     now = time.time()
-    if cached and not force and now - cached.fetched_at < ttl:
+    same_key = key_fp is None or (cached is not None and cached.key_fp == key_fp)
+    if cached and not force and same_key and now - cached.fetched_at < ttl:
         return cached
+    from ..devmode import offline
+
+    if offline():
+        # an offline sandbox never reaches a vendor, not even for the free listing:
+        # a sandbox started next to a real .env would otherwise send the real keys out
+        return cached or DiscoveryResult(provider=provider, models=[], fetched_at=0.0)
     try:
         models = await asyncio.wait_for(fetcher(), timeout=DISCOVERY_TIMEOUT + 2)
-        result = DiscoveryResult(provider=provider, models=models, fetched_at=now)
+        result = DiscoveryResult(provider=provider, models=models, fetched_at=now, key_fp=key_fp)
         save_cached(result)
         logger.info("Discovered %d models from %s", len(models), provider)
         return result
     except Exception as e:
         msg = f"{type(e).__name__}: {e}"
+        info = classify(e)
         logger.warning("Discovery failed for %s (%s); using cache=%s", provider, msg, bool(cached))
         if cached:
             cached.error = msg
+            cached.error_info = info
             return cached
-        return DiscoveryResult(provider=provider, models=[], fetched_at=0.0, error=msg)
+        return DiscoveryResult(provider=provider, models=[], fetched_at=0.0, error=msg, error_info=info)

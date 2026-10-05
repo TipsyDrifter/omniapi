@@ -1,6 +1,6 @@
 # OmniAPI MCP Server
 
-> **This file is the MCP tool reference.** OmniAPI v1.0 is more than the MCP server: a local daemon with a web GUI (live board of agent runs, dispatch, chat, cost ledgers) and the `omni` CLI. For what it is, how to install it and how to use the GUI, start with the [root README](../README.md) and the [user guide](../USER_GUIDE.md).
+> **This file is the MCP tool reference.** OmniAPI is more than the MCP server: a local daemon with a web GUI (live board of agent runs, dispatch, chat, generation, works wall, cost ledgers, model catalog, settings) and the `omni` CLI, installable as a Windows desktop app or from a zip. For what it is, how to install it and how to use the GUI, start with the [root README](../README.md) and the [user guide](../USER_GUIDE.md).
 
 **One MCP server for image, audio transcription, text/chat, speech, music and agent dispatch — across OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, ElevenLabs, and Suno.**
 
@@ -30,6 +30,8 @@ Plus diagnostics and job retrieval: `list_available_models`, `health_check`, `se
 
 > **Model rosters are live.** Each provider is asked what is online at startup, merged with a curated pricing/capability overlay. Call `list_available_models(modality="text" | "image" | "transcription" | "speech" | "music")` for the current list — including deprecation and shutdown dates — rather than trusting any hard-coded list. `complete_text` also accepts the tier aliases **`cheap`** / **`standard`** / **`strong`** so callers need not pin a model id.
 
+> **Keys, tiers and defaults can be changed on the GUI's settings page** (`http://127.0.0.1:7788/settings`) and take effect at once, without restarting the daemon or reconnecting MCP clients. What a tier alias points at right now is the `tiers` field of `list_available_models`; the values below are the shipped defaults.
+
 ## Available Tools
 
 19 tools across five modalities plus diagnostics, agent runs and chat.
@@ -44,6 +46,8 @@ List every model OmniAPI can call, **across all modalities**, with provider, onl
 - `include_retired` (default `false`): also list models the provider has shut down
 - `include_snapshots` (default `false`): also list dated snapshot ids (e.g. `gpt-5.5-2026-04-23`); hidden by default but still callable
 - `refresh` (default `false`): force a fresh discovery round instead of the 24h cache
+
+**Returns** `models` (by modality), `counts`, `tiers` (the current tier mapping, including any override from the settings page), `configured_providers`, `default_text_model`, `discovery`, and per provider `providers.<name>` with `label`, `harness`, `modalities`, `get_key` (where to get a key) and `suggested_tiers` (that provider's cheap / standard / strong suggestion; none for OpenRouter).
 
 #### `health_check`
 Overall server health plus a per-provider ping.
@@ -104,13 +108,13 @@ Generate a text/chat completion with any configured text model: OpenAI (GPT-6 / 
 
 **Parameters**: `prompt` (or a full `messages` list), `model`, `system`, `reasoning_effort`, `verbosity`, `max_completion_tokens`, `response_format`, `thinking` (DeepSeek), `tools` / `tool_choice` / `parallel_tool_calls`, sampling (`temperature`, `top_p`, `seed`, `stop`), and OpenAI extras (`store`, `metadata`, `service_tier`, `prompt_cache_key`, `safety_identifier`).
 
-- `model` accepts a **tier alias** — `cheap` (`deepseek-flash`, the default), `standard` (`gemini-3.8-flash`), `strong` (`gpt-6-sol`) — an alias, or a provider model id. Namespaced ids (`vendor/model`) route to OpenRouter.
+- `model` accepts a **tier alias** — `cheap` (`deepseek-flash`), `standard` (`gemini-3.8-flash`), `strong` (`gpt-6-sol`), as shipped; the settings page can repoint them — an alias, or a provider model id. Without one, the chat default from the settings page is used (shipped as `cheap`). Namespaced ids (`vendor/model`) route to OpenRouter.
 - Sampling parameters are **dropped automatically** for GPT-5.x/6 reasoning models, which reject them with HTTP 400; `system` is remapped to a `developer` message; `max_completion_tokens` becomes `max_tokens` for non-OpenAI dialects.
 
 #### `chat`
 Multi-turn chat with any text model. The conversation is stored and appears in the GUI under `/chat`, where it can be read or continued. Use `complete_text` for a one-off completion that should leave no conversation behind, and `run_agent` when the model has to edit files or run commands.
 
-**Parameters**: `message` (required), `conversation_id` (continue a conversation — pass back the id the previous call returned; leave empty to start a new one), `model` (tier alias or model id; a new conversation defaults to `cheap`, an existing one keeps its last model unless you give another), `system` (sets the system prompt of a new conversation, replaces it on an existing one), `title`, `reasoning_effort`, `temperature`, `max_completion_tokens`.
+**Parameters**: `message` (required), `conversation_id` (continue a conversation — pass back the id the previous call returned; leave empty to start a new one), `model` (tier alias or model id; a new conversation defaults to the settings page's chat default, shipped as `cheap`; an existing one keeps its last model unless you give another), `system` (sets the system prompt of a new conversation, replaces it on an existing one), `title`, `reasoning_effort`, `temperature`, `max_completion_tokens`.
 
 **Returns**: `{conversation_id, title, state, text, model, requested_model, reasoning?, usage, cost_usd, error?, n_messages, url}` — `url` is the GUI page of the conversation. A reply that takes longer than ~45s comes back as a `get_job_result` ticket that also carries the `conversation_id`. Errors come back as `{error, status}` (404 unknown conversation, 400 unknown model, 409 a reply is still running). The spend is recorded in the chat-and-generation ledger under the tool name `chat`.
 
@@ -264,6 +268,14 @@ Other settings you may want:
 | `OMNIAPI_HOME` | `~/.omniapi` | data home: database, logs, pid file, model-roster cache |
 | `OMNIAPI_DEV` | unset | `1` adds the `echo` models and the `replay` harness (no vendor call) |
 | `OMNIAPI_OFFLINE` | unset | `1` refuses every call that would reach a paid vendor |
+| `OMNIAPI_GUI_DIST` | the repo's `gui/dist` | a built GUI folder to serve (for a copy of the service outside the repo) |
+| `OMNIAPI_LOG_MAX_MB` / `OMNIAPI_LOG_BACKUPS` | `5` / `5` | size cap and kept copies of `<data home>/logs/daemon.log` |
+| `DEFAULTS__CHAT` / `DEFAULTS__DISPATCH` | `cheap` / `cheap` | model for new chats / agent runs that name none (also `DEFAULTS__SPEECH`, `__MUSIC`, `__TRANSCRIPT`) |
+| `TIERS__CHEAP` / `TIERS__STANDARD` / `TIERS__STRONG` | from `catalog.json` | which model each tier means |
+
+**Settings without a restart.** Keys, provider switches, tiers and default models can also live in `<data home>/settings.json`, which wins over `.env` and the environment. Change it through the running daemon — `GET /api/settings` shows each key only as set / last four characters / where it came from; `PATCH /api/settings` (same shape as the file, `null` removes an entry) applies at once; `POST /api/settings/test-key` checks a key with a free call. Example: `curl -X PATCH http://127.0.0.1:7788/api/settings -H "Content-Type: application/json" -d "{\"providers\":{\"deepseek\":{\"api_key\":\"sk-…\"}}}"`. Only requests from this computer may change anything (non-GET `/api/*` and WebSockets need a loopback `Host` and, if sent, a loopback `Origin`).
+
+**Running outside the repo.** When the package has no `pyproject.toml` beside it (a copied or packaged install), the background daemon works in the data home and, unless `STORAGE__BASE_PATH` is set, saves works to `Documents\OmniAPI`. `omni stop` asks the daemon to shut down cleanly (`POST /api/shutdown`) and only kills it when it has not exited after 15 seconds.
 
 ## Version History
 

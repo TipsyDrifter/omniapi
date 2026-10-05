@@ -49,6 +49,35 @@ class HarnessRegistry:
         cfg = getattr(self.settings.providers, "gemini" if key == "google" else key, None)
         return bool(cfg and getattr(cfg, "enabled", False) and getattr(cfg, "api_key", ""))
 
+    def claude_cli(self):
+        """Where the Claude Code executable is (``harness.claude.find_claude_cli``); every
+        Claude run needs one, whichever endpoint it talks to."""
+        from .claude import find_claude_cli
+
+        return find_claude_cli(self.settings)
+
+    def claude_availability(self) -> dict[str, Any]:
+        """The claude entry of ``/api/harnesses``: usable only when the CLI is found AND at
+        least one endpoint has credentials. ``reason`` (Chinese, for the board) says which
+        part is missing; ``cli_reason`` is the lookup's own English detail."""
+        endpoints = {k: self._provider_configured(k) for k in ("anthropic", "anthropic-api", "deepseek", "openrouter")}
+        cli = self.claude_cli()
+        out: dict[str, Any] = {
+            "name": "Claude Code",
+            "available": cli.path is not None and any(endpoints.values()),
+            "cli": cli.path is not None,
+            "cli_path": cli.path,
+            "cli_source": cli.source,
+            "endpoints": endpoints,
+            "resume": True,
+        }
+        if cli.path is None:
+            out["reason"] = "沒有裝 Claude Code（找不到 claude.exe）"
+            out["cli_reason"] = cli.reason
+        elif not any(endpoints.values()):
+            out["reason"] = "沒有登入 Claude Code，也沒有設定 Anthropic／DeepSeek／OpenRouter 的 key"
+        return out
+
     def resolve(self, spec: RunSpec) -> RunSpec:
         """Fill resolved_model / provider / harness / endpoint on the spec."""
         if spec.harness == "replay" or (spec.model or "").startswith("replay"):
@@ -109,6 +138,10 @@ class HarnessRegistry:
             endpoint = "anthropic-api"
         if harness == "claude" and endpoint and not self._provider_configured(endpoint):
             raise ValueError(f"Provider '{endpoint}' is not configured (needed to run '{model}' on the claude harness).")
+        if harness == "claude":
+            cli = self.claude_cli()
+            if cli.path is None:
+                raise ValueError(f"Cannot run '{model}' on the claude harness: {cli.reason}")
         if harness == "codex" and not self._provider_configured("openai"):
             raise ValueError("Codex harness needs PROVIDERS__OPENAI__API_KEY.")
         if harness == "gemini" and not self._provider_configured("google"):

@@ -33,7 +33,7 @@ def new_run_id() -> str:
 @dataclass
 class RunSpec:
     prompt: str
-    model: str = "cheap"                 # tier alias or model id (resolved by the registry)
+    model: Optional[str] = None          # tier alias or model id (resolved by the registry); None = the dispatch default (settings, "cheap")
     harness: Optional[str] = None        # claude | codex | gemini | None = route by model
     cwd: Optional[str] = None
     title: Optional[str] = None

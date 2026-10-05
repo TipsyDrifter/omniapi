@@ -78,7 +78,7 @@ export function ModelPicker(props: {
       ) : null}
       <fieldset className="dp-fs" disabled={replay}>
         <div className="dp-tiers" role="group" aria-label="等級">
-          {TIERS.map((t) => {
+          {(data?.tiers ? Object.keys(data.tiers) : TIERS).map((t) => {
             const id = tiers[t] ?? null;
             const e = id ? idx.get(id) ?? null : null;
             return (

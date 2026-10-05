@@ -54,9 +54,14 @@ class RunManager:
             spec.resume_session_id = parent["session_id"]
             spec.harness = spec.harness or parent["harness"]
             spec.cwd = spec.cwd or parent.get("cwd")
-            if spec.model == "cheap" and parent.get("model"):
+            # no model asked for (or the old CLI's literal "cheap"): stay on the run's own model
+            if (not spec.model or spec.model == "cheap") and parent.get("model"):
                 spec.model = parent["model"]
             spec.title = spec.title or f"↩ {parent.get('title') or ''}".strip()
+        if not spec.model:
+            from ..config.user_settings import default_model
+
+            spec.model = default_model(self.settings, "dispatch") or "cheap"
         self.registry.resolve(spec)
         adapter = self.registry.adapter(spec.harness or "claude")
         if spec.resume_session_id and not adapter.supports_resume:

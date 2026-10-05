@@ -6,3 +6,4 @@
 Run with the project venv python from `mcp/`.
 - `runs_e2e.py` — run_agent on claude+codex via MCP, poll get_run, resume on claude (needs SCRATCH env).
 - `resume_e2e.py` — codex resume + gemini start/resume via MCP.
+- `settings_m4_e2e.py` — offline sandbox, no keys: shadowed .env key, connection status (survives a restart: two phases), `/api/tools`, Claude Code's MCP entry in a stand-in file (`OMNIAPI_CLAUDE_CONFIG`); setup in its docstring.

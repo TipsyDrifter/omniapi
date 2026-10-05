@@ -1,0 +1,699 @@
+/* =====================================================================
+   1.3-M3 全站 RWD（決策記錄 D44、D48；版面稿 prototypes/rwd-design/，規格 NOTES.md）
+   寫法：寬版（≥1440，XL）就是各頁 CSS 的現況，一個 px 都不改；這裡只往下覆寫。
+   斷點數值只在這個檔案定義一次（每段一個 @media 區塊，各頁的規則都收在該段區塊裡，按頁分節）：
+     XL ≥1440   維持現況
+     L  1180–1439  結構不變，固定欄收窄、導覽拿掉拉丁小字
+     M   760–1179  最多兩欄；頂欄只留中文導覽，主題切換移到狀態列（M 下半 760–959：派工、費用、燈箱先改一欄）
+     S     <760    一欄；導覽換成底部分頁列；深一層的頁換成返回列
+   JS 不寫數字：每段在 :root 寫 --tier，lib/rwd.ts 讀它。
+   觸控（滑不過去）看 (hover: none)，跟寬度無關：最後一節。
+   只吃主題 token；版面變數 --top-h／--foot-h／--tab-h 在 base.css。
+   ===================================================================== */
+
+:root { --tier: xl; --ctx-h: 52px; }
+
+/* ---------- 只在某些段或觸控才出現的零件：預設藏起來 ---------- */
+.only-s, .only-touch { display: none !important; }
+.tabbar, .ctxbar, .feed-more, .stack-dots, .foot-theme, .wk-filterbtn, .ch-kebab, .cm-kebab { display: none; }
+
+/* 生成頁表單的外框：寬版不存在（主要輸入欄、參數欄照舊是 .mk-grid 的直接子項）；窄的時候才當一欄的容器 */
+.mk-form { display: contents; }
+
+/* 「⋯」鈕（返回列、聊天表頭、觸控時的訊息動作） */
+.kebab {
+  display: inline-grid; place-items: center; min-width: 30px; height: 26px; flex: none;
+  border: 1.5px solid var(--ink-25); background: var(--paper); color: var(--ink);
+  font-family: var(--font-label); font-weight: 800; font-size: var(--fs-l); line-height: 1; letter-spacing: 0.05em;
+}
+.kebab:hover, .kebab[aria-expanded="true"] { border-color: var(--ink); background: var(--paper-deep); }
+/* 聊天表頭與訊息上的「⋯」平常藏著（寫在 .kebab 之後，才蓋得過它的 display） */
+.kebab.ch-kebab, .kebab.cm-kebab { display: none; }
+
+/* 聊天表頭收進「⋯」的動作清單（M 段在表頭右邊、S 段在返回列右邊） */
+.ch-acts, .ctx-r { position: relative; }
+.ch-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 180px; padding: 4px 0;
+  display: flex; flex-direction: column; background: var(--paper); border: 2px solid var(--ink); box-shadow: 6px 6px 0 var(--ink-25);
+}
+.ch-menu > a, .ch-menu > button {
+  display: block; text-align: left; padding: 9px 14px; text-decoration: none; color: var(--ink); white-space: nowrap;
+  font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s); border-bottom: 1px dashed var(--ink-25);
+}
+.ch-menu > :last-child { border-bottom: 0; }
+.ch-menu > a:hover, .ch-menu > button:hover { background: var(--paper-deep); }
+
+/* 從底部升起的單子（「更多」、訊息動作、作品牆篩選）：墨框紙底，不用陰影漸層 */
+html.sheet-lock { overflow: hidden; }
+.sheet-veil { position: fixed; inset: 0; z-index: 90; background: var(--ink-25); }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 91; max-width: 640px; margin: 0 auto; max-height: 82vh; overflow-y: auto;
+  background: var(--paper); border: 2px solid var(--ink); border-bottom: 0; padding: 8px var(--m) calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.sheet-grab { width: 44px; height: 4px; background: var(--ink-45); margin: 0 auto 10px; }
+.sheet-it {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 13px 2px; text-align: left; text-decoration: none; color: var(--ink);
+  border-bottom: 1px dashed var(--ink-25); min-height: 48px;
+}
+.sheet-it b { flex: none; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-lead); }
+.sheet-it small { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.1em; color: var(--ink-70); }
+.sheet-it .r { margin-left: auto; min-width: 0; text-align: right; font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); line-height: 1.5; }
+.sheet-it.dis, .sheet-it[aria-disabled="true"] { cursor: not-allowed; }
+.sheet-it.dis b { color: var(--ink-70); }
+.sheet-it .sim button { padding: 6px 14px 5px; }
+.sheet-status { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 0 14px; font-family: var(--font-sans); font-size: var(--fs-m11); line-height: 1.8; color: var(--ink-70); }
+.sheet-status .v { color: var(--ink); }
+.sheet-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--ink-45); margin-right: 6px; vertical-align: -1px; }
+.sheet-status .dot.on { background: var(--ink); border-color: var(--ink); }
+.sheet-status .dot.off { background: var(--err-stripe-solid); border-color: var(--ink); border-radius: 0; }
+/* 作品牆的篩選單子：每組一列、可換行，搜尋撐滿 */
+.wk-sheet .wk-grp { flex-wrap: wrap; padding: 10px 0; border-bottom: 1px dashed var(--ink-25); }
+.wk-sheet .wk-search { max-width: none; min-width: 0; margin: 10px 0; }
+.wk-sheet .wk-sel { max-width: 100%; }
+.wk-sheet .wk-hid { margin-top: 4px; }
+
+/* =====================================================================
+   L：1180–1439（筆電）。結構不變，固定欄收窄、導覽拿掉拉丁小字
+   ===================================================================== */
+@media (max-width: 1439px) {
+  :root { --tier: l; --m: 32px; }
+  /* 頂欄 */
+  .top nav a > span { display: none; }
+  .top nav a { padding: 6px 8px 4px; }
+  /* 看板 */
+  .hero, .runpage { grid-template-columns: 380px minmax(0, 1fr); }
+  .fbody { grid-template-columns: minmax(0, 1fr) 300px; column-gap: 24px; }
+  .lower { grid-template-columns: minmax(0, 1fr) 340px; column-gap: 32px; }
+  /* 聊天 */
+  .chatpage { grid-template-columns: 360px minmax(0, 1fr); }
+  /* 生成 */
+  .mk-grid.with-tray { grid-template-columns: minmax(0, 1fr) 340px 280px; column-gap: 24px; }
+  /* 派工 */
+  .dp-grid { grid-template-columns: minmax(0, 1fr) 460px; column-gap: 32px; }
+  /* 作品牆 */
+  .wk-lb-body { grid-template-columns: minmax(0, 1fr) 400px; }
+  .wk-count { gap: 16px; }
+
+  /* ---- 設定・模型・引導（1.3-M4，styles/settings.css；稿 prototypes/settings-models-design/sm.css 的同一段） ---- */
+  .sp-grid { grid-template-columns: 210px minmax(0, 1fr); column-gap: 36px; }
+  .pv-legend, .pv { grid-template-columns: 184px minmax(0, 1fr) 104px 176px 200px; column-gap: 14px; }
+  .pv-ed { grid-template-columns: minmax(0, 1fr) 300px; }
+  .tr { grid-template-columns: 120px minmax(0, 1fr) 132px 196px; }
+  .mp-grid { grid-template-columns: 196px minmax(0, 1fr) 300px; column-gap: 24px; }
+  .ml-legend, .mr { grid-template-columns: minmax(0, 1fr) 108px 66px 112px 100px; column-gap: 10px; }
+  .wl-grid { grid-template-columns: minmax(0, 1fr) 320px; column-gap: 32px; }
+}
+
+/* =====================================================================
+   M：760–1179（平板、拉窄的桌面視窗）。最多兩欄；頂欄只留中文導覽
+   ===================================================================== */
+@media (max-width: 1179px) {
+  :root { --tier: m; --m: 24px; --g: 20px; --top-h: 64px; }
+  /* 頂欄：wordmark 縮、拿掉「派工中心」與日期；主題切換移到狀態列 */
+  .logo { font-size: 32px; }
+  .logo small, .top .date, .top .sim { display: none; }
+  .top nav a { padding: 6px 5px 4px; }
+  .navsep { height: 24px; margin: 0 3px; }
+  .top-new { font-size: var(--fs-base); padding: 5px 12px 4px; }
+  .foot { gap: 16px; }
+  .foot .x-m { display: none; }
+  .foot-theme { display: inline-flex; }
+  .foot-theme .sim .k { display: none; }
+  .foot-theme .sim button { font-size: var(--fs-m11); padding: 0 8px; line-height: 18px; }
+
+  /* 看板：票券欄 320；細節帶兩欄各半；歷史表滿寬、兩本帳在下面並排 */
+  .hero { grid-template-columns: 320px minmax(0, 1fr); height: clamp(600px, calc(100vh - var(--top-h) - var(--foot-h)), 820px); }
+  .tk-title { font-size: var(--fs-h4); }
+  .fbody { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .focus .counters .big { font-size: var(--fs-num-m); }
+  .fhead h3 { font-size: var(--fs-h3); }
+  .lower { grid-template-columns: minmax(0, 1fr); row-gap: 28px; }
+  .lower .costs { position: static; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; }
+  .lower .costs > .sechead, .lower .costs > .foot-note { grid-column: 1 / -1; }
+  .lower .costs > .split { display: none; }
+  /* 單張大票券（看板只有一件執行中、單筆頁）：內距收窄、標題 50→30、大數字 68→56 */
+  .ticket { padding: 18px 20px 16px; }
+  .live-stamp { white-space: nowrap; }
+  .ticket .row { flex-wrap: wrap; row-gap: 6px; }
+  .ticket h1 { font-size: var(--fs-h2); }
+  .ticket .big { font-size: var(--fs-num-l); }
+  .ticket .perf { margin-left: -20px; margin-right: -20px; }
+  .resultcard { margin-left: 0; }
+
+  /* 單筆頁：票券欄 320 */
+  .runpage { grid-template-columns: 320px minmax(0, 1fr); }
+
+  /* 派工：兩欄各半，harness 改直排 */
+  .dp-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; }
+  .dp-hopts { grid-template-columns: minmax(0, 1fr); }
+
+  /* 聊天：清單欄 280；表頭的動作收進「⋯」、對話 id 拿掉；作品標籤的圖 288→220 */
+  .chatpage { grid-template-columns: 280px minmax(0, 1fr); }
+  .chat-sechead h2 { font-size: 40px; }
+  .ch-id { display: none; }
+  .ch-acts > .ch-act, .ch-acts > .navsep { display: none; }
+  .ch-acts > .ch-kebab { display: inline-grid; }
+  .gp.done { grid-template-columns: 220px minmax(0, 1fr); }
+
+  /* 生成：有出件口時表單併成一欄（提示詞→來源圖→模型→輸出→送出），出件口留在右邊 300 */
+  .mk .mk-head { flex-wrap: wrap; row-gap: 14px; }
+  .mk .mk-head .dp-sub { display: none; }
+  .mk-tabs button { min-width: 0; padding: 6px 12px 5px 8px; }
+  .mk-tabs button[aria-selected="true"] { padding: 5.5px 11.5px 4.5px 7.5px; }
+  .mk-grid { column-gap: 28px; }
+  .mk-grid.with-tray { grid-template-columns: minmax(0, 1fr) 300px; column-gap: 24px; }
+  .mk-grid.with-tray > .mk-form { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+  .mk-grid.with-tray .mk-main, .mk-grid.with-tray .mk-side { display: contents; }
+  .mk-grid.with-tray .mk-submitwrap { order: 2; }
+
+  /* 作品牆：說明句拿掉、日期籤數字縮一階；燈箱資訊欄 340 */
+  .wk .wk-head .dp-sub { display: none; }
+  .wk-slug b { font-size: var(--fs-h2); }
+  .wk-search { min-width: 200px; }
+  .wk-lb-body { grid-template-columns: minmax(0, 1fr) 340px; }
+  .wk-esc { display: none; }
+
+  /* 費用：兩本帳仍並排 */
+  .costs-page { column-gap: 24px; }
+  .brk li { grid-template-columns: 110px minmax(0, 1fr) 70px; }
+
+  /* ---- 設定・模型・引導（1.3-M4，styles/settings.css；稿 prototypes/settings-models-design/sm.css 的同一段） ---- */
+  /* 設定頁 */
+  .sp-grid { display: block; }
+  .sp-rail { position: sticky; top: var(--top-h); z-index: 20; background: var(--paper); margin: -10px calc(-1 * var(--m)) 18px; padding: 8px var(--m) 0; border-bottom: 2px solid var(--ink); gap: 0; }
+  .sp-toc { flex-direction: row; border-top: 0; overflow-x: auto; scrollbar-width: none; }
+  .sp-toc a { display: flex; gap: 6px; padding: 6px 12px 7px; border-bottom: 0; white-space: nowrap; }
+  .sp-toc a small { display: none; }
+  .sp-toc a b { font-size: var(--fs-base); }
+  .sp-toc a[aria-current] { box-shadow: inset 0 -3px 0 var(--ink); }
+  .sp-log, .sp-file { display: none; }
+  .sp-toast { display: flex; position: sticky; bottom: calc(var(--foot-h) + 10px); z-index: 25; margin: 22px 0 0; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--paper); border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--ink-25); padding: 7px 12px; font-size: var(--fs-xs); }
+  .sp-toast .t { font-family: var(--font-mono); color: var(--ink-70); font-size: var(--fs-m11); }
+  .sp-toast .w { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .sp-toast .lnk { margin-left: auto; }
+  .sp-toast.err { background: var(--err-stripe), var(--paper); }
+  .sp-toast.err .w { background: var(--paper); }
+  .pv-legend { display: none; }
+  .pv { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 250px; grid-template-areas: "name state on" "key key acts"; row-gap: 8px; padding: 14px 0 12px; }
+  .pv-on { justify-self: end; }
+  .pv-name { flex-direction: row; align-items: center; gap: 10px; }
+  .pv-state .st-sub { display: inline; margin-left: 6px; }
+  .pv.is-editing { grid-template-areas: "name state on" "key key acts" "ed ed ed"; }
+  .pv-ed { grid-template-columns: minmax(0, 1fr); }
+  .tr { grid-template-columns: 112px minmax(0, 1fr) auto; grid-template-areas: "lab model acts" "lab src acts"; row-gap: 4px; }
+  .tr-src { flex-direction: row; align-items: center; gap: 8px; }
+  .tr.is-picking { grid-template-areas: "lab model acts" "lab src acts" "pick pick pick"; }
+  .tr-warn { grid-column: 1 / -1; }
+  .svc { grid-template-columns: minmax(0, 1fr); row-gap: 28px; }
+  /* 模型頁 */
+  .mp-grid { grid-template-columns: minmax(0, 1fr); }
+  .mf-rail { display: none; }
+  .md-pane { display: none; }
+  .ml-bar .fbtn { display: inline-flex; }
+  .ml-legend, .mr { grid-template-columns: minmax(0, 1fr) 104px 70px 112px 112px; }
+  .md-inline { display: block; grid-column: 1 / -1; margin: 0 0 10px; }
+  .md-inline .md-pane { display: block; position: static; max-height: none; box-shadow: 4px 4px 0 var(--ink-25); }
+  .md-inline .md-pane .body { display: grid; grid-template-columns: 1fr 1fr; }
+  .md-inline .md-pane .body .sec:nth-child(odd) { border-right: 1px dashed var(--ink-25); }
+  .md-close { display: inline-flex; margin-left: auto; }
+  .mp-alert { grid-template-columns: auto minmax(0, 1fr); row-gap: 10px; }
+  .mp-alert .acts { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+  /* 引導 */
+  .wl-grid { grid-template-columns: minmax(0, 1fr); row-gap: 30px; }
+  .wl-side { position: static; display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; align-items: start; }
+  .pc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wl-hero h1 { font-size: 60px; }
+  .unl { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .empty-board { grid-template-columns: 320px minmax(0, 1fr); }
+}
+
+/* M 下半段（760–959）：兩欄已經擠，派工、費用、燈箱先改一欄；看板與單筆頁的票券欄 280 */
+@media (max-width: 959px) {
+  .top nav a { font-size: var(--fs-l); padding: 6px 4px 4px; }
+  .hero { grid-template-columns: 280px minmax(0, 1fr); }
+  .runpage { grid-template-columns: 280px minmax(0, 1fr); }
+  .fbody { grid-template-columns: minmax(0, 1fr); row-gap: 10px; }
+  .focus .meta { display: none; }
+  /* 歷史表：派工者欄拿掉，模型名可以換行（代號不截斷） */
+  table.runs thead th:nth-child(6), table.runs td.disp { display: none; }
+  table.runs tbody tr.run td.model { white-space: normal; overflow-wrap: anywhere; }
+  /* 兩本帳疊成一欄（口徑線回來） */
+  .lower .costs { grid-template-columns: minmax(0, 1fr); }
+  .lower .costs > .split { display: flex; }
+  .costs-page { grid-template-columns: minmax(0, 1fr); }
+  /* 派工：一欄，送出列排在 harness、模型之後 */
+  .dp-grid { display: flex; flex-direction: column; align-items: stretch; gap: 28px; }
+  .dp-grid > .dp-main, .dp-grid > .dp-side { display: contents; }
+  .dp-grid .dp-submit, .dp-grid .dp-hint { order: 2; }
+  .dp-hint { margin-top: -18px; }
+  /* 生成：沒有出件口時也併成一欄；有出件口時右欄 260 */
+  .mk-grid { display: flex; flex-direction: column; align-items: stretch; gap: 26px; }
+  .mk-grid > .mk-form { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+  .mk-grid .mk-main, .mk-grid .mk-side { display: contents; }
+  .mk-grid .mk-submitwrap { order: 2; }
+  .mk-grid.with-tray { display: grid; grid-template-columns: minmax(0, 1fr) 260px; }
+  /* 燈箱：上下排，舞台佔 55% */
+  .wk-lb-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 55%) minmax(0, 1fr); }
+  .wk-stage { border-right: 0; border-bottom: 2px solid var(--ink); }
+
+  /* ---- 設定・模型・引導（1.3-M4，styles/settings.css；稿 prototypes/settings-models-design/sm.css 的同一段） ---- */
+  .lk { grid-template-columns: minmax(0, 1fr); }
+  .mf-inline { grid-template-columns: 1fr 1fr; }
+  .wl-side { grid-template-columns: minmax(0, 1fr); row-gap: 18px; }
+  .steps li small { display: none; }
+  .ml-legend { display: none; }
+  .ml-unit { display: block; }
+  .mr { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "id price st" "tags caps st"; row-gap: 4px; }
+  .mr-caps { justify-content: flex-end; }
+  .md-inline .md-pane .body { grid-template-columns: 1fr; }
+  .md-inline .md-pane .body .sec:nth-child(odd) { border-right: 0; }
+}
+
+/* =====================================================================
+   S：<760（手機）。一欄；導覽移到底部分頁列；深一層的頁換成返回列
+   ===================================================================== */
+@media (max-width: 759px) {
+  :root { --tier: s; --m: 16px; --g: 16px; --top-h: 56px; --foot-h: 0px; --tab-h: 58px; --fs-sec: 40px; }
+  body { padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px)); }
+  .only-s { display: revert !important; }
+  .x-s { display: none !important; }
+
+  /* ---- 頂欄：wordmark＋「＋新對話」（保留斜章，縮一號）；導覽、主題、日期都不在這裡 ---- */
+  .top { grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; position: sticky; top: 0; z-index: 50; background: var(--paper); }
+  .top nav, .foot { display: none; }
+  .top-r { justify-self: end; gap: 10px; }
+  .logo { font-size: 28px; }
+  .top-new { font-size: var(--fs-base); padding: 4px 11px 3px; box-shadow: 2px 2px 0 var(--ink); }
+
+  /* ---- 底部分頁列：看板 費用 聊天｜生成 作品｜更多 ---- */
+  .tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; align-items: stretch;
+    height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--paper); border-top: 2px solid var(--ink);
+  }
+  .tabbar > a, .tabbar > button {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    text-decoration: none; color: var(--ink); position: relative;
+  }
+  .tabbar b { font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-l); line-height: 1.2; }
+  .tabbar small { font-family: var(--font-label); font-weight: 600; font-size: 9px; letter-spacing: 0.1em; color: var(--ink-70); }
+  /* 選中：3px 墨線＋第二層紙（同頂欄的選中底線，不用油墨） */
+  .tabbar [aria-current] { box-shadow: inset 0 3px 0 var(--ink); background: var(--paper-deep); }
+  .tabbar .tab-sep { flex: none; width: 1px; background: var(--ink-25); margin: 12px 0; }
+  /* 件數章頂替拉丁小字的位置 */
+  .tabbar .navct { margin: 1px 0 0; font-size: 10px; line-height: 13px; vertical-align: 0; }
+  .tabbar .navct .drum { width: 9px; height: 9px; }
+
+  /* ---- 深一層的頁（單筆、一段聊天）：頂欄與分頁列收起，換成返回列 ---- */
+  html.deep { --tab-h: 0px; }
+  html.deep .top, html.deep .tabbar { display: none; }
+  html.deep .ctxbar {
+    display: flex; position: sticky; top: 0; z-index: 50; height: var(--ctx-h); align-items: center; gap: 10px;
+    margin: 0 calc(-1 * var(--m)); padding: 0 var(--m); background: var(--paper); border-bottom: 2px solid var(--ink);
+  }
+  .ctxbar .back { flex: none; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-base); color: var(--ink); text-decoration: none; white-space: nowrap; border: 1.5px solid var(--ink); padding: 3px 10px 2px; }
+  .ctxbar .t { flex: 1; min-width: 0; font-family: var(--font-kai); font-weight: 700; font-size: var(--fs-l); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .ctxbar .ctx-r { flex: none; display: flex; }
+  .ctxbar .ch-kebab { display: inline-grid; }
+
+  /* ---- 共用 ---- */
+  .sechead { flex-wrap: wrap; }
+  .sechead .aside, .sechead .dp-sub { display: none; }
+
+  /* ---- 看板 ---- */
+  .hero { display: block; height: auto; padding-top: 14px; }
+  .hero-r { margin-top: 18px; }
+  .hero-r .feedbox { flex: none; }
+  .hero.m3 .stack { gap: 10px; }
+  .hero.m3 .focus { display: none; }
+  .stack-list {
+    flex-direction: row; overflow: auto hidden; scroll-snap-type: x mandatory; gap: 12px; scrollbar-width: none;
+    padding: 3px var(--m) 12px 3px; margin: -3px calc(-1 * var(--m)) 0 -3px;
+  }
+  .stack-list .tk { flex: 0 0 86%; scroll-snap-align: start; }
+  .tk[aria-pressed="true"] { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--ink); }
+  .tk[aria-pressed="true"]::after { display: none; }
+  .stack-dots { display: flex; gap: 6px; justify-content: center; }
+  .stack-dots i { width: 7px; height: 7px; border: 1.5px solid var(--ink); border-radius: 50%; }
+  .stack-dots i.on { background: var(--ink); }
+  /* 活動流：不內捲、跟著頁面捲；序號欄拿掉；篩選章換到整列、可以橫捲 */
+  .feedhead { flex-wrap: wrap; row-gap: 8px; }
+  .feedhead h2 em { font-size: var(--fs-l); }
+  .chips { margin-left: 0; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .chips > *, .wk-tool .wk-grp.kinds > *, .mk-tabs > * { flex: none; white-space: nowrap; }
+  .feed { overflow: visible; padding-bottom: 8px; }
+  .runpage .feed { max-height: none; }
+  .ev { grid-template-columns: 30px minmax(0, 1fr); column-gap: 10px; padding-right: 0; }
+  .ev .seq { display: none; }
+  .ev.t-text .body p { font-size: var(--fs-l); }
+  .feed-cut { padding: 8px 0 2px; }
+  .feed-more {
+    display: block; text-align: center; padding: 12px 0 4px; font-family: var(--font-label); font-weight: 700; font-size: var(--fs-s);
+    color: var(--ink); text-decoration: none; border-bottom: 1px dashed var(--ink-25);
+  }
+  .resultcard { padding: 12px 14px; box-shadow: 4px 4px 0 var(--ink-25); }
+  .resultcard .nums { gap: 18px; font-size: var(--fs-h3); flex-wrap: wrap; }
+  .resultcard button { position: static; margin-top: 10px; }
+  /* 下半：一欄；兩本帳疊放、保留口徑線 */
+  .lower { display: block; padding-top: 22px; margin-top: 20px; }
+  .filters { gap: 8px; }
+  .filters .sim { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+  .filters .sim > * { flex: none; white-space: nowrap; }
+  .filters input[type="search"] { min-width: 0; flex: 1 1 100%; }
+  /* 歷史表 → 每筆兩行（同一份 table 標記，靠 grid 改排）：標題＋費用／harness＋模型＋狀態／時間 */
+  table.runs, table.runs tbody { display: block; }
+  table.runs thead { display: none; }
+  table.runs tbody tr.run {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "title title cost" "hm model st" "t t t";
+    column-gap: 10px; row-gap: 3px; align-items: baseline; padding: 10px 0; border-bottom: 1px dashed var(--ink-25);
+  }
+  table.runs tbody tr.run td { display: block; padding: 0; border: 0; white-space: normal; background: none; }
+  table.runs tbody tr.run td.title { grid-area: title; max-width: none; }
+  table.runs tbody tr.run td.cost { grid-area: cost; }
+  table.runs tbody tr.run td.stc { grid-area: st; justify-self: end; }
+  table.runs tbody tr.run td.hmc { grid-area: hm; }
+  table.runs tbody tr.run td.model { grid-area: model; overflow-wrap: anywhere; }
+  table.runs tbody tr.run td.t { grid-area: t; }
+  table.runs tbody tr.run td.disp, table.runs tbody tr.run td.turns { display: none; }
+  table.runs tr.empty, table.runs tr.empty td { display: block; }
+  .lower .costs { display: block; margin-top: 26px; }
+
+  /* 單張大票券（看板只有一件執行中＝單筆頁的票券頁首；單筆頁） */
+  .ticket { padding: 14px 16px; }
+  .ticket h1 { font-size: var(--fs-h3); margin: 10px 0 12px; }
+  .ticket .meta { grid-template-columns: 64px minmax(0, 1fr); row-gap: 4px; }
+  .ticket .perf { margin: 12px -16px 10px; }
+  .ticket .big { font-size: var(--fs-num-m); }
+  .ticket .ctr label { font-size: var(--fs-s); }
+  .ticket .now { margin-top: 12px; }
+  .ticket .bars { height: 26px; margin-top: 12px; }
+  .idle { padding: 16px; }
+
+  /* ---- 單筆頁：返回列「‹ 看板」；票券改成頁首（不 sticky）；串跟著整頁捲；追問框貼底 ---- */
+  .runpage { display: block; padding-top: 0; }
+  .runpage .crumbs { display: none; }
+  .runpage > .run-l { margin-top: 12px; }
+  .runpage .ticket, .runpage:has(.feedbox.thread) .ticket { position: static; }
+  .runpage:has(.feedbox.thread) > .run-l { max-height: none; overflow: visible; }
+  .runpage .hero-r { margin-top: 18px; }
+  .runpage .feedbox, .runpage .feedbox.thread { height: auto; min-height: 0; }
+  .seg-head { top: var(--ctx-h); }
+  .runpage .composer {
+    position: sticky; bottom: 0; z-index: 30; background: var(--paper); margin-top: 8px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); border-top: 1px dashed var(--ink-25);
+  }
+
+  /* ---- 派工 ---- */
+  .dp { padding-top: 14px; }
+  .dp .sechead { row-gap: 10px; }
+  .dp-mode { margin-left: 0; align-items: flex-start; flex-basis: 100%; }
+  .dp-grid { gap: 22px; }
+  .dp-hopts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dp-hopts button { grid-template-columns: 12px minmax(0, 1fr); padding: 7px 8px 6px; }
+  .dp-hopts button[aria-checked="true"] { padding: 6.5px 7.5px 5.5px; }
+  .dp-hopts button:first-child, .dp-hopts button:nth-child(5) { grid-column: 1 / -1; }
+  .dp-hopts .why { grid-column: 2; white-space: normal; }
+  .dp-tiers { gap: 6px; }
+  .dp-prompt { min-height: 160px; }
+  .dp-prow { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .dp-submit {
+    position: sticky; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--paper);
+    margin: 0 calc(-1 * var(--m)); padding: 12px var(--m) 10px;
+  }
+  .dp-recap > :not(.warn) { display: none; }
+  .dp-go { margin-left: auto; }
+
+  /* ---- 聊天：清單與對話拆成兩層；對話跟著整頁捲、輸入區貼底 ---- */
+  .chatpage { display: block; padding-top: 14px; padding-bottom: 0; }
+  .chat-side, .chat-main { height: auto; }
+  .chatpage.is-thread { padding-top: 0; }
+  .chatpage.is-thread .chat-side { display: none; }
+  .chatpage:not(.is-thread) .chat-main { display: none; }
+  .chat-list { overflow: visible; }
+  .ci { padding: 12px 4px 11px; }
+  .chatbox { border-top: 0; }
+  /* 對話那一層至少一個螢幕高：訊息少的時候輸入區照樣在螢幕底部 */
+  .chatpage.is-thread .chatbox { min-height: calc(100vh - var(--ctx-h)); }
+  .ch-head { display: none; }
+  /* 從「⋯」改名或刪除時才把表頭打開（改名框、刪除確認框都在裡面） */
+  .ch-head.open { display: flex; }
+  .ch-head.open .ch-acts { display: none; }
+  .ch-title-in { min-width: 0; flex-basis: 100%; }
+  .ch-feed { overflow: visible; padding-right: 0; }
+  .ch-intro { padding: 16px 0; }
+  .cm-u { padding: 7px 12px 9px 14px; }
+  .md { font-size: var(--fs-l); line-height: 1.6; }
+  .cm-att { width: 88px; height: 88px; }
+  .mf, .mf.au { width: 100%; }
+  .mf-trk { width: 64px; }
+  /* 回覆的資訊列：時間、耗時、token 收起，只留模型與費用，讓 ‹ › 和「⋯」放得進同一列 */
+  .cm-a > .cm-meta > .n, .cm-a > .cm-meta > .cm-dur, .cm-a > .cm-meta > .cm-tok { display: none; }
+  /* 提議卡、作品標籤：圖在上、資訊在下，三個鈕平分一列 */
+  .gp.done { grid-template-columns: minmax(0, 1fr); }
+  .gp-fig { border-right: 0; border-bottom: 2px solid var(--ink); justify-content: center; }
+  .gp-fig img { width: auto; max-width: 100%; max-height: min(60vh, 420px); }
+  .gp-info > .mk-acts-end .mk-mini { flex: 1; text-align: center; }
+  .gp-foot { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; }
+  .gp-foot .gp-basis { grid-column: 1 / -1; grid-row: 2; }
+  .gp-row { grid-template-columns: 48px minmax(0, 1fr); column-gap: 10px; }
+  .gp-mpop { max-width: calc(100vw - 2 * var(--m)); }
+  .gp-aside { display: none; }
+  .gp-mbtn { flex-wrap: wrap; row-gap: 0; }
+  .gp-mname { white-space: normal; }
+  .ch-dock {
+    position: sticky; bottom: 0; z-index: 30; background: var(--paper);
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); border-top: 1px dashed var(--ink-25);
+  }
+  /* 編輯舊訊息：貼底的輸入區收起，鍵盤的空間讓給編輯框 */
+  .chatbox.editing .ch-dock { display: none; }
+  .cs-strip { border-top: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .cs-btn .code { white-space: nowrap; }
+  .composer-send { padding: 0 14px; }
+  .composer-att { padding: 0 12px; }
+  .cd-cmp { grid-template-columns: 64px 1fr 1fr; }
+  .cd-acts { flex-wrap: wrap; }
+  .cd-alt { flex-basis: 100%; }
+  .ck-pop, .ck-float { width: calc(100vw - 2 * var(--m)); }
+
+  /* ---- 生成：一欄；送出列貼在分頁列上方；出件口排在表單之後 ---- */
+  .mk { padding-top: 14px; }
+  .mk .sechead.mk-head { flex-wrap: wrap; padding-bottom: 0; border-bottom: 0; margin-bottom: 14px; }
+  .mk-tabs { margin: 0; width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .mk-tabs button { grid-template-columns: 1fr; grid-template-rows: auto auto; justify-items: center; row-gap: 4px; padding: 8px 4px 7px; }
+  .mk-tabs button[aria-selected="true"] { padding: 7.5px 3.5px 6.5px; box-shadow: 2px 2px 0 var(--ink); }
+  .mk-tabs button .mk-wg { grid-row: auto; }
+  .mk-tabs button small { display: none; }
+  .mk-grid, .mk-grid.with-tray { display: flex; flex-direction: column; align-items: stretch; gap: 24px; }
+  .mk-prompt { min-height: 150px; }
+  .mk-prompt.tall { min-height: 220px; }
+  .mk-prompt.lyr { min-height: 200px; }
+  .mk-src { grid-template-columns: 88px minmax(0, 1fr); }
+  .mk-slot { width: 88px; height: 88px; font-size: var(--fs-m11); padding: 6px; }
+  .mk-prow { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .mk-pk { display: flex; gap: 8px; align-items: baseline; }
+  .mk-pk small { display: inline; }
+  .mk-mlist { max-height: 232px; }
+  .mk-pick, .with-tray .mk-pick { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .mk-carry { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; }
+  .mk-carry-acts { grid-column: 1 / -1; }
+  /* 送出列：只留預估＋「→ 生圖」，貼在分頁列上方 */
+  .mk-submitwrap {
+    position: sticky; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--paper);
+    margin: 0 calc(-1 * var(--m)); padding: 0 var(--m) 10px;
+  }
+  .mk-submit { row-gap: 4px; padding-top: 12px; }
+  .mk-recap, .mk-basis, .mk-hint { display: none; }
+  .mk-estbig { font-size: var(--fs-h2); }
+  .mk-go { font-size: var(--fs-l); padding: 7px 16px 6px; }
+  /* 刻度尺（轉錄、音樂的播放器）：滿寬、可點範圍加高到 44，刻度變稀，尺本身不縮 */
+  .mk-ruler { height: 44px; }
+  .mk-ruler .ticks { background: repeating-linear-gradient(90deg, var(--ink-45) 0 1px, transparent 1px 20px) 0 100% / 100% 6px no-repeat; }
+  .mk-drop { min-height: 180px; padding: 18px 14px; }
+  .mk-dropbig { font-size: var(--fs-h4); }
+  /* 出件口：表單之後；有圖的卡改成「左圖 120＋右資訊」的橫卡；「收起」拿掉 */
+  .mk-tray { position: static; max-height: none; overflow: visible; padding: 0; margin: 0; }
+  .mk-tray-h { position: static; }
+  .mk-oi.done:has(> .mk-imgs) { display: grid; grid-template-columns: 120px minmax(0, 1fr); }
+  .mk-oi.done > .mk-imgs { grid-row: 1 / span 2; grid-template-columns: minmax(0, 1fr); align-content: start; border-bottom: 0; border-right: 2px solid var(--ink); background: var(--paper); }
+  .mk-oi.done > .mk-imgs img, .mk-oi.done ~ .mk-oi.done .mk-imgs img { max-height: 180px; }
+  .mk-oi.done > .mk-imgs figcaption { flex-direction: column; align-items: stretch; }
+  .mk-oi.done > .mk-imgs figcaption .mk-mini { text-align: center; }
+  .mk-oi.done:has(> .mk-imgs) .mk-oi-h { flex-wrap: wrap; }
+  .mk-close { display: none; }
+
+  /* ---- 作品牆：日期籤變組頭；篩選收成一列＋「篩選 ▾」 ---- */
+  .wk { padding-top: 14px; }
+  .wk .wk-head { flex-wrap: wrap; }
+  .wk-count { display: none; }
+  .wk-tool { flex-wrap: nowrap; gap: 8px; padding: 8px 0; }
+  .wk-tool .wk-grp.kinds { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
+  .wk-filterbtn { display: inline-flex; flex: none; }
+  .wk-filterbtn[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); background: var(--paper-deep); }
+  .wk-livenote { display: none; }
+  .wk-rows { gap: 12px; padding-top: 14px; }
+  .wk-row-head { margin-top: 8px; }
+  .wk-slug.head { flex-direction: row; align-items: baseline; gap: 6px; padding-top: 6px; }
+  .wk-slug.head b { font-size: var(--fs-h3); }
+  .wk-slug.head span { margin: 0 0 0 4px; }
+  .wk-slug.head i { margin: 0 0 0 auto; border: 0; padding: 0; }
+  .wk-cap .wk-md { display: none; }
+  .wk-kh .wk-tag { display: none; }
+  .wk-au, .wk-tx { padding: 9px 10px; }
+  .wk-body { font-size: var(--fs-xs); }
+  /* 燈箱：全螢幕，壓過返回列；圖在上、資訊往下捲 */
+  .wk-lb { top: 0; bottom: 0; z-index: 80; border-bottom: 0; }
+  .wk-lb-bar { padding: 8px var(--m); gap: 8px; }
+  .wk-lb-bar .wk-en { display: none; }
+  .wk-lb-body { display: block; overflow-y: auto; }
+  .wk-stage { border-right: 0; border-bottom: 2px solid var(--ink); padding: 14px 14px 30px; }
+  .wk-stage img { max-height: 64vh; box-shadow: 5px 5px 0 var(--ink-25); }
+  .wk-sz { left: 14px; bottom: 8px; }
+  .wk-astage { width: 100%; padding: 18px 16px; }
+  .wk-tstage { width: 100%; padding: 16px; max-height: 60vh; }
+  .wk-tstage.lyr { columns: 1; }
+  .mk-aud-big { gap: 12px; }
+  .mk-aud-big .mk-play { width: 52px; height: 52px; }
+  .mk-aud-big .mk-dur { font-size: var(--fs-num-m); }
+  .wk-info { overflow: visible; padding: 16px var(--m) 28px; }
+  .wk-dl { grid-template-columns: 72px minmax(0, 1fr); }
+  .wk-acts .stamp-btn { white-space: normal; }
+
+  /* ---- 費用 ---- */
+  .costs-page { display: flex; flex-direction: column; gap: 6px; }
+  /* 直排時 align-self 管的是寬度：`.costs` 原本的 start 會讓帳本縮成內容寬，兩本帳對不齊（D48 主人抓到的那處） */
+  .costs-page .costs { align-self: stretch; }
+  .brk li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "lb v" "bar bar"; row-gap: 4px; }
+  .brk .lb { grid-area: lb; }
+  .brk .bar { grid-area: bar; }
+  .brk .v { grid-area: v; }
+  .dayrows li { grid-template-columns: 76px minmax(0, 1fr) 64px; }
+  .ledger { padding: 14px 14px; }
+  .ledger .total .big { font-size: var(--fs-num-m); }
+  /* 最近的生成：狀態欄拿掉（失敗的那筆在「沒有作品」那格表示），模型名可以換行 */
+  .rg-row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "t tool c" "m m go"; row-gap: 2px; }
+  .rg-t { grid-area: t; } .rg-tool { grid-area: tool; } .rg-c { grid-area: c; } .rg-m { grid-area: m; } .rg-go { grid-area: go; }
+  .rg-s { display: none; }
+
+  /* ---- 設定・模型・引導（1.3-M4，styles/settings.css；稿 prototypes/settings-models-design/sm.css 的同一段） ---- */
+  .smp { padding-top: 14px; }
+  .sm-head { margin-bottom: 14px; }
+  .sx + .sx { margin-top: 34px; }
+  .sx-h b { font-size: var(--fs-lead); }
+  .sx-h .la { display: none; }
+  .sx-h .aside { flex-basis: 100%; margin-left: 0; }
+  /* 設定頁：段落列貼在頂欄下，回饋列貼在分頁列上 */
+  .sp-rail { margin-top: -6px; padding-top: 4px; }
+  .sp-toc a { padding: 6px 10px 7px; }
+  .sp-toc a .no { display: none; }
+  .sp-toast { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px) + 8px); }
+  .pv { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name on" "state state" "key key" "acts acts"; row-gap: 8px; }
+  .pv-name { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .pv-acts { justify-content: flex-start; }
+  .pv-acts .btn { flex: 1; text-align: center; justify-content: center; }
+  .pv.is-editing { grid-template-areas: "name on" "state state" "key key" "ed ed"; margin: 0 calc(-1 * var(--m)); padding-left: var(--m); padding-right: var(--m); }
+  .pv.is-editing .pv-acts { display: none; }
+  .kin-acts .btn { flex: 1; justify-content: center; }
+  .kin-acts .sp { display: none; }
+  .kin-row .paste { padding: 0 10px; }
+  .tr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "lab acts" "model model" "src src"; row-gap: 6px; }
+  .tr-lab { flex-direction: row; align-items: baseline; gap: 8px; }
+  .tr-src { justify-content: flex-start; }
+  .tr-src small { display: none; }
+  .tr-acts { justify-content: flex-end; align-self: start; }
+  .tr.is-picking { grid-template-areas: "lab acts" "model model" "src src" "pick pick"; margin: 0 calc(-1 * var(--m)); padding-left: var(--m); padding-right: var(--m); }
+  .pk-list { max-height: 300px; }
+  .pk-r { grid-template-columns: minmax(0, 1fr) auto; }
+  .pk-r .pv2 { display: none; }
+  .thm { grid-template-columns: 1fr; }
+  .svc-dl { grid-template-columns: minmax(0, 1fr); }
+  .svc-dl dt { border-bottom: 0; padding-bottom: 0; }
+  /* 模型頁 */
+  .mp-alert { grid-template-columns: minmax(0, 1fr); padding: 10px; }
+  .mp-alert .big { justify-self: start; }
+  .mp-mods { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * var(--m)) 12px; padding: 0 var(--m) 6px; }
+  .mp-mods button { flex: none; padding: 5px 10px 4px 6px; }
+  .mp-mods button b { font-size: var(--fs-base); }
+  .ml-bar .q { flex-basis: 100%; }
+  .ml-bar select { flex: 1; }
+  .mr { padding: 9px 2px 8px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id st" "tags tags" "price caps"; row-gap: 3px; }
+  .mr-price { text-align: left; }
+  .mr-price small { display: none; }
+  .mr-id small { display: none; }
+  .mr-tags:empty { display: none; }
+  .md-inline { margin: 0 calc(-1 * var(--m)) 10px; }
+  .md-inline .md-pane { border-left: 0; border-right: 0; box-shadow: none; }
+  .mg .gst { margin-left: 0; flex-basis: 100%; }
+  /* 引導：一欄；步驟條縮成「2／4 貼上 key」；右欄排在後面、收成可展開 */
+  .wl-top .skip { font-size: var(--fs-xs); }
+  .wl { padding-top: 16px; }
+  .wl-hero h1 { font-size: 44px; }
+  .wl-hero .zh { font-size: var(--fs-h4); }
+  .steps { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 18px; }
+  .steps li { padding: 6px 6px 5px; font-size: var(--fs-xs); gap: 4px; flex-direction: column; align-items: flex-start; }
+  .steps li .no { font-size: var(--fs-l); }
+  .pc-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .mf-inline { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; }
+  .pc { min-height: 0; padding: 10px 12px; }
+  .pc p { display: none; }
+  .pc[aria-pressed="true"] p { display: block; }
+  .pc .ft { border-top: 0; padding-top: 0; }
+  .wl-q { font-size: var(--fs-h4); }
+  .wl-nav { position: sticky; bottom: 0; background: var(--paper); margin: 22px calc(-1 * var(--m)) 0; padding: 10px var(--m) calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 30; }
+  .wl-nav .stamp-btn { font-size: var(--fs-l); padding: 6px 16px 5px; }
+  .wl-box { padding: 12px; margin: 0 calc(-1 * var(--m)); border-left: 0; border-right: 0; }
+  .wl-done { grid-template-columns: minmax(0, 1fr); row-gap: 10px; }
+  .wl-done .stampbig { justify-self: start; font-size: 40px; }
+  .unl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .unl div:nth-child(4) { border-left: 0; }
+  .unl div:nth-child(n+4) { border-top: 1px solid var(--ink-25); }
+  /* 等級別名對照表：手機改成上下排（稿裡模型名被擠成一字一行，D50 指定要改）——每一列＝等級名一行、「現在 → 建議」各一行 */
+  .tierfix table, .tierfix tbody { display: block; width: 100%; }
+  .tierfix tr { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 6px; row-gap: 2px; padding: 6px 0; border-bottom: 1px dashed var(--ink-25); }
+  .tierfix td { display: block; padding: 0; border: 0; min-width: 0; }
+  .tierfix td.l { grid-column: 1 / -1; width: auto; }
+  .tierfix td.from, .tierfix td.to, .tierfix tr > td:not(.l):not(.arr) { grid-column: 1 / -1; }
+  .tierfix td.arr { display: none; }
+  .tierfix td.to::before { content: "→ "; font-family: var(--font-mono); color: var(--ink-70); }
+  .tierfix td .code { overflow-wrap: anywhere; }
+  .wl-side details.card > summary { cursor: pointer; }
+  .wl-side details.card > summary h4::after { content: "▾"; font-family: var(--font-mono); font-size: var(--fs-s); margin-left: 6px; }
+  .nokey { grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
+  .nokey .k { justify-self: start; }
+  .empty-board { display: block; }
+  .slot { min-height: 180px; margin-bottom: 18px; }
+}
+
+/* =====================================================================
+   觸控（(hover: none)＝滑不過去；跟寬度無關，觸控筆電在寬螢幕也適用）
+   滑過才出現的東西：改常駐或收進「⋯」；鍵盤提示拿掉；點按目標加大
+   ===================================================================== */
+@media (hover: none) {
+  .only-touch { display: revert !important; }
+  .x-touch { display: none !important; }
+  /* 聊天較早訊息的動作：收進一顆常駐的「⋯」（最後一則回覆照舊常駐） */
+  .cm-a:not(.last) .cm-acts, .cm-u .cm-acts { display: none; }
+  .cm-a:not(.last) .cm-kebab, .cm-u .cm-kebab { display: inline-grid; margin-left: auto; }
+  /* 提議卡圖片的「點開看大圖」提示拿掉（點圖照樣打開）；hover 影子拿掉 */
+  .gp-fig:hover::after { content: none; }
+  .wk-media:hover, .wk-au:hover, .wk-tx:hover, .tk:hover, .cm-att:hover { box-shadow: none; }
+  /* 送出鍵選單與鍵帽提示拿掉（觸控沒有 Ctrl+Enter：Enter 換行、按鈕送出） */
+  .ck-wrap, .ck-wrap.cap, .ck-btn { display: none; }
+  /* 點按目標：按鈕、篩選章、版本切換至少 32 高；「⋯」至少 40×34 */
+  .kebab { min-width: 40px; height: 34px; }
+  .cv { min-height: 30px; }
+  .cv-b { width: 34px; }
+  .sim button, .chips button, .wk-chip, .cm-act, button.mk-mini, .mk-seg button, .dp-mini, .ch-act, .cs-act, .cs-btn, .cancel-btn, .pager button { min-height: 32px; }
+  a.mk-mini, a.ch-act { display: inline-flex; align-items: center; min-height: 32px; }
+  /* 停用鈕的原因：點一下停用的鈕，在下方展開同一句（虛線框，同 .cv-note），下一個動作就收起（lib/rwd.ts useTapReasons） */
+  .tipw:hover .cx-tip, .tipw:focus-within .cx-tip, .cx-attwrap:hover .cx-tip, .cx-attwrap:focus-within .cx-tip { display: none; }
+  .tipw.tap .cx-tip, .cx-attwrap.tap .cx-tip {
+    display: block; white-space: normal; width: max-content; max-width: min(320px, calc(100vw - 32px));
+    border: 1.5px dashed var(--ink-45); box-shadow: none; padding: 4px 10px 3px;
+  }
+
+  /* ---- 設定・模型・引導（1.3-M4，styles/settings.css；稿 prototypes/settings-models-design/sm.css 的同一段） ---- */
+  .sw button { min-height: 32px; }
+  .ck2 { min-height: 36px; }
+  .pk-r { min-height: 40px; }
+  .mr { min-height: 44px; }
+}

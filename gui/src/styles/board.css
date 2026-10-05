@@ -10,7 +10,7 @@
 
 /* ============ 頂欄 ============ */
 .top {
-  height: 76px; display: grid; align-items: center;
+  height: var(--top-h); display: grid; align-items: center;
   grid-template-columns: auto 1fr auto; column-gap: 48px;
   border-bottom: 2px solid var(--ink);
   position: relative;
@@ -46,7 +46,7 @@
 .sim button:not([aria-pressed="true"]):hover, .chips button:not([aria-pressed="true"]):hover { border-color: var(--ink); color: var(--ink); }
 
 /* ============ 主角：執行中 ============ */
-.hero { display: grid; grid-template-columns: 432px 1fr; column-gap: var(--g); padding-top: 22px; height: calc(900px - 76px - 34px); }
+.hero { display: grid; grid-template-columns: 432px 1fr; column-gap: var(--g); padding-top: 22px; height: calc(900px - var(--top-h) - var(--foot-h)); }
 .ticket {
   background: var(--halftone), var(--run-ink); color: var(--run-on); position: relative;
   padding: 22px 26px 20px; display: flex; flex-direction: column;
@@ -348,9 +348,9 @@ tr.detail td { padding: 0; border-bottom: 2px solid var(--ink); }
 .dayrows .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
 
 /* ============ 單筆頁（/runs/:id） ============ */
-.runpage { padding-top: 22px; padding-bottom: 40px; display: grid; grid-template-columns: 432px 1fr; column-gap: var(--g); min-height: calc(100vh - 76px - 34px); }
+.runpage { padding-top: 22px; padding-bottom: 40px; display: grid; grid-template-columns: 432px 1fr; column-gap: var(--g); min-height: calc(100vh - var(--top-h) - var(--foot-h)); }
 .runpage .feedbox { min-height: 60vh; }
-.runpage .feed { max-height: calc(100vh - 76px - 34px - 120px); }
+.runpage .feed { max-height: calc(100vh - var(--top-h) - var(--foot-h) - 120px); }
 .runpage .ticket { align-self: start; position: sticky; top: 16px; }
 .runpage .ticket .bars { margin-top: 18px; }
 .crumbs { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m11); letter-spacing: 0.1em; color: var(--ink-70); margin-bottom: 8px; }
@@ -360,7 +360,7 @@ tr.detail td { padding: 0; border-bottom: 2px solid var(--ink); }
 .prompt-box .prompt { font-family: var(--font-kai); font-size: var(--fs-l); line-height: 1.6; white-space: pre-wrap; max-height: 12em; overflow: auto; }
 
 /* ============ footer ============ */
-.foot { height: 34px; border-top: 2px solid var(--ink); display: flex; align-items: center; gap: 22px; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); background: var(--paper); position: sticky; bottom: 0; z-index: 5; }
+.foot { height: var(--foot-h); border-top: 2px solid var(--ink); display: flex; align-items: center; gap: 22px; font-family: var(--font-sans); font-size: var(--fs-m11); color: var(--ink-70); background: var(--paper); position: sticky; bottom: 0; z-index: 5; }
 .foot .ph { color: var(--ink); border-bottom: 1px dashed var(--ink-45); }
 .foot .ph::after { content: "placeholder"; font-size: var(--fs-m10); color: var(--ink-70); margin-left: 4px; letter-spacing: 0.02em; vertical-align: 1px; }
 .foot .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--ink-45); margin-right: 6px; vertical-align: -1px; }

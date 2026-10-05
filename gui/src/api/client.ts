@@ -32,11 +32,22 @@ import type {
   StartRunResponse,
   Status,
   Thread,
+  SettingsView,
+  SettingsPatch,
+  SettingsPatchResult,
+  Slot,
+  TestKeyResult,
+  ToolsResponse,
+  ClaudeMcpStatus,
+  DesktopAutostart,
 } from "./types";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  /** 409 之類帶結構的 detail（例如 /api/claude-mcp 的 {reason, message}） */
+  detail?: unknown;
+  constructor(public status: number, message: string, detail?: unknown) {
     super(message);
+    this.detail = detail;
   }
 }
 
@@ -44,14 +55,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { headers: { accept: "application/json", ...(init?.headers ?? {}) }, ...init });
   if (!res.ok) {
     let msg = res.statusText;
+    let detail: unknown;
     try {
       const j = (await res.json()) as { detail?: unknown };
+      detail = j?.detail;
       if (j && typeof j.detail === "string") msg = j.detail;
       else if (j && j.detail) msg = JSON.stringify(j.detail);
     } catch {
       /* 非 JSON 錯誤體 */
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, detail);
   }
   return (await res.json()) as T;
 }
@@ -178,6 +191,29 @@ export const api = {
     req<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ hidden }) }),
   /** 聊天・生成帳的原始呼叫紀錄，新的在前；tool 可多個 */
   calls: (opts: { tool?: string[]; limit?: number } = {}) => req<CallRow[]>(`/api/calls${qs({ tool: opts.tool?.join(","), limit: opts.limit ?? 20 })}`),
+
+  /* ---- 1.3-M4 設定頁、模型頁、首次啟動引導 ---- */
+  /** 所有模態＋已下架的（模型頁、設定頁的挑選器） */
+  modelsAll: () => req<ModelsResponse>(`/api/models${qs({ include_retired: "true" })}`),
+  settings: () => req<SettingsView>("/api/settings"),
+  /** 點了就存；null＝把那一項從 settings.json 拿掉。400＝欄位不對（不會回完整的 key） */
+  patchSettings: (body: SettingsPatch) =>
+    req<SettingsPatchResult>("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  /** 測一把 key（不花錢）；不帶 api_key＝測現在生效的那把。回應只拿 ok／reason／status／models／message */
+  testKey: (provider: Slot, apiKey?: string) =>
+    req<TestKeyResult>("/api/settings/test-key", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(apiKey === undefined ? { provider } : { provider, api_key: apiKey }),
+    }),
+  tools: (refresh = false) => req<ToolsResponse>(`/api/tools${qs({ refresh: refresh ? "true" : undefined })}`),
+  claudeMcp: () => req<ClaudeMcpStatus>("/api/claude-mcp"),
+  /** 寫 ~/.claude.json（只在按了才呼叫）；檔案不存在或讀不懂回 409 */
+  connectClaudeMcp: () => req<ClaudeMcpStatus>("/api/claude-mcp", { method: "POST" }),
+  desktopAutostart: () => req<DesktopAutostart>("/api/desktop/autostart"),
+  /** 開或關開機啟動（寫登錄的 Run 值；路徑由服務決定）；不是桌面版起的服務回 409 */
+  setDesktopAutostart: (enabled: boolean) =>
+    req<DesktopAutostart>("/api/desktop/autostart", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled }) }),
 };
 
 function wallQs(f: WallQuery): Record<string, string | number | undefined> {

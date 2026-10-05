@@ -18,6 +18,14 @@ from omniapi_mcp.runs.manager import RunManager
 from omniapi_mcp.store.db import Store
 
 
+@pytest.fixture(autouse=True)
+def _claude_cli_present(monkeypatch):
+    """Routing does not depend on whether this machine has Claude Code (test_claude_cli.py covers that)."""
+    from omniapi_mcp.harness import claude as hc
+
+    monkeypatch.setattr(hc, "find_claude_cli", lambda settings=None, **kw: hc.ClaudeCli("claude.exe", "path"))
+
+
 def _settings(**enabled):
     """Minimal settings double: providers with api keys for the given names."""
     provs = {}

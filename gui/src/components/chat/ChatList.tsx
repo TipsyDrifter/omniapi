@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { ChatSummary } from "@/api/types";
 import { dt, usd } from "@/lib/format";
+import { useTier } from "@/lib/rwd";
 import { sendKeyName, useSendKey } from "@/lib/sendKey";
 import { selectChatList, useChat } from "@/store/chat";
 import { selectChatsGenerating, useMake } from "@/store/make";
@@ -22,6 +23,7 @@ export default function ChatList({ activeId, error }: ChatListProps) {
   const liveSet = new Set(liveIds ? liveIds.split(",") : []);
   const genIds = useMake(selectChatsGenerating);
   const [sendKey] = useSendKey();
+  const tier = useTier();
   return (
     <div className="chat-side">
       <div className="sechead chat-sechead">
@@ -31,7 +33,8 @@ export default function ChatList({ activeId, error }: ChatListProps) {
           </span>
         </h2>
         <span className="zh">聊天</span>
-        <Link className="chat-new" to="/chat" aria-current={activeId ? undefined : "page"}>
+        {/* 手機（S 段）清單自己一層：「＋新聊天」開新聊天那一層（/chat?new） */}
+        <Link className="chat-new" to={tier === "s" ? "/chat?new=1" : "/chat"} aria-current={activeId || tier === "s" ? undefined : "page"}>
           ＋新聊天
         </Link>
       </div>

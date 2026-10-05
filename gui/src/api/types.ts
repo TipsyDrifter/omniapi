@@ -129,6 +129,167 @@ export interface Status {
   /** 離線（OMNIAPI_OFFLINE=1）：拒絕所有真供應商呼叫 */
   offline?: boolean;
   data_home: string;
+  /** 1.3-M4：服務資訊（設定頁第五段） */
+  service?: ServiceInfo;
+  storage?: string;
+  /** 1.3-M6：桌面版每天一次的新版檢查（殼寫檔、服務讀出來）；沒有桌面版＝null */
+  desktop_update?: DesktopUpdate | null;
+}
+
+/** /api/desktop/autostart：桌面版的「開機時啟動」（跟系統匣選單的勾是同一個登錄值） */
+export interface DesktopAutostart {
+  /** 這個服務是桌面版起的（從 repo 或 zip 跑的服務＝false，設定頁不出現這一列） */
+  available: boolean;
+  /** 系統匣的勾現在是不是勾著 */
+  enabled: boolean;
+  /** 以前用 omni autostart 設的舊開機啟動還在時的一句說明 */
+  legacy: string | null;
+  /** 登錄值指向別的 OmniAPI.exe 時，那一行指令 */
+  other: string | null;
+}
+
+export interface DesktopUpdate {
+  /** 殼的設定關掉了新版檢查 */
+  enabled: boolean;
+  /** 正在跑的版本 */
+  current: string;
+  /** 公開 repo 最新的 Release（還沒查到過＝null） */
+  latest: string | null;
+  /** latest 比 current 新，而且有下載頁網址 */
+  newer: boolean;
+  /** Release 頁 */
+  url: string | null;
+  checked_at_ms: number | null;
+  attempted_at_ms: number | null;
+  error: string | null;
+}
+
+export interface ServiceInfo {
+  version: string;
+  layout: string;
+  data_home: string;
+  storage: string;
+  storage_env: string;
+  env_file: string | null;
+  env_file_suggested: string | null;
+  settings_file: string;
+  logs: string;
+}
+
+/* ---------------- 1.3-M4 設定頁（GET/PATCH /api/settings）：任何情況都沒有完整的 key ---------------- */
+
+export type Slot = "openai" | "anthropic" | "gemini" | "deepseek" | "openrouter" | "elevenlabs" | "kie";
+export const SLOTS: readonly Slot[] = ["openai", "anthropic", "gemini", "deepseek", "openrouter", "elevenlabs", "kie"];
+
+/** 一把 key 的連線狀況（最近一次列模型或測試）；沒有 key 時整個是 null */
+export interface ProviderHealth {
+  state: "ok" | "failed" | "untested";
+  ok: boolean | null;
+  source: "discovery" | "test" | null;
+  checked_at: number | null;
+  listed: number | null;
+  online_models: number | null;
+  reason: string | null;
+  status: number | null;
+  message: string | null;
+  last_ok_at: number | null;
+  credits?: number | null;
+}
+
+export interface GetKey {
+  url: string | null;
+  docs: string | null;
+  note: string | null;
+}
+
+export type TierMap = { cheap: string; standard: string; strong: string };
+
+export interface SettingsProvider {
+  provider: string;
+  label: string;
+  key: {
+    set: boolean;
+    last4: string | null;
+    source: "settings" | "env" | null;
+    /** 設定頁的 key 蓋過的 .env 那把（拿掉設定頁的就回到它） */
+    shadowed: { set: boolean; last4: string | null; source: "env"; where: "env_file" | "environment" } | null;
+  };
+  enabled: boolean;
+  enabled_source: "settings" | "env" | "default";
+  configured: boolean;
+  health: ProviderHealth | null;
+  get_key: GetKey | null;
+  suggested_tiers: TierMap | null;
+}
+
+export type DefaultKind = "chat" | "dispatch" | "image" | "speech" | "music" | "transcript";
+
+export interface SettingsView {
+  path: string;
+  env_file: string | null;
+  restart_required: string[];
+  providers: Record<Slot, SettingsProvider>;
+  tiers: Record<string, { model: string; source: "settings" | "env" | "catalog"; catalog: string }>;
+  defaults: Record<DefaultKind, { model: string | null; source: "settings" | "env" | "default" }>;
+}
+
+export interface SettingsPatchResult extends SettingsView {
+  changed: string[];
+  providers_changed: string[];
+  warnings: string[];
+}
+
+/** PATCH 本體：settings.json 的形狀；null＝把那一項從檔案拿掉（回到 .env／內建） */
+export interface SettingsPatch {
+  providers?: Partial<Record<Slot, { api_key?: string | null; enabled?: boolean | null }>>;
+  tiers?: Partial<Record<string, string | null>>;
+  defaults?: Partial<Record<DefaultKind, string | null>>;
+}
+
+export interface TestKeyResult {
+  provider: string;
+  key: { set: boolean; last4: string | null };
+  ok: boolean | null;
+  reason?: string | null;
+  status?: number | null;
+  models?: number | null;
+  message: string;
+  simulated?: boolean;
+  checked_at: number;
+  credits?: number | null;
+}
+
+export interface ExternalTool {
+  id: "node" | "ffmpeg" | "claude_code" | "claude_login" | "codex" | "gemini_cli" | string;
+  name: string;
+  found: boolean;
+  path: string | null;
+  version: string | null;
+  installed_after_start: boolean;
+  detail: string | null;
+  affects: string;
+  features: string[];
+  install: { method: string; command: string | null; note?: string | null }[];
+  source: string | null;
+}
+
+export interface ToolsResponse {
+  checked_at: number;
+  platform: string;
+  tools: ExternalTool[];
+  summary: { found: number; missing: number };
+}
+
+export interface ClaudeMcpStatus {
+  path: string;
+  name: string;
+  state: "connected" | "other" | "missing" | "no_config" | "unreadable";
+  entry: { type: string; url?: string; command?: string } | null;
+  expected: { type: string; url: string };
+  backup: string | null;
+  message?: string;
+  changed?: boolean;
+  backed_up?: boolean;
 }
 
 /* ---------------- 事件匯流排（/ws 與 /api/events 同一種形狀） ---------------- */
@@ -206,8 +367,24 @@ export interface ModelsResponse {
   tiers: Record<string, string>;
   models: Record<string, ModelEntry[]> | ModelEntry[];
   /** 廠商 id → 顯示名稱等設定；物件的順序就是清單分組的順序 */
-  providers?: Record<string, { label?: string; [k: string]: unknown }>;
+  providers?: Record<string, ModelsProvider>;
   counts?: Record<string, number>;
+}
+
+/** /api/models 的 providers.<名>（目錄的供應商名：google 對到設定頁的 gemini） */
+export interface ModelsProvider {
+  label?: string;
+  harness?: string | null;
+  modalities?: string[];
+  /** 設定頁的 slot 名（跟目錄名不同時才有，例如 google → gemini） */
+  settings_key?: string;
+  /** 1.3-M2：有 key 而且啟用 */
+  configured?: boolean;
+  health?: ProviderHealth | null;
+  get_key?: GetKey | null;
+  suggested_tiers?: TierMap | null;
+  suggested_tiers_note?: string;
+  [k: string]: unknown;
 }
 
 /** GET /api/harnesses */

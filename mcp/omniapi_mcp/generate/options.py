@@ -161,17 +161,18 @@ async def options(ctx: Any, *, refresh_voices: bool = False) -> dict[str, Any]:
 
 
 def _default_model(ctx: Any, kind: str, models: list[dict[str, Any]]) -> Optional[str]:
-    """The tool's own default when it is usable, else the first usable one."""
+    """The configured default (settings.json / env), then the tool's own,
+    when usable; else the first usable one."""
+    from ..config.user_settings import default_model
+
     usable = [m["id"] for m in models if m["available"]]
-    if kind == "image":
-        preferred = ctx.settings.images.default_model
-    elif kind == "speech":
-        preferred = ctx.speech_tool._default_model()
+    candidates = [default_model(ctx.settings, kind)]
+    if kind == "speech":
+        candidates.append(ctx.speech_tool._default_model())
     elif kind == "music":
-        preferred = ctx.music_generation_tool._default_model()
-    else:
-        preferred = "gpt-transcribe"
-    if preferred in usable:
-        return preferred
+        candidates.append(ctx.music_generation_tool._default_model())
+    for preferred in candidates:
+        if preferred and preferred in usable:
+            return preferred
     current = [m["id"] for m in models if m["available"] and m.get("status") == "current"]
     return (current or usable or [None])[0]

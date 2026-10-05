@@ -308,7 +308,7 @@ def client(ctx, monkeypatch, tmp_path):
     monkeypatch.setenv("OMNIAPI_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(runtime, "context", ctx)
     app = daemon_app.create_app(ctx.settings)
-    return TestClient(app)  # no lifespan: the runtime context is the fixture's
+    return TestClient(app, base_url="http://127.0.0.1")  # no lifespan; a loopback Host (1.3-M2 guard): the runtime context is the fixture's
 
 
 async def test_rest_list_file_thumb_hide_and_missing_file(ctx, client):

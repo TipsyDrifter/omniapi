@@ -1,7 +1,8 @@
 /* 新對話表單的狀態、草稿存取、模型清單小工具 */
 import type { Harness, HarnessesResponse, ModelEntry, ModelsResponse, RunSpecInput } from "@/api/types";
 
-/** 等級別名（D21）；按鈕順序固定 */
+/** 等級別名（D21）的名字與按鈕順序；等級對應到哪個模型一律讀 /api/models 的 tiers（設定頁改得動），
+ *  這個常數只在清單還沒讀到時當退路 */
 export const TIERS = ["cheap", "standard", "strong"] as const;
 export type Tier = (typeof TIERS)[number];
 
@@ -65,6 +66,20 @@ export function loadDraft(): Draft {
   } catch {
     return { ...DEFAULT_DRAFT };
   }
+}
+
+/** 這個瀏覽器存過派工草稿沒有（沒存過時，模型改用設定頁的「預設派工」） */
+export function hasSavedDraft(): boolean {
+  try {
+    return localStorage.getItem(KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** 設定裡的模型字串（等級別名或模型 id）→ 表單的選擇 */
+export function modelSelOf(model: string): ModelSel {
+  return (TIERS as readonly string[]).includes(model) ? { kind: "tier", tier: model } : { kind: "id", id: model };
 }
 
 export function saveDraft(d: Draft): void {

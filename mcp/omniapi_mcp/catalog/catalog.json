@@ -7,6 +7,7 @@
   "standard": "gemini-3.8-flash",
   "strong": "gpt-6-sol"
  },
+ "_suggested_tiers_note": "providers.<p>.suggested_tiers (1.3-M4): what the first-run guide offers when the owner has connected only that provider. Candidates: the provider's text models with status current and no shutdown date, minus those that only work over the Responses API (tiers drive chat), those the catalog notes as legacy, and those with an announced retirement window. cheap = the candidate with the lowest output price (input price breaks a tie); strong = the one with the highest output price (each vendor prices its flagship highest); standard = the newest model of the vendor's middle line (OpenAI Sol, Anthropic Opus, Google Flash), priced between the two; DeepSeek has only two models and the owner chose Flash for standard as well. Prices are this file's own. Checked by tests/unit/test_settings_m4.py. OpenRouter has none: its models are listed live and this file holds no prices for them. Reviewed by the owner on 2026-10-04 (decision record D51).",
  "providers": {
   "openai": {
    "label": "OpenAI",
@@ -23,7 +24,17 @@
     "image",
     "transcription",
     "speech"
-   ]
+   ],
+   "get_key": {
+    "url": null,
+    "docs": "https://developers.openai.com/api/docs/quickstart",
+    "note": "the official quickstart only says to create a key in the dashboard; no key page address is written down"
+   },
+   "suggested_tiers": {
+    "cheap": "gpt-6-luna",
+    "standard": "gpt-6.1-sol",
+    "strong": "gpt-6-astra"
+   }
   },
   "anthropic": {
    "label": "Anthropic",
@@ -31,7 +42,17 @@
    "harness": "claude",
    "modalities": [
     "text"
-   ]
+   ],
+   "get_key": {
+    "url": "https://platform.claude.com/settings/keys",
+    "docs": "https://platform.claude.com/docs/en/get-api-key",
+    "note": "Claude Console (platform.claude.com), Settings > API keys"
+   },
+   "suggested_tiers": {
+    "cheap": "claude-sonnet-5-5",
+    "standard": "claude-opus-5-5",
+    "strong": "claude-fable-5-1"
+   }
   },
   "google": {
    "label": "Google",
@@ -43,7 +64,17 @@
     "speech",
     "music"
    ],
-   "settings_key": "gemini"
+   "settings_key": "gemini",
+   "get_key": {
+    "url": "https://aistudio.google.com/apikey",
+    "docs": "https://ai.google.dev/gemini-api/docs/api-key",
+    "note": "Google AI Studio"
+   },
+   "suggested_tiers": {
+    "cheap": "gemini-3.5-flash-lite",
+    "standard": "gemini-3.8-flash",
+    "strong": "gemini-3.1-pro-preview"
+   }
   },
   "deepseek": {
    "label": "DeepSeek",
@@ -51,7 +82,17 @@
    "harness": "claude",
    "modalities": [
     "text"
-   ]
+   ],
+   "get_key": {
+    "url": "https://platform.deepseek.com/api_keys",
+    "docs": "https://api-docs.deepseek.com",
+    "note": null
+   },
+   "suggested_tiers": {
+    "cheap": "deepseek-flash",
+    "standard": "deepseek-flash",
+    "strong": "deepseek-v4-pro"
+   }
   },
   "openrouter": {
    "label": "OpenRouter",
@@ -59,7 +100,14 @@
    "harness": "claude",
    "modalities": [
     "text"
-   ]
+   ],
+   "get_key": {
+    "url": null,
+    "docs": "https://openrouter.ai/docs/api-reference/authentication",
+    "note": "the address of the Keys page is not written in the official docs"
+   },
+   "suggested_tiers": null,
+   "suggested_tiers_note": "its models are listed live (hundreds, changing), and this file holds no OpenRouter prices to choose by: the owner picks from the live list"
   },
   "elevenlabs": {
    "label": "ElevenLabs",
@@ -71,7 +119,12 @@
    ],
    "discovery_modalities": [
     "speech"
-   ]
+   ],
+   "get_key": {
+    "url": "https://elevenlabs.io/app/settings/api-keys",
+    "docs": null,
+    "note": "address from the official quickstart"
+   }
   },
   "kie": {
    "label": "kie.ai (Suno)",
@@ -79,7 +132,12 @@
    "harness": null,
    "modalities": [
     "music"
-   ]
+   ],
+   "get_key": {
+    "url": "https://kie.ai/api-key",
+    "docs": "https://docs.kie.ai",
+    "note": null
+   }
   }
  },
  "id_rules": {

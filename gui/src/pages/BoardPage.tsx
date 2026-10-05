@@ -21,7 +21,7 @@ export default function BoardPage() {
         </section>
       ) : null}
       <NoProviderNotice />
-      <LiveSection renderFeed={(id) => <RunFeed runId={id ?? lastId} title={id ? undefined : "最近一筆"} />} />
+      <LiveSection renderFeed={(id) => <RunFeed runId={id ?? lastId} title={id ? undefined : "最近一筆"} phoneLimit={20} />} />
       <section className="lower wrap" aria-busy={!ready}>
         <RunsTable />
         <Ledgers />

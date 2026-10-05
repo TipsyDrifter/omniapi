@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Glyph } from "@/components/make";
+import Sheet from "@/components/Sheet";
 import { DateSlug, WorkCard } from "@/components/works/Cards";
 import { Lightbox } from "@/components/works/Lightbox";
 import { DATE_OPTS, KIND_TABS, KIND_ZH, cellsOf, filterParams, isFiltered, layoutRows, parseFilter, sourceZh, toQuery, type WallFilter } from "@/components/works/wall";
 import { useBoard } from "@/store/board";
+import { useTier, type Tier } from "@/lib/rwd";
 import { enterWall, leaveWall, loadFacets, loadMore, loadWall, markSeen, useWorks } from "@/store/works";
 
 /* 作品牆 `/works`（1.1-M4）：所有入口（生成頁、Claude Code 透過 MCP、歷史回填）的作品一個地方看。
    滿版、所有模態混排、新的在前，日子之間插日期籤；篩選寫在網址 query。
    `/works/:id` 是同一個元件：牆留著不重掛，上面壓一層燈箱；關掉回到同一面牆、同一個捲動位置。 */
-const GAP = 14;
+const WALL_LAYOUT: Record<Tier, { gap: number; target: number; maxH: number; boxScale: number; slugRow: boolean }> = {
+  xl: { gap: 14, target: 232, maxH: 300, boxScale: 1, slugRow: false },
+  l: { gap: 14, target: 204, maxH: 264, boxScale: 1, slugRow: false },
+  m: { gap: 14, target: 174, maxH: 226, boxScale: 1, slugRow: false },
+  s: { gap: 10, target: 116, maxH: 170, boxScale: 1.3, slugRow: true },
+};
 const WALL_KINDS = ["image", "speech", "music", "lyrics", "transcript"];
 
 export default function WorksPage() {
@@ -81,7 +88,11 @@ export default function WorksPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const rows = useMemo(() => layoutRows(cellsOf(items), width, GAP), [items, width]);
+  // 1.3-M3：各段只換目標列高與間距（NOTES §3.6，對 XL 等比）；手機（S）日期籤改成整列的組頭，音檔卡、文字卡調寬一點
+  const tier = useTier();
+  const lay = WALL_LAYOUT[tier];
+  const gap = lay.gap;
+  const rows = useMemo(() => layoutRows(cellsOf(items, lay.boxScale), width, gap, lay.target, lay.maxH, lay.slugRow), [items, width, gap, lay]);
 
   /* ---- 捲到底接下一頁 ---- */
   const sentinel = useRef<HTMLDivElement>(null);
@@ -122,6 +133,55 @@ export default function WorksPage() {
   const models = facets?.models ?? [];
   const sources = facets?.sources ?? [];
   const modelKnown = !f.model || models.some((m) => (m.value ?? "-") === f.model);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  // 模態以外的篩選：寬版照舊排在篩選列；手機（S 段）收進「篩選 ▾」的底部單子（NOTES §3.6）
+  const moreFilters = (
+    <>
+      <div className="wk-grp" role="group" aria-label="來源">
+        <span className="k">來源</span>
+        <button type="button" className="wk-chip" aria-pressed={!f.src} onClick={() => setFilter({ src: "" })}>
+          全部
+        </button>
+        {sources.map((s) => (
+          <button key={s.value} type="button" className="wk-chip" aria-pressed={f.src === s.value} onClick={() => setFilter({ src: s.value })} title={`${s.n} 件`}>
+            {sourceZh(s.value)}
+          </button>
+        ))}
+        {f.src && !sources.some((s) => s.value === f.src) ? (
+          <button type="button" className="wk-chip" aria-pressed onClick={() => setFilter({ src: "" })}>
+            {sourceZh(f.src)}
+          </button>
+        ) : null}
+      </div>
+      <label className="wk-grp">
+        <span className="k">模型</span>
+        <select className="wk-sel" value={f.model} onChange={(e) => setFilter({ model: e.target.value })} aria-label="模型">
+          <option value="">全部模型</option>
+          {models.map((m) => (
+            <option key={m.value ?? "-"} value={m.value ?? "-"}>
+              {m.value ?? "沒有記錄"}（{m.n}）
+            </option>
+          ))}
+          {!modelKnown ? <option value={f.model}>{f.model === "-" ? "沒有記錄" : f.model}</option> : null}
+        </select>
+      </label>
+      <div className="wk-grp" role="group" aria-label="日期">
+        <span className="k">日期</span>
+        {DATE_OPTS.map((d) => (
+          <button key={d.v || "all"} type="button" className="wk-chip" aria-pressed={f.d === d.v} onClick={() => setFilter({ d: d.v })}>
+            {d.zh}
+          </button>
+        ))}
+      </div>
+      <div className="wk-search">
+        <input className="dp-in" type="search" value={qText} onChange={(e) => setQText(e.target.value)} placeholder="搜提示詞、標題、歌詞與逐字稿、檔名、模型" aria-label="搜尋作品" />
+      </div>
+      <button type="button" className="wk-chip wk-hid" aria-pressed={f.hidden} onClick={() => setFilter({ hidden: !f.hidden })} title="從牆上移除的作品（檔案都還在）">
+        已移除<i className="n">{facets?.hidden ?? 0}</i>
+      </button>
+    </>
+  );
 
   return (
     <section className="wrap wk">
@@ -147,7 +207,7 @@ export default function WorksPage() {
       </div>
 
       <div className="wk-tool">
-        <div className="wk-grp" role="group" aria-label="模態">
+        <div className="wk-grp kinds" role="group" aria-label="模態">
           {KIND_TABS.map((t) => (
             <button key={t.v || "all"} type="button" className="wk-chip" aria-pressed={f.kind === t.v} onClick={() => setFilter({ kind: t.v })}>
               {t.glyphs.map((g) => (
@@ -158,54 +218,20 @@ export default function WorksPage() {
             </button>
           ))}
         </div>
-        <div className="wk-grp" role="group" aria-label="來源">
-          <span className="k">來源</span>
-          <button type="button" className="wk-chip" aria-pressed={!f.src} onClick={() => setFilter({ src: "" })}>
-            全部
-          </button>
-          {sources.map((s) => (
-            <button key={s.value} type="button" className="wk-chip" aria-pressed={f.src === s.value} onClick={() => setFilter({ src: s.value })} title={`${s.n} 件`}>
-              {sourceZh(s.value)}
-            </button>
-          ))}
-          {f.src && !sources.some((s) => s.value === f.src) ? (
-            <button type="button" className="wk-chip" aria-pressed onClick={() => setFilter({ src: "" })}>
-              {sourceZh(f.src)}
-            </button>
-          ) : null}
-        </div>
-        <label className="wk-grp">
-          <span className="k">模型</span>
-          <select className="wk-sel" value={f.model} onChange={(e) => setFilter({ model: e.target.value })} aria-label="模型">
-            <option value="">全部模型</option>
-            {models.map((m) => (
-              <option key={m.value ?? "-"} value={m.value ?? "-"}>
-                {m.value ?? "沒有記錄"}（{m.n}）
-              </option>
-            ))}
-            {!modelKnown ? <option value={f.model}>{f.model === "-" ? "沒有記錄" : f.model}</option> : null}
-          </select>
-        </label>
-        <div className="wk-grp" role="group" aria-label="日期">
-          <span className="k">日期</span>
-          {DATE_OPTS.map((d) => (
-            <button key={d.v || "all"} type="button" className="wk-chip" aria-pressed={f.d === d.v} onClick={() => setFilter({ d: d.v })}>
-              {d.zh}
-            </button>
-          ))}
-        </div>
-        <div className="wk-search">
-          <input className="dp-in" type="search" value={qText} onChange={(e) => setQText(e.target.value)} placeholder="搜提示詞、標題、歌詞與逐字稿、檔名、模型" aria-label="搜尋作品" />
-        </div>
-        <button type="button" className="wk-chip wk-hid" aria-pressed={f.hidden} onClick={() => setFilter({ hidden: !f.hidden })} title="從牆上移除的作品（檔案都還在）">
-          已移除<i className="n">{facets?.hidden ?? 0}</i>
+        <button type="button" className="wk-chip wk-filterbtn" aria-haspopup="dialog" aria-expanded={filterOpen} aria-pressed={!!(f.src || f.model || f.d || f.q.trim() || f.hidden)} onClick={() => setFilterOpen(true)}>
+          篩選 ▾
         </button>
+        {tier === "s" ? null : moreFilters}
       </div>
+      <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} label="篩選作品" className="wk-sheet">
+        {moreFilters}
+      </Sheet>
 
       <div className="wk-live">
         <span className={`wk-dot${live === "open" ? " on" : ""}`} aria-hidden="true" />
         <span>
-          <b>{live === "open" ? "即時" : "即時（重新連線中）"}</b>　別的入口剛做好的作品會直接插到最前面並標「新」；不符合目前篩選的只更新數字。
+          <b>{live === "open" ? "即時" : "即時（重新連線中）"}</b>
+          <span className="x-s">　別的入口剛做好的作品會直接插到最前面並標「新」；不符合目前篩選的只更新數字。</span>
         </span>
         {f.hidden ? (
           <span className="wk-livenote">
@@ -227,10 +253,10 @@ export default function WorksPage() {
 
       <div className="wk-rows" ref={rowsRef}>
         {rows.map((r, ri) => (
-          <div key={ri} className="wk-row" style={{ gap: GAP }}>
+          <div key={ri} className={`wk-row${r.head ? " wk-row-head" : ""}`} style={{ gap }}>
             {r.cells.map((c) =>
               c.t === "slug" ? (
-                <DateSlug key={`d-${c.day}`} day={c.day} n={c.n} width={c.a * r.h} h={r.h} />
+                <DateSlug key={`d-${c.day}`} day={c.day} n={c.n} width={r.head ? width : c.a * r.h} h={r.h} head={r.head} />
               ) : (
                 <WorkCard key={c.w.id} w={c.w} width={c.a * r.h} h={r.h} fresh={freshSet.has(c.w.id)} onOpen={open} />
               ),

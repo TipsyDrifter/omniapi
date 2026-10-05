@@ -47,7 +47,15 @@ def uv_lock(version: str) -> str:
     )
 
 
-def make_repo(root: Path, py="1.0.0", init="1.0.0", manifest="1.0.0", pkg="1.0.0", lock=None) -> Path:
+def make_repo(root: Path, py="1.0.0", init="1.0.0", manifest="1.0.0", pkg="1.0.0", lock=None, tauri=None, cargo=None) -> Path:
+    """``tauri`` / ``cargo`` default to ``pkg`` (the desktop shell's two places are semver, like npm's)."""
+    d = root / "desktop" / "src-tauri"
+    _write(d / "tauri.conf.json", json.dumps({"productName": "OmniAPI", "version": pkg if tauri is None else tauri}))
+    _write(
+        d / "Cargo.toml",
+        f'[package]\nname = "omniapi-desktop"\nversion = "{pkg if cargo is None else cargo}"\n\n'
+        '[dependencies]\nserde = { version = "1", features = ["derive"] }\n\n[dependencies.tauri]\nversion = "2"\n',
+    )
     m = root / "mcp"
     _write(m / "pyproject.toml", f'[tool.hatch]\nversion = "9.9.9"\n\n[project]\nname = "omniapi-mcp"\nversion = "{py}"\n')
     _write(m / "omniapi_mcp" / "__init__.py", f'"""pkg"""\n\n__version__ = "{init}"\n')
@@ -110,8 +118,35 @@ def test_prerelease_pep440_and_semver_are_consistent(tmp_path):
         "mcp/manifest.json": "1.0.0-alpha.1",
         "gui/package.json": "1.0.0-alpha.1",
         "mcp/uv.lock": "1.0.0a1",
+        "desktop/src-tauri/tauri.conf.json": "1.0.0-alpha.1",
+        "desktop/src-tauri/Cargo.toml": "1.0.0-alpha.1",
     }
     assert br.check_versions(versions) == []
+
+
+def test_desktop_shell_versions_are_checked(tmp_path):
+    # 1.3-M5: bumping tauri.conf.json alone leaves the exe's file version behind (Cargo.toml)
+    root = make_repo(tmp_path, py="1.3.0", init="1.3.0", manifest="1.3.0", pkg="1.3.0", cargo="1.2.0")
+    assert any("不一致" in p for p in br.check_versions(br.read_versions(root)))
+    root = make_repo(tmp_path / "b", py="1.3.0", init="1.3.0", manifest="1.3.0", pkg="1.3.0", tauri="1.2.0")
+    assert any("不一致" in p for p in br.check_versions(br.read_versions(root)))
+
+
+def test_cargo_version_comes_from_the_package_section(tmp_path):
+    root = make_repo(tmp_path, cargo="1.0.0")  # the dependency tables carry version = "1" / "2"
+    assert br.read_versions(root)["desktop/src-tauri/Cargo.toml"] == "1.0.0"
+
+
+def test_desktop_versions_must_be_semver(tmp_path):
+    root = make_repo(tmp_path, py="1.0.0a1", init="1.0.0a1", manifest="1.0.0-alpha.1", pkg="1.0.0-alpha.1", cargo="1.0.0a1")
+    problems = br.check_versions(br.read_versions(root))
+    assert problems and all("semver" in p and "Cargo" in p for p in problems)
+
+
+def test_missing_desktop_shell_is_reported(tmp_path):
+    root = make_repo(tmp_path)
+    (root / "desktop" / "src-tauri" / "Cargo.toml").unlink()
+    assert any("desktop/src-tauri/Cargo.toml" in p and "讀不到" in p for p in br.check_versions(br.read_versions(root)))
 
 
 def test_lock_version_is_the_projects_own_entry(tmp_path):
@@ -140,7 +175,7 @@ def test_missing_lock_is_reported(tmp_path):
 
 
 def test_the_repos_own_versions_agree():
-    # the real tree: catches a bump that missed one of the five places before anyone runs a build
+    # the real tree: catches a bump that missed one of the seven places before anyone runs a build
     real = SCRIPT.parents[1]
     if not (real / "gui" / "package.json").is_file():
         pytest.skip("not a full checkout")
@@ -287,3 +322,20 @@ def test_sha256_matches_hashlib(tmp_path):
 
     p = _write(tmp_path / "f.bin", "hello")
     assert br.sha256(p) == hashlib.sha256(b"hello").hexdigest()
+
+
+def test_desktop_installer_name_and_check(tmp_path):
+    # 1.3-M6: desktop/scripts/package.ps1 builds it; build_release only checks it is the same version
+    assert br.desktop_installer_name("1.3.0") == "OmniAPI_1.3.0_x64-setup.exe"
+    assert "package.ps1" in br.check_desktop_installer(tmp_path / "OmniAPI_1.3.0_x64-setup.exe", "1.3.0")
+    ok = tmp_path / "OmniAPI_1.3.0_x64-setup.exe"
+    ok.write_bytes(b"MZ")
+    assert br.check_desktop_installer(ok, "1.3.0") is None
+    old = tmp_path / "OmniAPI_1.2.0_x64-setup.exe"
+    old.write_bytes(b"MZ")
+    assert "1.3.0" in br.check_desktop_installer(old, "1.3.0")
+
+
+def test_check_versions_only(capsys):
+    assert br.main(["--check-versions"]) == 0
+    assert "desktop/src-tauri/Cargo.toml" in capsys.readouterr().out

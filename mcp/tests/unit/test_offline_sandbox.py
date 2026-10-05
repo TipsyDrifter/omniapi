@@ -109,3 +109,72 @@ def test_nothing_is_refused_when_the_switch_is_off(monkeypatch):
     tool = TextTool(_settings())
     model, provider = tool.route("deepseek-flash")
     assert model == "deepseek-flash" and provider.PROVIDER_KEY == "deepseek"
+
+
+# ---------------------------------------------------------------- model listing
+# Regression for 2026-10-04: a sandbox whose settings.json held keys sent
+# GET /models to DeepSeek and OpenAI at startup.
+_LISTING_KEYS = {"deepseek": "offline-deepseek-0123456789", "openai": "offline-openai-0123456789",
+                 "anthropic": "offline-anthropic-0123456789", "gemini": "offline-gemini-0123456789abcd",
+                 "elevenlabs": "offline-elevenlabs-0123456789"}
+
+
+@pytest.fixture
+def keyed_home(tmp_path, monkeypatch):
+    """A fresh data home whose settings.json holds keys, and a wire that records instead of sending."""
+    import json
+    import os
+
+    import httpx
+
+    from omniapi_mcp.config import user_settings as US
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("OMNIAPI_HOME", str(home))
+    for k in list(os.environ):
+        if k.upper().startswith(("PROVIDERS__", "TIERS__", "DEFAULTS__", "IMAGES__")):
+            monkeypatch.delenv(k)
+    monkeypatch.setattr("omniapi_mcp.layout.env_file", lambda *a, **k: None)
+    overlay = {"providers": {slot: {"api_key": key} for slot, key in _LISTING_KEYS.items()}}
+    (home / "settings.json").write_text(json.dumps(overlay), encoding="utf-8")
+    sent: list[str] = []
+
+    async def record_send(self, request, *a, **k):
+        sent.append(f"{request.method} {request.url}")
+        return httpx.Response(401, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", record_send)
+    settings, _ = US.build_settings(overlay)
+    return settings, sent
+
+
+@pytest.mark.asyncio
+async def test_no_model_listing_leaves_an_offline_sandbox_with_keys(sandbox, keyed_home):
+    from omniapi_mcp.catalog import health
+    from omniapi_mcp.catalog.catalog import ModelCatalog
+    from omniapi_mcp.runtime import Runtime
+
+    settings, sent = keyed_home
+    cat = ModelCatalog()
+    assert cat._fetcher_for("deepseek", settings.providers.deepseek)  # the keys are there — the lock is what stops it
+    for kwargs in ({}, {"force": True}, {"force": True, "only": ["deepseek", "openai"]}):
+        assert await cat.refresh(settings, **kwargs) == {}
+    assert cat.discovery_status() == {} and cat.online_count("deepseek") is None
+
+    # the startup path
+    await Runtime._discover(settings, EventBus())
+    assert sent == []
+    # and no key is filed as working (or failing) by a listing that never happened
+    for slot, key in _LISTING_KEYS.items():
+        assert health.view(slot, key)["state"] == "untested"
+
+
+@pytest.mark.asyncio
+async def test_the_same_listing_goes_out_when_the_switch_is_off(monkeypatch, keyed_home):
+    from omniapi_mcp.catalog.catalog import ModelCatalog
+
+    monkeypatch.delenv("OMNIAPI_OFFLINE", raising=False)
+    settings, sent = keyed_home
+    await ModelCatalog().refresh(settings, force=True, only=["deepseek", "openai"])
+    assert any("api.deepseek.com" in s for s in sent) and any("api.openai.com" in s for s in sent)

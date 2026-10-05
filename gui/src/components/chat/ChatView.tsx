@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "@/api/client";
+import { useTier } from "@/lib/rwd";
 import type { ChatLive, ChatMessage } from "@/api/types";
 import {
   cancelChat,
@@ -78,10 +79,27 @@ export default function ChatView({ id }: ChatViewProps) {
   const first = useRef(true);
   /** 切換版本：換之前那一則離訊息區頂端多遠；換完讓新的那一則回到同一個位置 */
   const anchor = useRef<{ to: string; top: number } | null>(null);
+  // 1.3-M3：手機（S 段）訊息區不內捲、跟著整頁捲（輸入區貼底），捲動對象換成視窗
+  const pageScroll = useTier() === "s";
+  const pageRef = useRef(pageScroll);
+  pageRef.current = pageScroll;
   const toBottom = () => {
+    if (pageRef.current) {
+      window.scrollTo({ top: document.documentElement.scrollHeight });
+      return;
+    }
     const el = feedRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
+  useEffect(() => {
+    if (!pageScroll) return;
+    const onWin = () => {
+      const d = document.documentElement;
+      stick.current = d.scrollHeight - window.scrollY - window.innerHeight < STICK_PX;
+    };
+    window.addEventListener("scroll", onWin, { passive: true });
+    return () => window.removeEventListener("scroll", onWin);
+  }, [pageScroll]);
   const nMsg = conv?.messages.length ?? 0;
   const liveLen = live ? live.text.length + live.reasoning.length : -1;
   useLayoutEffect(() => {
@@ -96,6 +114,11 @@ export default function ChatView({ id }: ChatViewProps) {
       const el = feed.querySelector<HTMLElement>(`[data-msg="${CSS.escape(a.to)}"]`);
       if (el) {
         anchor.current = null;
+        if (pageRef.current) {
+          // 整頁捲：a.top 記的是離視窗頂端多遠
+          window.scrollBy(0, el.getBoundingClientRect().top - a.top);
+          return;
+        }
         feed.scrollTop += el.getBoundingClientRect().top - feed.getBoundingClientRect().top - a.top;
         stick.current = feed.scrollHeight - feed.scrollTop - feed.clientHeight < STICK_PX;
         return;
@@ -105,7 +128,7 @@ export default function ChatView({ id }: ChatViewProps) {
   }, [conv, nMsg, liveLen, notice]);
   const onScroll = () => {
     const el = feedRef.current;
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+    if (el && !pageRef.current) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
   };
 
   const model = picked ?? conv?.model ?? "cheap";
@@ -158,7 +181,7 @@ export default function ChatView({ id }: ChatViewProps) {
       if (pending) return;
       const feed = feedRef.current;
       const el = feed?.querySelector<HTMLElement>(`[data-msg="${CSS.escape(m.id)}"]`);
-      const top = el && feed ? el.getBoundingClientRect().top - feed.getBoundingClientRect().top : 0;
+      const top = el && feed ? el.getBoundingClientRect().top - (pageRef.current ? 0 : feed.getBoundingClientRect().top) : 0;
       const from = m.versions?.index ?? 1;
       const what = m.role === "user" ? "訊息" : "回覆";
       clearForAction();
@@ -366,7 +389,8 @@ export default function ChatView({ id }: ChatViewProps) {
   const head = at >= 0 ? rows.slice(0, at + 1) : rows;
   const tail = at >= 0 ? rows.slice(at + 1) : [];
   return (
-    <div className="chatbox">
+    // editing：手機上編輯舊訊息時把貼底的輸入區收起，鍵盤的空間讓給編輯框（rwd.css）
+    <div className={`chatbox${editing ? " editing" : ""}`}>
       <ChatHeader conv={conv} pathCount={pathCount} live={!!live} onArchived={() => navigate("/chat")} />
       <div ref={feedRef} className="ch-feed" onScroll={onScroll} aria-live="polite">
         {msgs.length === 0 && !live ? <div className="feed-empty">這段聊天還沒有訊息。</div> : null}

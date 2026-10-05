@@ -84,12 +84,43 @@ class Runtime:
         self._owner: Optional[str] = None
         self._sessions = 0
         self._tasks: list[asyncio.Task] = []
+        #: tool objects replaced by a settings change; work that started on them
+        #: finishes on them, so they are closed only at shutdown
+        self._retired: list[Any] = []
 
     # ------------------------------------------------------------ build
+    @staticmethod
+    def _build_tools(settings: Settings, storage_manager: ImageStorageManager, cache_manager: CacheManager) -> dict[str, Any]:
+        """The objects that hold provider clients — everything a key change touches."""
+        image_generation_tool = ImageGenerationTool(
+            storage_manager=storage_manager,
+            cache_manager=cache_manager,
+            settings=settings,
+        )
+        image_editing_tool = ImageEditingTool(
+            storage_manager=storage_manager,
+            cache_manager=cache_manager,
+            settings=settings,
+            openai_client=image_generation_tool.get_openai_provider(),
+        )
+        return {
+            "image_generation_tool": image_generation_tool,
+            "image_editing_tool": image_editing_tool,
+            "transcription_tool": TranscriptionTool(settings=settings),
+            "text_tool": TextTool(settings=settings),
+            "speech_tool": SpeechTool(settings=settings),
+            "music_generation_tool": MusicGenerationTool(settings=settings),
+        }
+
     async def _build(self, settings: Settings, mode: str) -> ServerContext:
         from .catalog import data_home
         from .devmode import offline
+        from .layout import apply_storage_default
 
+        moved = apply_storage_default(settings)
+        if moved:
+            logger.info("Installed layout: works folder defaults to %s", moved)
+        catalog.set_tier_overrides(getattr(settings, "tiers", None))
         if offline():
             # a sandbox never writes into the owner's real works folder: its stand-in
             # output goes under the sandbox's own data home (OMNIAPI_HOME)
@@ -107,29 +138,13 @@ class Runtime:
         store = Store()
         await store.open()
 
-        image_generation_tool = ImageGenerationTool(
-            storage_manager=storage_manager,
-            cache_manager=cache_manager,
-            settings=settings,
-        )
-        image_editing_tool = ImageEditingTool(
-            storage_manager=storage_manager,
-            cache_manager=cache_manager,
-            settings=settings,
-            openai_client=image_generation_tool.get_openai_provider(),
-        )
-        text_tool = TextTool(settings=settings)
+        tools = self._build_tools(settings, storage_manager, cache_manager)
         ctx = ServerContext(
             settings=settings,
             storage_manager=storage_manager,
             cache_manager=cache_manager,
-            image_generation_tool=image_generation_tool,
-            image_editing_tool=image_editing_tool,
-            transcription_tool=TranscriptionTool(settings=settings),
-            text_tool=text_tool,
-            chat=ChatManager(store, bus, text_tool),
-            speech_tool=SpeechTool(settings=settings),
-            music_generation_tool=MusicGenerationTool(settings=settings),
+            **tools,
+            chat=ChatManager(store, bus, tools["text_tool"]),
             jobs=JobManager(),
             resource_manager=ImageResourceManager(
                 storage_manager=storage_manager, settings=settings.storage
@@ -206,6 +221,59 @@ class Runtime:
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("Model discovery failed: %s", e)
 
+    # ------------------------------------------------------------ settings change (1.3-M2)
+    #: what a settings change does not touch: the works folder, cache and
+    #: server sections need a restart (they are carried over from the running settings)
+    RESTART_ONLY = ("storage", "cache", "server")
+
+    async def apply_settings(self, settings: Settings) -> list[str]:
+        """Swap new settings into the running context without a restart.
+
+        The tool objects that hold provider clients are rebuilt from
+        ``settings`` and replace the old ones on the shared context — every
+        MCP session, the REST handlers, chat and runs read them from there on
+        their next call. Work already running keeps the old objects (they are
+        closed only at shutdown). Tier overrides are laid over the catalog.
+        Returns the catalog providers whose key or switch changed."""
+        async with self._lock:
+            ctx = self.context
+            if ctx is None:
+                raise RuntimeError("runtime not ready")
+            old = ctx.settings
+            for section in self.RESTART_ONLY:
+                setattr(settings, section, getattr(old, section))
+            changed = _changed_providers(old, settings)
+            tools = self._build_tools(settings, ctx.storage_manager, ctx.cache_manager)
+            retired = [getattr(ctx, name) for name in tools]
+            for name, obj in tools.items():
+                setattr(ctx, name, obj)
+            ctx.settings = settings
+            if ctx.chat is not None:
+                ctx.chat.text = tools["text_tool"]
+            ctx.runs.settings = settings
+            ctx.runs.registry.settings = settings
+            catalog.set_tier_overrides(settings.tiers)
+            self._retired.extend(retired)
+            logger.info("Settings applied without restart (providers changed: %s)", ", ".join(changed) or "none")
+            return changed
+
+    def refresh_discovery(self, settings: Settings, providers: list[str]) -> None:
+        """Re-list the models of providers whose key changed (background; never in an offline sandbox)."""
+        from .devmode import offline
+
+        ctx = self.context
+        if not providers or offline() or ctx is None:
+            return
+
+        async def go() -> None:
+            try:
+                res = await catalog.refresh(settings, force=True, only=providers)
+                await ctx.bus.publish({"type": "catalog.refreshed", "providers": {k: len(v.models) for k, v in res.items()}})
+            except Exception as e:  # pragma: no cover - defensive
+                logger.warning("Model discovery after a settings change failed: %s", e)
+
+        self._tasks.append(asyncio.create_task(go(), name="model-discovery-settings"))
+
     # ------------------------------------------------------------ lifecycle
     async def acquire(self, settings: Settings, *, owner: str = "session") -> ServerContext:
         """Return the shared context, building it on first use.
@@ -269,6 +337,21 @@ class Runtime:
                     await provider.close()
         except Exception:
             pass
+        # tools replaced by settings changes: their work is over by now (or being cancelled)
+        for tool in self._retired:
+            try:
+                if hasattr(tool, "close"):
+                    await tool.close()
+                elif hasattr(tool, "provider_registry"):
+                    seen: dict[int, Any] = {}
+                    for provider in [*tool.provider_registry.get_all_providers(), *getattr(tool, "_pending_providers", [])]:
+                        seen.setdefault(id(provider), provider)
+                    for provider in seen.values():
+                        if hasattr(provider, "close"):
+                            await provider.close()
+            except Exception:
+                pass
+        self._retired.clear()
         try:
             # replies in flight store their partial text before the store closes
             if ctx.chat is not None:
@@ -297,6 +380,19 @@ class Runtime:
         self._owner = None
         self._sessions = 0
         logger.info("Runtime shutdown complete")
+
+
+def _changed_providers(old: Settings, new: Settings) -> list[str]:
+    """Catalog provider names whose key, switch or address differs."""
+    from .config.user_settings import PROVIDERS
+
+    out = []
+    for slot, cat in PROVIDERS.items():
+        a, b = getattr(old.providers, slot, None), getattr(new.providers, slot, None)
+        fields = ("api_key", "enabled", "base_url")
+        if tuple(getattr(a, f, None) for f in fields) != tuple(getattr(b, f, None) for f in fields):
+            out.append(cat)
+    return out
 
 
 runtime = Runtime()

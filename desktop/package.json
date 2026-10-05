@@ -1,0 +1,13 @@
+{
+  "name": "omniapi-desktop",
+  "private": true,
+  "description": "OmniAPI desktop shell (Tauri 2). The version lives in src-tauri/tauri.conf.json and src-tauri/Cargo.toml.",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "tauri build --bundles nsis",
+    "icons": "node scripts/make-icons.mjs && tauri icon src-tauri/icons/icon-source.png -o src-tauri/icons"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.10.1"
+  }
+}

@@ -143,6 +143,51 @@ async def _heartbeat() -> None:
         )
 
 
+def _layout_info() -> dict[str, Any]:
+    from ..layout import describe
+
+    try:
+        return describe()
+    except Exception as e:  # pragma: no cover - informational only
+        return {"error": str(e)}
+
+
+def _service_info(settings: Settings) -> dict[str, Any]:
+    """The settings page's "service" section in one place (1.3-M4): how it
+    runs, where its data, works, ``.env`` and settings file are. Paths are
+    absolute; ``env_file`` is ``None`` when there is none and
+    ``env_file_suggested`` says where one would go (to set ``STORAGE__BASE_PATH``)."""
+    from ..config.user_settings import settings_path
+    from ..layout import env_file, layout_name, suggested_env_file
+
+    try:
+        env = env_file()
+        storage = Path(settings.storage.base_path)
+        return {
+            "version": __version__,
+            "layout": layout_name(),  # repo = run from a checkout; installed = the packaged app
+            "data_home": str(data_home()),
+            "storage": str(storage if storage.is_absolute() else storage.resolve()),
+            "storage_env": "STORAGE__BASE_PATH",
+            "env_file": str(env) if env else None,
+            "env_file_suggested": str(suggested_env_file()),
+            "settings_file": str(settings_path()),
+            "logs": str(data_home() / "logs"),
+        }
+    except Exception as e:  # pragma: no cover - informational only
+        return {"version": __version__, "error": str(e)}
+
+
+def _desktop_update() -> Optional[dict[str, Any]]:
+    """The desktop app's new-version check (1.3-M6); ``None`` without a desktop app."""
+    from ..desktop_update import read
+
+    try:
+        return read()
+    except Exception as e:  # pragma: no cover - informational only
+        return {"error": str(e)}
+
+
 def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> FastAPI:
     # Import late: server.py builds the FastMCP instance at import time.
     from .. import server as mcp_server
@@ -177,6 +222,11 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             raise HTTPException(503, "runtime not ready")
         return c
 
+    def live_settings() -> Settings:
+        """The settings in effect: the runtime's (a settings change swaps them
+        in place, 1.3-M2), or the ones the app was made with."""
+        return getattr(runtime.context, "settings", None) or settings
+
     # ------------------------------------------------------------ REST
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
@@ -196,7 +246,7 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             "host": host,
             "port": port,
             "providers": {
-                "configured": settings.providers.enabled_providers,
+                "configured": live_settings().providers.enabled_providers,
                 "text": c.text_tool.available_providers(),
                 "image": c.image_generation_tool.get_available_providers(),
             },
@@ -210,6 +260,10 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             "dev": os.environ.get("OMNIAPI_DEV") == "1",
             "offline": os.environ.get("OMNIAPI_OFFLINE") == "1",
             "data_home": str(data_home()),
+            "storage": live_settings().storage.base_path,
+            "layout": _layout_info(),
+            "service": _service_info(live_settings()),
+            "desktop_update": _desktop_update(),
         }
 
     @app.get("/api/models")
@@ -220,7 +274,7 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         refresh: bool = False,
     ) -> dict[str, Any]:
         if refresh:
-            await catalog.refresh(settings, force=True)
+            await catalog.refresh(live_settings(), force=True)
         snap = catalog.snapshot(include_retired=include_retired, modality=modality)
         if include_snapshots:
             snap["models"] = {
@@ -233,6 +287,16 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
 
             echo = echo_catalog_entries()
             snap["models"]["text"] = echo + list(snap["models"].get("text") or [])
+        enabled_list = getattr(getattr(live_settings(), "providers", None), "enabled_providers", None)
+        if enabled_list is not None and isinstance(snap.get("providers"), dict):
+            # 1.3-M2: whether each provider has a key and is switched on right now (changes without a restart)
+            from ..config.user_settings import SLOT_OF, health_by_provider
+
+            enabled = set(enabled_list)
+            # 1.3-M4: the last listing / key test for the key in effect (same object as /api/settings)
+            health = await asyncio.to_thread(health_by_provider, live_settings())
+            snap["providers"] = {name: {**(p or {}), "configured": SLOT_OF.get(name, name) in enabled, "health": health.get(name)}
+                                 for name, p in snap["providers"].items()}
         return snap
 
     @app.get("/api/calls")
@@ -489,12 +553,16 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         from ..harness.base import which_cli
 
         reg = ctx().runs.registry
-        endpoints = {k: reg._provider_configured(k) for k in ("anthropic", "anthropic-api", "deepseek", "openrouter")}
-        out = {
-            "claude": {"name": "Claude Code", "available": any(endpoints.values()), "endpoints": endpoints, "resume": True},
-            "codex": {"name": "Codex", "available": bool(which_cli("codex")) and reg._provider_configured("openai"), "cli": bool(which_cli("codex")), "resume": True},
-            "gemini": {"name": "Gemini CLI", "available": bool(which_cli("gemini")) and reg._provider_configured("google"), "cli": bool(which_cli("gemini")), "resume": True},
-        }
+        out: dict[str, Any] = {"claude": reg.claude_availability()}  # CLI found + a usable endpoint (1.3-M5)
+        for key, name, cli_name, provider, key_name in (("codex", "Codex", "codex", "openai", "OpenAI"), ("gemini", "Gemini CLI", "gemini", "google", "Gemini")):
+            has_cli = bool(which_cli(cli_name))
+            has_key = reg._provider_configured(provider)
+            entry: dict[str, Any] = {"name": name, "available": has_cli and has_key, "cli": has_cli, "resume": True}
+            if not has_cli:
+                entry["reason"] = f"沒有裝 {name}（找不到 {cli_name}）"
+            elif not has_key:
+                entry["reason"] = f"沒有設定 {key_name} 的 key"
+            out[key] = entry
         if os.environ.get("OMNIAPI_DEV") == "1":
             out["replay"] = {"name": "重播（開發用）", "available": True, "resume": True}
         return out
@@ -585,7 +653,8 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         """Re-scan the storage folder for files that are not indexed yet."""
         from ..artifacts import backfill
 
-        return await backfill(ctx().store, settings.storage.base_path, dry_run=dry_run)
+        c = ctx()
+        return await backfill(c.store, live_settings().storage.base_path, dry_run=dry_run)
 
     @app.get("/api/artifacts/{artifact_id}")
     async def artifact(
@@ -724,7 +793,7 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             raise HTTPException(415, f"unsupported file type '{ext or filename}': images (png, jpg, webp, gif) and audio (mp3, wav, m4a, mp4, ogg, flac, webm) only")
         now = datetime.now(timezone.utc)
         upload_id = uuid.uuid4().hex[:16]
-        out_dir = Path(settings.storage.base_path) / "uploads" / now.strftime("%Y-%m-%d")
+        out_dir = Path(live_settings().storage.base_path) / "uploads" / now.strftime("%Y-%m-%d")
         out_dir.mkdir(parents=True, exist_ok=True)
         path = (out_dir / f"upload_{now.strftime('%Y%m%d%H%M%S')}_{upload_id[:8]}{ext}").resolve()
         size = 0
@@ -876,6 +945,188 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
     async def events(limit: int = Query(100, le=500), since_seq: int = 0) -> list[dict[str, Any]]:
         return ctx().bus.recent(limit=limit, since_seq=since_seq)
 
+    # ------------------------------------------------------------ settings (1.3-M2)
+    settings_lock = asyncio.Lock()
+
+    def _settings_error(e: Exception) -> HTTPException:
+        return HTTPException(getattr(e, "status", 400), str(e))
+
+    def _read_overlay() -> dict[str, Any]:
+        from ..config import user_settings as US
+
+        try:
+            return US.normalize_overlay(US.read_overlay())
+        except US.SettingsFileError as e:
+            raise HTTPException(500, f"{e} — fix or delete the file, then try again")
+
+    def _settings_view(overlay: dict[str, Any]) -> dict[str, Any]:
+        from ..config import user_settings as US
+        from ..layout import env_file
+
+        _, env_only = US.build_settings(None, env_file=env_file())
+        view = US.describe(live_settings(), env_only, overlay)
+        view["restart_required"] = []  # everything here applies without a restart
+        return view
+
+    @app.get("/api/settings")
+    async def settings_get() -> dict[str, Any]:
+        """What the settings page edits: per provider whether a key is set (last
+        four characters and where it comes from — never the key), on/off and
+        configured; the tier aliases and the default models, each with its source.
+        1.3-M4: per provider also ``key.shadowed`` (the .env key a settings value
+        hides), ``health`` (last listing / key test of the key in effect),
+        ``get_key`` (where to get one) and ``suggested_tiers``."""
+        return _settings_view(_read_overlay())
+
+    @app.patch("/api/settings")
+    async def settings_patch(body: dict[str, Any]) -> dict[str, Any]:
+        """Change settings.json and apply it at once (no restart). The body has
+        the file's shape; ``null`` removes an entry (the env / built-in value
+        shows through again); an ``api_key`` of ``""`` means "no key"."""
+        from ..config import user_settings as US
+        from ..layout import env_file
+
+        async with settings_lock:
+            overlay = _read_overlay()
+            try:
+                new_overlay, changed = US.apply_patch(overlay, body)
+                effective, _ = US.build_settings(new_overlay, env_file=env_file())
+            except US.SettingsError as e:
+                raise _settings_error(e)
+            providers: list[str] = []
+            if changed:
+                await asyncio.to_thread(US.write_overlay, new_overlay)
+                providers = await runtime.apply_settings(effective)
+                mcp_server.settings = runtime.context.settings if runtime.context else effective
+                runtime.refresh_discovery(runtime.context.settings, providers)
+                await ctx().bus.publish({"type": "settings.changed", "changed": changed, "providers": providers})
+                logger.info("settings changed: %s", ", ".join(changed))  # field names only, never values
+            view = _settings_view(new_overlay)
+        return {**view, "changed": changed, "providers_changed": providers, "warnings": US.model_warnings(new_overlay)}
+
+    @app.post("/api/settings/test-key")
+    async def settings_test_key(body: dict[str, Any]) -> dict[str, Any]:
+        """``{provider, api_key?}``: does the vendor accept this key? A free
+        read-only call (list models); without ``api_key`` the key in effect is
+        tested. An offline daemon sends nothing and says ``simulated``."""
+        from ..config import user_settings as US
+
+        _check_fields(body, {"provider", "api_key"})
+        name = str(body.get("provider") or "")
+        slot = US.SLOT_OF.get(name, name)
+        if slot not in US.PROVIDERS:
+            raise HTTPException(400, f"unknown provider '{name}' ({', '.join(US.PROVIDERS)})")
+        if body.get("api_key") is not None:
+            try:
+                key = US._clean_key(body["api_key"], "api_key")
+            except US.SettingsError as e:
+                raise _settings_error(e)
+        else:
+            cfg = getattr(live_settings().providers, slot, None)
+            key = getattr(cfg, "api_key", "") if cfg else ""
+        return await US.test_key(slot, key, live_settings())
+
+    # ------------------------------------------------------------ outside programs (1.3-M4)
+    tools_cache: dict[str, Any] = {}
+    tools_lock = asyncio.Lock()
+
+    @app.get("/api/tools")
+    async def external_tools(refresh: bool = False) -> dict[str, Any]:
+        """Node / npx, ffmpeg, Claude Code (and its login), Codex and Gemini
+        CLI: found or not, path, version when cheap, what is lost without it,
+        how to install it (with the source). Looked up once and kept;
+        ``?refresh=true`` looks again (read-only, nothing is installed)."""
+        from ..utils.external_tools import detect
+
+        async with tools_lock:
+            if refresh or "result" not in tools_cache:
+                tools_cache["result"] = await asyncio.to_thread(detect, live_settings())
+            return tools_cache["result"]
+
+    # ------------------------------------------------------------ Claude Code's MCP entry (1.3-M4)
+    @app.get("/api/claude-mcp")
+    async def claude_mcp_status() -> dict[str, Any]:
+        """Is Claude Code pointed at this service? ``state``: connected / other /
+        missing / no_config / unreadable; ``entry`` is what is there now,
+        ``expected`` what connecting writes. Reads ``~/.claude.json`` only."""
+        from ..config import claude_mcp
+
+        return await asyncio.to_thread(claude_mcp.status, host, port)
+
+    @app.post("/api/claude-mcp")
+    async def claude_mcp_apply() -> dict[str, Any]:
+        """Connect Claude Code: write ``mcpServers["omniapi-mcp"]`` in
+        ``~/.claude.json`` (what ``omni mcp-config --apply`` does; the previous
+        entry is backed up). Only on the owner's click; 409 when the file is
+        missing or unreadable (it is never created or overwritten blind).
+        Claude Code sees it the next time it starts."""
+        from ..config import claude_mcp
+
+        try:
+            res = await asyncio.to_thread(claude_mcp.apply, host, port)
+        except claude_mcp.ClaudeConfigError as e:
+            raise HTTPException(e.status, {"reason": e.reason, "message": str(e)})
+        if res.get("changed"):
+            logger.info("Claude Code MCP entry written to %s (backup: %s)", res["path"], res.get("backed_up"))
+            c = runtime.context
+            if c is not None:
+                await c.bus.publish({"type": "claude_mcp.changed", "state": res["state"]})
+        return res
+
+    # ------------------------------------------------------------ desktop app: start at logon
+    @app.get("/api/desktop/autostart")
+    async def desktop_autostart_status() -> dict[str, Any]:
+        """The desktop app's logon entry (the tray's 開機時啟動): ``available`` only when
+        the desktop app started this service; ``enabled`` is what the tray's check mark
+        shows; ``legacy`` names an old ``omni autostart`` launcher; ``other`` is the
+        entry's command when it points at a different exe."""
+        from .. import desktop_autostart
+
+        return await asyncio.to_thread(desktop_autostart.status)
+
+    @app.api_route("/api/desktop/autostart", methods=["PUT", "POST"])
+    async def desktop_autostart_set(body: dict[str, Any]) -> dict[str, Any]:
+        """Turn it on or off: ``{"enabled": true|false}``. Writes or removes the same
+        registry value the tray does, with the desktop app's own exe (the request
+        carries no path). 409 when this service was not started by the desktop app."""
+        from .. import desktop_autostart
+
+        on = body.get("enabled") if isinstance(body, dict) else None
+        if not isinstance(on, bool):
+            raise HTTPException(422, {"reason": "bad_request", "message": "body must be {\"enabled\": true|false}"})
+        try:
+            res = await asyncio.to_thread(desktop_autostart.set_enabled, on)
+        except desktop_autostart.AutostartUnavailable as e:
+            raise HTTPException(409, {"reason": "unavailable", "message": str(e)})
+        except OSError as e:
+            raise HTTPException(500, {"reason": "write_failed", "message": str(e)})
+        logger.info("desktop logon entry turned %s from the settings page", "on" if on else "off")
+        c = runtime.context
+        if c is not None:
+            await c.bus.publish({"type": "desktop.autostart.changed", "enabled": res["enabled"]})
+        return res
+
+    # ------------------------------------------------------------ shutdown (1.3-M2)
+    @app.post("/api/shutdown")
+    async def shutdown_endpoint() -> dict[str, Any]:
+        """Shut down cleanly: stop taking requests, close out replies and
+        generations in flight (the usual shutdown path), remove the pid file,
+        exit. Answers first, then goes."""
+        server = getattr(app.state, "uvicorn_server", None)
+        if server is None:
+            raise HTTPException(503, "this process was not started by `omni serve`; stop it from where it was started")
+        logger.info("shutdown requested over /api/shutdown (pid=%s)", os.getpid())
+        c = runtime.context
+        if c is not None:
+            await c.bus.publish({"type": "daemon.stopping", "pid": os.getpid()})
+
+        async def go() -> None:
+            await asyncio.sleep(0.2)  # let this answer leave first
+            server.should_exit = True
+
+        app.state.shutdown_task = asyncio.create_task(go(), name="daemon-shutdown")
+        return {"ok": True, "pid": os.getpid()}
+
     # ------------------------------------------------------------ WebSocket
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
@@ -913,9 +1164,16 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
             await self.inner(scope, receive, send)
 
     app.add_middleware(_McpWithoutSlash)
+    # 1.3-M2: state-changing /api calls and WebSockets only from this computer
+    from .guard import LocalOnlyGuard
 
-    gui_dist = Path(__file__).resolve().parents[3] / "gui" / "dist"
-    if gui_dist.exists() and (gui_dist / "index.html").exists():
+    app.add_middleware(LocalOnlyGuard)
+
+    from ..layout import gui_dist as find_gui_dist
+
+    gui_dist = find_gui_dist()  # OMNIAPI_GUI_DIST, then the repo's gui/dist
+    if gui_dist is not None:
+        logger.info("GUI served from %s", gui_dist)
         # SPA：/assets 走靜態檔；其他非 /api、/mcp、/ws 的路徑（/runs/:id、/costs）一律回 index.html，交給前端路由
         app.mount("/assets", StaticFiles(directory=str(gui_dist / "assets")), name="gui-assets")
         index_html = gui_dist / "index.html"
@@ -947,4 +1205,10 @@ def serve(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFAULT_P
     import uvicorn
 
     app = create_app(settings, host=host, port=port)
-    uvicorn.run(app, host=host, port=port, log_level=log_level, ws="websockets", access_log=False)
+    # a Server object (not uvicorn.run) so POST /api/shutdown can ask it to exit;
+    # requests still open after 10 s are cut off so a stuck one cannot hold the exit
+    config = uvicorn.Config(app, host=host, port=port, log_level=log_level, ws="websockets", access_log=False,
+                            timeout_graceful_shutdown=10)
+    server = uvicorn.Server(config)
+    app.state.uvicorn_server = server
+    server.run()

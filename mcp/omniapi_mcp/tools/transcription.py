@@ -49,6 +49,19 @@ class TranscriptionTool:
             except Exception as e:
                 logger.error(f"Failed to initialize transcription provider: {e}")
 
+    def _default_model(self) -> str:
+        """The configured transcription default when the provider takes it,
+        else the provider's own (gpt-transcribe)."""
+        from ..config.user_settings import default_model
+
+        own = getattr(self._provider, "DEFAULT_MODEL", "gpt-transcribe")
+        preferred = default_model(getattr(self, "settings", None), "transcript")
+        try:
+            supported = self._provider.get_supported_models() if self._provider is not None else set()
+        except Exception:
+            supported = set()
+        return preferred if preferred and preferred in supported else own
+
     @staticmethod
     def _load_audio(
         audio_path: Optional[str], audio_data: Optional[str]
@@ -110,9 +123,7 @@ class TranscriptionTool:
             )
 
         audio_bytes, filename = self._load_audio(audio_path, audio_data)
-        target_model = model or getattr(
-            self._provider, "DEFAULT_MODEL", "gpt-transcribe"
-        )
+        target_model = model or self._default_model()
 
         result = await self._provider.transcribe(
             target_model,

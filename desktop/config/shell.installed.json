@@ -1,0 +1,16 @@
+{
+  "comment": "Installed default: the installer puts this file next to OmniAPI.exe as shell.config.json. The bundled Python is {exe_dir}\\python (standalone CPython with the dependencies and omniapi_mcp in its own site-packages; built by desktop/scripts/package.ps1) and the built GUI is {exe_dir}\\gui. -I keeps PYTHONPATH / PYTHONHOME and the current folder out of it. The service runs in the data home, never inside the install folder (it is replaced on update). OMNIAPI_DESKTOP_EXE ({exe}, this OmniAPI.exe) lets the settings page turn the logon entry on and off with the same registry value as the tray's check mark; leave it out and the page does not offer the switch. update_check: once a day, one anonymous GET of the public repo's latest release; set enabled to false to turn it off.",
+  "port": 7788,
+  "service": {
+    "program": "{exe_dir}\\python\\pythonw.exe",
+    "args": ["-I", "-m", "omniapi_mcp.cli", "serve", "--foreground", "--port", "{port}", "--log-file", "{log_dir}\\daemon.log"],
+    "cwd": "{data_home}",
+    "env": {
+      "OMNIAPI_GUI_DIST": "{exe_dir}\\gui",
+      "OMNIAPI_DESKTOP_EXE": "{exe}"
+    }
+  },
+  "update_check": {
+    "enabled": true
+  }
+}

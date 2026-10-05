@@ -69,7 +69,7 @@ export function ImageForm({ opts, optsError, busy, error, onSend }: FormProps) {
           htmlFor="mk-prompt"
           aside={
             <>
-              <span className="n">{chars}</span> / <span className="n">{MAX_PROMPT}</span> 字 · <SendKeyHint />
+              <span className="n">{chars}</span> / <span className="n">{MAX_PROMPT}</span> 字<SendKeyHint sep />
             </>
           }
         >
@@ -91,9 +91,12 @@ export function ImageForm({ opts, optsError, busy, error, onSend }: FormProps) {
             <div className={`mk-slot${d.source ? " has" : ""}${drop.over ? " over" : ""}`} {...drop.handlers} onClick={drop.open} role="button" tabIndex={0} aria-label="上傳來源圖">
               {d.source ? <img src={d.source.url} alt="" /> : up.busy ? "上傳中…" : (
                 <>
-                  拖一張圖進來
-                  <br />
-                  或點這裡上傳
+                  <span className="x-touch">
+                    拖一張圖進來
+                    <br />
+                    或點這裡上傳
+                  </span>
+                  <span className="only-touch">點這裡選一張圖</span>
                 </>
               )}
             </div>

@@ -64,7 +64,16 @@ export function TranscriptForm({ opts, optsError, busy, error, onSend }: FormPro
                 }}
               />
               <div className="mk-dropfoot">
-                <span>{up.busy ? "上傳中…" : "換一個：再拖一個檔進來就會取代"}</span>
+                <span>
+                  {up.busy ? (
+                    "上傳中…"
+                  ) : (
+                    <>
+                      <span className="x-touch">換一個：再拖一個檔進來就會取代</span>
+                      <span className="only-touch">換一個：再選一個檔就會取代</span>
+                    </>
+                  )}
+                </span>
                 <button type="button" className="mk-mini" onClick={drop.open}>
                   選檔案…
                 </button>
@@ -75,7 +84,16 @@ export function TranscriptForm({ opts, optsError, busy, error, onSend }: FormPro
             </div>
           ) : (
             <div className={`mk-drop${drop.over ? " over" : ""}`} {...drop.handlers}>
-              <span className="mk-dropbig">{up.busy ? "上傳中…" : "把音檔拖進來"}</span>
+              <span className="mk-dropbig">
+                {up.busy ? (
+                  "上傳中…"
+                ) : (
+                  <>
+                    <span className="x-touch">把音檔拖進來</span>
+                    <span className="only-touch">點「選檔案」挑一個音檔</span>
+                  </>
+                )}
+              </span>
               <span className="dp-note">mp3、wav、m4a、ogg、flac、webm；25 MB 內</span>
               <button type="button" className="mk-mini" onClick={drop.open} disabled={up.busy}>
                 選檔案…

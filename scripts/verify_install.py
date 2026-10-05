@@ -10,7 +10,12 @@ check (nothing here calls a vendor or costs money):
 What it checks, in the order a new user meets them:
 
 1. the daemon answers and says it is an offline development sandbox
-2. the web GUI is served at ``/`` and its deep links (``/make``, ``/works``) load
+2. the web GUI is served at ``/`` and its deep links (``/make``, ``/works``, ``/chat``,
+   ``/models``, ``/settings``, ``/welcome``) load
+   v1.3: an empty environment has no key (so the dashboard opens the first-run welcome);
+   a made-up key saved through the settings API is in use at once, without a restart,
+   and no response carries it whole; removing it restores the previous state; the
+   external-tools check (``/api/tools``) answers
 3. an MCP client can connect to ``http://127.0.0.1:<port>/mcp`` — **without**
    the trailing slash, exactly as the README and ``omni mcp-config`` write it —
    and sees the tools
@@ -51,10 +56,12 @@ async def main(base: str) -> None:
         check("it is an offline development sandbox (nothing here can spend money)", st.get("offline") and st.get("dev"),
               "start it with OMNIAPI_DEV=1 OMNIAPI_OFFLINE=1")
 
-        for path in ("/", "/make", "/works", "/chat"):
+        for path in ("/", "/make", "/works", "/chat", "/models", "/settings", "/welcome"):
             r = await http.get(path)
             check(f"the GUI is served at {path}", r.status_code == 200 and "<div id=\"root\"" in r.text,
                   f"{r.status_code} — was the GUI built (npm run build --prefix gui)?")
+
+        await settings_v13(http, st)
 
         from mcp import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
@@ -86,6 +93,48 @@ async def main(base: str) -> None:
 
         await chat_v12(http)
     print("ALL PASS")
+
+
+#: a made-up key: long enough for the format check, never valid anywhere (the sandbox is offline anyway)
+FAKE_KEY = "verify-install-not-a-real-key-" + "Q7x2"
+TOOL_IDS = ["node", "ffmpeg", "claude_code", "claude_login", "codex", "gemini_cli"]
+
+
+async def settings_v13(http: httpx.AsyncClient, st: dict) -> None:
+    """v1.3: first-run welcome, settings that apply without a restart, the external-tools check."""
+    s = (await http.get("/api/settings")).json()
+    slots = s.get("providers") or {}
+    check("the settings API lists the seven providers", len(slots) == 7, list(slots))
+    keyed = [k for k, p in slots.items() if (p.get("key") or {}).get("set")]
+    if keyed:
+        print(f"SKIP a fresh install has no key, so the dashboard opens the first-run welcome (this environment has keys: {keyed})")
+    else:
+        check("a fresh install has no key, so the dashboard opens the first-run welcome", True)
+
+    slot = "deepseek"
+    before = slots[slot]
+    pid = st["pid"]
+    r = await http.patch("/api/settings", json={"providers": {slot: {"api_key": FAKE_KEY}}})
+    check("saving a key on the settings page is accepted", r.status_code == 200, r.text[:300])
+    got = (await http.get("/api/settings")).json()["providers"][slot]
+    check("the key is in use right away, without a restart (last four shown, source: settings)",
+          got["key"]["set"] and got["key"]["last4"] == FAKE_KEY[-4:] and got["key"]["source"] == "settings" and got["enabled"], got["key"])
+    st2 = (await http.get("/api/status")).json()
+    check("the service did not restart for it", st2["pid"] == pid, (pid, st2["pid"]))
+    provider = got.get("provider") or slot
+    check("and the provider counts as configured", provider in st2["providers"]["configured"], st2["providers"]["configured"])
+    raw = (await http.get("/api/settings")).text + (await http.get("/api/status")).text
+    check("no API response carries the whole key", FAKE_KEY not in raw)
+
+    # put it back the way it was: null removes the settings-layer key
+    r = await http.patch("/api/settings", json={"providers": {slot: {"api_key": None, "enabled": None}}})
+    back = (await http.get("/api/settings")).json()["providers"][slot]
+    check("removing it restores the previous state", r.status_code == 200 and back["key"]["set"] == before["key"]["set"]
+          and back["key"].get("source") == before["key"].get("source"), back["key"])
+
+    tools = (await http.get("/api/tools")).json()
+    ids = [t.get("id") for t in tools.get("tools") or []]
+    check("the external-tools check answers (node, ffmpeg, Claude Code, its login, Codex, Gemini CLI)", ids == TOOL_IDS and "summary" in tools, ids)
 
 
 async def chat_v12(http: httpx.AsyncClient) -> None:

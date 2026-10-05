@@ -343,7 +343,7 @@ def daemon(tmp_path, monkeypatch, dev):
 
 class _TestClientWs(WsConn):
     def __init__(self, client):
-        self._cm = client.websocket_connect("/ws")
+        self._cm = client.websocket_connect("ws://127.0.0.1:7799/ws")  # TestClient defaults to Host testserver; the 1.3-M2 guard wants loopback
         self._ws = self._cm.__enter__()
 
     def recv(self, timeout):

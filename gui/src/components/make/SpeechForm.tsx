@@ -51,7 +51,7 @@ export function SpeechForm({ opts, optsError, busy, error, onSend }: FormProps) 
           htmlFor="mk-text"
           aside={
             <>
-              <span className="n">{[...d.text].length}</span> 字 · <SendKeyHint />
+              <span className="n">{[...d.text].length}</span> 字<SendKeyHint sep />
             </>
           }
         >

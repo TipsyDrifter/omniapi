@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useTier } from "@/lib/rwd";
 import type { Run } from "@/api/types";
 import { dt, harnessClass, harnessName, isLive, splitTitle, stateLabel, usd } from "@/lib/format";
 import { selectHistory, useBoard } from "@/store/board";
@@ -77,7 +78,10 @@ export default function RunsTable() {
     setParams(next, { replace: true });
   };
 
-  const toggle = (id: string) => setOpenId((cur) => (cur === id ? null : id));
+  // 手機（S 段）每筆排成兩行，沒有地方在清單裡展開詳情：點一列直接進單筆頁（NOTES §7 的建議）
+  const tier = useTier();
+  const navigate = useNavigate();
+  const toggle = (id: string) => (tier === "s" ? navigate(`/runs/${encodeURIComponent(id)}`) : setOpenId((cur) => (cur === id ? null : id)));
   const onKey = (e: KeyboardEvent<HTMLTableRowElement>, id: string) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -169,11 +173,11 @@ export default function RunsTable() {
                   onClick={() => toggle(r.id)}
                   onKeyDown={(e) => onKey(e, r.id)}
                 >
-                  <td>
+                  <td className="stc">
                     <span className={live ? `st ${stClass} ${harnessClass(r.harness)}` : `st ${stClass}`}>{stateLabel(stClass)}</span>
                   </td>
                   <td className="t">{dt(r.started_at)}</td>
-                  <td>
+                  <td className="hmc">
                     <span className={`hm ${harnessClass(r.harness)}`}>{harnessName(r.harness)}</span>
                   </td>
                   <td className="model">{r.model ?? <span className="nil">—</span>}</td>
@@ -184,10 +188,10 @@ export default function RunsTable() {
                   <td className="disp" title={r.dispatcher ?? ""}>
                     {r.dispatcher ?? <span className="nil">—</span>}
                   </td>
-                  <td className="num r">{r.turns ?? 0}</td>
-                  <td className="num r">{r.cost_usd != null ? usd(r.cost_usd) : <span className="nil">{live ? "—" : "未回報"}</span>}</td>
+                  <td className="num r turns">{r.turns ?? 0}</td>
+                  <td className="num r cost">{r.cost_usd != null ? usd(r.cost_usd) : <span className="nil">{live ? "—" : "未回報"}</span>}</td>
                 </tr>
-                {sel && <RunDetailRow run={r} />}
+                {sel && tier !== "s" && <RunDetailRow run={r} />}
               </Fragment>
             );
           })}

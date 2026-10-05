@@ -1,0 +1,13 @@
+{
+  "comment": "Development default, compiled into debug builds of the shell only (release builds, i.e. the installer's, have none; used when neither OMNIAPI_SHELL_CONFIG nor a shell.config.json next to the exe exists). Runs the service from the checkout the shell was built from, with that checkout's mcp/.venv, on the real port 7788 -- a shell started with this default adopts the service already running there, and its Quit stops it. Tests must point OMNIAPI_SHELL_CONFIG at their own config.",
+  "port": 7788,
+  "service": {
+    "program": "{repo}\\mcp\\.venv\\Scripts\\pythonw.exe",
+    "args": ["-m", "omniapi_mcp.cli", "serve", "--foreground", "--port", "{port}", "--log-file", "{log_dir}\\daemon.log"],
+    "cwd": "{repo}\\mcp",
+    "env": {}
+  },
+  "update_check": {
+    "enabled": false
+  }
+}
