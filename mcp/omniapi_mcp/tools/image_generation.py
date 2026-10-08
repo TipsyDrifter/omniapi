@@ -9,6 +9,7 @@ from ..config.settings import Settings
 from ..providers.base import ProviderConfig, ProviderError
 from ..providers.gemini import GeminiProvider
 from ..providers.openai import OpenAIProvider
+from ..providers.openrouter_images import OpenRouterImageProvider
 from ..providers.registry import ProviderRegistry
 from ..storage.manager import ImageStorageManager
 from ..types.enums import (
@@ -93,6 +94,25 @@ class ImageGenerationTool:
 
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini provider: {e}")
+
+        # OpenRouter's image models (1.4-M2): the same key as its chat models
+        openrouter = getattr(self.settings.providers, "openrouter", None)
+        if openrouter and openrouter.enabled and openrouter.api_key:
+            try:
+                self._register_provider_async(
+                    OpenRouterImageProvider(
+                        ProviderConfig(
+                            api_key=openrouter.api_key,
+                            base_url=openrouter.base_url,
+                            timeout=openrouter.timeout,
+                            max_retries=openrouter.max_retries,
+                            enabled=openrouter.enabled,
+                        )
+                    )
+                )
+                logger.info("OpenRouter image provider initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenRouter image provider: {e}")
 
     def _register_provider_async(self, provider) -> None:
         """Store provider for async registration later."""
@@ -221,8 +241,9 @@ class ImageGenerationTool:
                 raise RuntimeError(
                     "No providers are available. Please ensure you have "
                     "configured at least one provider with a valid API key. "
-                    "Set PROVIDERS__OPENAI__API_KEY for OpenAI or "
-                    "PROVIDERS__GEMINI__API_KEY for Gemini."
+                    "Set PROVIDERS__OPENAI__API_KEY for OpenAI, "
+                    "PROVIDERS__GEMINI__API_KEY for Gemini or "
+                    "PROVIDERS__OPENROUTER__API_KEY for OpenRouter's image models."
                 )
             else:
                 raise RuntimeError(
@@ -317,14 +338,20 @@ class ImageGenerationTool:
                 else [provider_response.image_data]
             )
 
-            # Estimate cost (quality/size-aware for gpt-image-2)
-            cost_info = provider.estimate_cost(
-                target_model,
-                prompt,
-                len(image_bytes_list),
-                quality=validated_params.get("quality", quality_str),
-                size=validated_params.get("size", size_str),
-            )
+            # What it cost: the provider's own report of this call when it gives one
+            # (OpenRouter's usage.cost), else the estimate (quality/size-aware for gpt-image-2)
+            actual = (provider_response.metadata or {}).get("cost_usd")
+            if isinstance(actual, (int, float)):
+                cost_info = {"provider": provider.name, "model": target_model, "estimated_cost_usd": float(actual),
+                             "currency": "USD", "actual": True}
+            else:
+                cost_info = provider.estimate_cost(
+                    target_model,
+                    prompt,
+                    len(image_bytes_list),
+                    quality=validated_params.get("quality", quality_str),
+                    size=validated_params.get("size", size_str),
+                )
 
             # Prepare metadata
             metadata = {
@@ -337,8 +364,9 @@ class ImageGenerationTool:
                 "provider_metadata": provider_response.metadata,
             }
 
-            # Save every generated image to local storage.
-            file_format = validated_params.get("output_format", output_format_str)
+            # Save every generated image to local storage (in the format it came
+            # back in, when the provider says: OpenRouter's models pick their own)
+            file_format = (provider_response.metadata or {}).get("file_format") or validated_params.get("output_format", output_format_str)
             saved = []
             for img_bytes in image_bytes_list:
                 image_id, _ = await self.storage_manager.save_image(

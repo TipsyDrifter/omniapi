@@ -67,7 +67,7 @@ async def test_flat_prices_are_a_multiplication(store, online):
     est = await estimate(store, kind="image", tool="generate_image", params={"model": "gemini-3-pro-image", "n": 2, "image_size": "4K"})
     assert est["basis"] == "per_image" and est["usd"] == pytest.approx(0.48) and est["tier"] == "4K"
     est = await estimate(store, kind="speech", tool="generate_speech", params={"model": "eleven_flash_v2_5", "text": "字" * 500})
-    assert est["basis"] == "per_1k_chars" and est["usd"] == pytest.approx(0.025)
+    assert est["basis"] == "per_1k_chars" and est["usd"] == pytest.approx(0.02)  # $0.04 / 1k chars (2026-10-05)
     est = await estimate(store, kind="music", tool="generate_music", params={"model": "music_v2", "music_length_ms": 150000})
     assert est["basis"] == "per_minute" and est["usd"] == pytest.approx(0.375)
     est = await estimate(store, kind="transcript", tool="transcribe_audio", params={"model": "gpt-transcribe"}, duration_s=18.3)

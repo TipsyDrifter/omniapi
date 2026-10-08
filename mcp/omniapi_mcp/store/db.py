@@ -165,9 +165,10 @@ CREATE TABLE IF NOT EXISTS generations (
   title TEXT,                      -- what the waiting card shows
   params_json TEXT,                -- the full request, so a failed one can be sent again
   sources_json TEXT,               -- {image|audio: {artifact_id|upload_id}} — ids, never paths
-  status TEXT NOT NULL,            -- running | done | error | cancelled | interrupted
+  status TEXT NOT NULL,            -- running | done | error | cancelled | interrupted (+ video: detached | gave_up | abandoned)
   error TEXT,
   error_kind TEXT,                 -- quota | auth | rejected | timeout | too_large | unavailable | offline | interrupted | other
+                                   -- (+ video: gave_up | lost | download)
   estimate_json TEXT,              -- the estimate shown before sending
   cost_usd REAL,
   call_id TEXT,
@@ -238,6 +239,14 @@ class Store:
             # 1.2-M5: what a file holds (pages, rows, readable…) and the transcript that makes an audio file readable
             "uploads": {"meta_json": "TEXT"},
         }
+        # 1.4-M3: a video job's remote side, stored the moment the vendor takes it so a
+        # restarted service waits on (and collects) the same job: who, its id there, when
+        # it was sent, what it last said and when; who is polling it (a lease, so two
+        # processes on one database never collect one video twice); the rest as JSON
+        wanted["generations"].update({
+            "provider": "TEXT", "remote_id": "TEXT", "submitted_at": "REAL", "remote_status": "TEXT", "polled_at": "REAL",
+            "lease_owner": "TEXT", "lease_until": "REAL", "remote_json": "TEXT",
+        })
         for table, cols in wanted.items():
             cur = await self._db.execute(f"PRAGMA table_info({table})")
             have = {r[1] for r in await cur.fetchall()}
@@ -842,7 +851,9 @@ class Store:
         return [_row(r) for r in await cur.fetchall()]
 
     # ------------------------------------------------------------ generation jobs (v1.1)
-    _GENERATION_COLS = ("finished_at", "model", "title", "status", "error", "error_kind", "cost_usd", "call_id")
+    _GENERATION_COLS = ("finished_at", "model", "title", "status", "error", "error_kind", "cost_usd", "call_id",
+                        # 1.4-M3: a video job's remote side (``remote`` is JSON)
+                        "provider", "remote_id", "submitted_at", "remote_status", "polled_at", "remote")
 
     async def create_generation(self, generation_id: str, *, kind: str, tool: str, model: str | None, title: str | None,
                                 params: Any, sources: Any, estimate: Any, source: str, meta: Any = None) -> dict[str, Any]:
@@ -859,6 +870,8 @@ class Store:
         unknown = set(fields) - set(self._GENERATION_COLS)
         if unknown:
             raise ValueError(f"unknown generation fields: {sorted(unknown)}")
+        if "remote" in fields:
+            fields["remote_json"] = _dumps(fields.pop("remote"))
         sets = [f"{k}=?" for k in fields]
         vals = list(fields.values())
         if artifact_ids is not None:
@@ -898,14 +911,75 @@ class Store:
 
     async def interrupt_running_generations(self) -> int:
         """At startup nothing can still be running: the tasks died with the
-        previous process."""
+        previous process. Except a video the vendor took (it has a remote id):
+        that one is still being made over there and is waited on again
+        (``video.jobs``). A video that never got a remote id is ``lost``: the
+        request may have reached the vendor (and be billed) without its id."""
+        now = time.time()
         cur = await self.db.execute(
             "UPDATE generations SET status='interrupted', error_kind='interrupted', finished_at=?,"
-            " error='the service restarted while this was generating' WHERE status='running'",
-            (time.time(),),
+            " error='the service restarted while this was generating' WHERE status='running' AND kind<>'video'",
+            (now,),
         )
         await self.db.commit()
-        return cur.rowcount
+        return cur.rowcount + len(await self.lose_unsent_videos(now - 120))
+
+    async def unsent_videos(self, cutoff: float) -> list[dict[str, Any]]:
+        """Video jobs created before ``cutoff`` still without a remote id, with their lease."""
+        cur = await self.db.execute(
+            "SELECT id, lease_owner, lease_until FROM generations WHERE status='running' AND kind='video' AND remote_id IS NULL"
+            " AND created_at<?", (cutoff,))
+        return [{"id": r[0], "lease_owner": r[1], "lease_until": r[2]} for r in await cur.fetchall()]
+
+    async def lose_unsent_videos(self, cutoff: float, keep: Any = ()) -> list[str]:
+        """Video jobs created before ``cutoff`` that never got a remote id (the
+        process that was sending them is gone): ``interrupted`` / ``lost``.
+        ``keep``: ids still being sent by a live process (a vendor that answers
+        with the finished video holds the request for minutes)."""
+        cur = await self.db.execute(
+            "SELECT id FROM generations WHERE status='running' AND kind='video' AND remote_id IS NULL AND created_at<?", (cutoff,))
+        ids = [r[0] for r in await cur.fetchall() if r[0] not in set(keep or ())]
+        if ids:
+            await self.db.execute(
+                f"UPDATE generations SET status='interrupted', error_kind='lost', finished_at=?,"
+                " error='the service stopped while the video was being sent; it may have reached the provider (and be billed),"
+                " but its job id was never received, so it cannot be collected'"
+                f" WHERE id IN ({', '.join('?' for _ in ids)}) AND remote_id IS NULL AND status='running'",
+                (time.time(), *ids),
+            )
+            await self.db.commit()
+        return ids
+
+    # ------------------------------------------------------------ video jobs (1.4-M3)
+    async def video_jobs_open(self) -> list[dict[str, Any]]:
+        """Video jobs still being waited on or collected (they have a remote id)."""
+        cur = await self.db.execute(
+            "SELECT * FROM generations WHERE kind='video' AND remote_id IS NOT NULL AND status IN ('running','detached')"
+            " ORDER BY created_at ASC"
+        )
+        return [_row(r) for r in await cur.fetchall()]
+
+    async def claim_generation(self, generation_id: str, owner: str, until: float) -> bool:
+        """Take (or renew) the right to poll a video job until ``until``. Fails
+        while another live process holds it (its lease has not run out)."""
+        cur = await self.db.execute(
+            "UPDATE generations SET lease_owner=?, lease_until=? WHERE id=? AND (lease_owner IS NULL OR lease_owner=? OR lease_until IS NULL OR lease_until<?)",
+            (owner, until, generation_id, owner, time.time()),
+        )
+        await self.db.commit()
+        return cur.rowcount == 1
+
+    async def release_generation(self, generation_id: str, owner: str) -> None:
+        await self.db.execute("UPDATE generations SET lease_owner=NULL, lease_until=NULL WHERE id=? AND lease_owner=?",
+                              (generation_id, owner))
+        await self.db.commit()
+
+    async def call_unsettled(self, call_id: str, note: str) -> None:
+        """A paid call whose cost will never be known (a video sent, then not
+        collected): its ledger row says so instead of a number."""
+        await self.db.execute("UPDATE calls SET status='unsettled', cost_usd=NULL, result_json=? WHERE id=? AND status IN ('ticket','started')",
+                              (_dumps({"note": note}), call_id))
+        await self.db.commit()
 
     # ------------------------------------------------------------ misc
     async def stats(self) -> dict[str, Any]:

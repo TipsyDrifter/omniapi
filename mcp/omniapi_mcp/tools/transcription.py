@@ -13,13 +13,15 @@ from typing import Any, Optional
 
 from ..capabilities.transcription import OpenAIWhisperProvider, TranscriptionProvider
 from ..config.settings import Settings
+from ..modalities import TRANSCRIBE_INPUT_EXTS
 from ..providers.base import ProviderConfig
 
 logger = logging.getLogger(__name__)
 
-# Container formats the OpenAI Audio API accepts; used only to warn on a
-# likely-wrong extension, never to hard-block (the API is the source of truth).
-_KNOWN_AUDIO_EXTS = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm", ".flac", ".ogg"}
+# Container formats the OpenAI Audio API accepts (an .mp4 included: its audio
+# track is transcribed); used only to warn on a likely-wrong extension, never
+# to hard-block (the API is the source of truth).
+_KNOWN_AUDIO_EXTS = TRANSCRIBE_INPUT_EXTS
 
 
 class TranscriptionTool:

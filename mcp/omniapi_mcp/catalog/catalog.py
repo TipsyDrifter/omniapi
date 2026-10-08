@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+from ..modalities import CATALOG_MODALITIES
 from .discovery import (
     DiscoveryResult,
     discover,
@@ -36,16 +37,93 @@ from .discovery import (
     fetch_gemini,
     fetch_openai_compatible,
 )
+from .popularity import popularity
+from .popularity import validate as validate_popularity
 
 logger = logging.getLogger(__name__)
 
-MODALITIES = ("text", "image", "transcription", "speech", "music")
+MODALITIES = CATALOG_MODALITIES
+#: the discovery key of OpenRouter's image roster (1.4-M2; ``openrouter_images.py``)
+OR_IMAGES = "openrouter-images"
+#: the discovery key of OpenRouter's video roster (1.4-M3; ``openrouter_videos.py``)
+OR_VIDEOS = "openrouter-videos"
 # Fixed snapshots (gpt-5.5-2026-04-23, gpt-4-0613, …-preview-10-2025) and moving aliases
 # (gemini-flash-latest): callable, but an uncurated one is not worth a row in any listing.
 _SNAPSHOT_RE = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{2}-\d{4}|\d{4}|latest)$")
 # Gateways name real models that way (mistralai/mistral-large-2411): only the dated form is a snapshot there.
 _DATED_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
 STATUSES = ("current", "deprecated", "retired", "discovered")
+#: a curated entry's status (``discovered`` is only ever set by discovery)
+CURATED_STATUSES = ("current", "deprecated", "retired")
+#: ``pricing.unit`` values the estimate, the chat menu and the GUI know how to
+#: read. A text model's pricing carries no unit: input / output per 1M tokens.
+#: ``openrouter`` is the listed pricing lines of an OpenRouter image model (live, never curated);
+#: ``openrouter_video`` an OpenRouter video model's listed SKUs (``openrouter_videos.parse_skus``).
+PRICING_UNITS = ("per_1m_tokens", "per_image", "per_minute", "per_1m_chars", "per_1k_chars", "per_song", "credits", "openrouter",
+                 "openrouter_video")
+#: catalog providers whose curated video rows are called directly (1.4-M5: Gemini Omni with the Google key);
+#: every other video model goes through OpenRouter
+DIRECT_VIDEO_PROVIDERS = ("google",)
+#: what every curated model must have
+REQUIRED_MODEL_FIELDS = ("id", "provider", "modality", "name", "status")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def validate(raw: dict[str, Any]) -> list[str]:
+    """Problems in a ``catalog.json`` document, one line each; empty when it
+    is sound. Checked: every model has the required fields, a known modality,
+    status and pricing unit, a dated shutdown and a provider the file
+    defines; the providers' and the id rules' modalities are known; ids are
+    unique per provider; tiers and suggested tiers name curated models."""
+    problems: list[str] = []
+    providers = raw.get("providers") or {}
+    known_mod = set(MODALITIES)
+    for name, p in providers.items():
+        for key in ("modalities", "discovery_modalities"):
+            bad = sorted(set(p.get(key) or []) - known_mod)
+            if bad:
+                problems.append(f"providers.{name}.{key}: unknown modality {bad}")
+    for name, rules in (raw.get("id_rules") or {}).items():
+        if name.startswith("_"):
+            continue
+        for i, rule in enumerate(rules or []):
+            if rule.get("modality") not in known_mod | {"ignore"}:
+                problems.append(f"id_rules.{name}[{i}]: unknown modality {rule.get('modality')!r}")
+    seen: set[tuple[str, str]] = set()
+    ids: set[str] = set()
+    for i, m in enumerate(raw.get("models") or []):
+        where = f"models[{i}] ({m.get('id', '?')})"
+        missing = [k for k in REQUIRED_MODEL_FIELDS if not m.get(k)]
+        if missing:
+            problems.append(f"{where}: missing {missing}")
+        if m.get("modality") and m["modality"] not in known_mod:
+            problems.append(f"{where}: unknown modality {m['modality']!r} (known: {', '.join(MODALITIES)})")
+        if m.get("status") and m["status"] not in CURATED_STATUSES:
+            problems.append(f"{where}: unknown status {m['status']!r} (known: {', '.join(CURATED_STATUSES)})")
+        if m.get("provider") and m["provider"] not in providers:
+            problems.append(f"{where}: provider {m['provider']!r} is not defined under providers")
+        pricing = m.get("pricing")
+        if pricing is not None and not isinstance(pricing, dict):
+            problems.append(f"{where}: pricing is neither an object nor null")
+        elif isinstance(pricing, dict) and "unit" in pricing and pricing["unit"] not in PRICING_UNITS:
+            problems.append(f"{where}: unknown pricing.unit {pricing['unit']!r} (known: {', '.join(PRICING_UNITS)})")
+        if m.get("shutdown") is not None and not _DATE_RE.match(str(m["shutdown"])):
+            problems.append(f"{where}: shutdown {m['shutdown']!r} is not YYYY-MM-DD")
+        key = (str(m.get("provider")), str(m.get("id")))
+        if key in seen:
+            problems.append(f"{where}: listed twice for {key[0]}")
+        seen.add(key)
+        ids.add(str(m.get("id")))
+        for alias in m.get("aliases") or []:
+            ids.add(str(alias))
+    for tier, target in (raw.get("tiers") or {}).items():
+        if target not in ids:
+            problems.append(f"tiers.{tier}: {target!r} is not a curated model")
+    for name, p in providers.items():
+        for tier, target in (p.get("suggested_tiers") or {}).items():
+            if target not in ids:
+                problems.append(f"providers.{name}.suggested_tiers.{tier}: {target!r} is not a curated model")
+    return problems
 
 
 def peak_multiplier(pricing: dict[str, Any], at: float | None = None) -> float:
@@ -131,6 +209,45 @@ class ModelEntry:
     online: bool | None = None  # None = provider has no discovery / not run yet
     discovered_name: str | None = None
     snapshot: bool = False  # uncurated snapshot / alias id (gpt-5.5-2026-04-23, gpt-4-0613, *-latest): hidden by default
+    #: an OpenRouter image model (1.4-M2): who makes it (``x-ai`` / "xAI") and the
+    #: request shape its listing states (``openrouter_images.image_params``)
+    vendor: str | None = None
+    vendor_label: str | None = None
+    image_params: dict[str, Any] | None = None
+    #: an OpenRouter video model (1.4-M3): what a request may ask for
+    #: (``openrouter_videos.video_params``)
+    video_params: dict[str, Any] | None = None
+    #: listed by a live roster but left out of every listing, with why
+    #: (``not_generation``: an OpenRouter video editor / upscaler / avatar)
+    unlisted: str | None = None
+
+    @property
+    def via_openrouter_image(self) -> bool:
+        return self.provider == "openrouter" and self.modality == "image"
+
+    @property
+    def via_openrouter_video(self) -> bool:
+        return self.provider == "openrouter" and self.modality == "video"
+
+    @property
+    def video_route(self) -> str | None:
+        """Which video provider makes this model's videos: ``"openrouter"`` (its
+        roster), ``"google"`` (a curated Google video row, called directly with
+        the Google key: Gemini Omni, 1.4-M5), or ``None`` (not a video model, or
+        one a vendor's listing merely turned up)."""
+        if self.modality != "video":
+            return None
+        if self.via_openrouter_video:
+            return "openrouter"
+        if self.provider in DIRECT_VIDEO_PROVIDERS and self.status != "discovered":
+            return self.provider
+        return None
+
+    @property
+    def live_media(self) -> bool:
+        """A row of an OpenRouter media roster (image or video): keyed by
+        (provider, id, modality), since the same id may be a chat model too."""
+        return self.via_openrouter_image or self.via_openrouter_video
 
     @property
     def vision(self) -> bool:
@@ -195,6 +312,20 @@ class ModelEntry:
             d["implemented"] = False
         if self.snapshot:
             d["snapshot"] = True
+        if self.vendor:
+            d["vendor"] = self.vendor
+            d["vendor_label"] = self.vendor_label or self.vendor
+        if self.image_params is not None:
+            d["image_params"] = self.image_params
+        if self.video_params is not None:
+            d["video_params"] = self.video_params
+        if self.unlisted:
+            d["unlisted"] = self.unlisted
+        # where it stands on the Artificial Analysis boards of its modality (popularity.py);
+        # the GUI sorts by ``rank``, nothing here reorders a list
+        pop = popularity.lookup(self.id, self.modality, self.aliases)
+        if pop:
+            d.update(pop)
         return d
 
 
@@ -204,21 +335,41 @@ class ModelCatalog:
     def __init__(self, path: Path | None = None):
         self.path = path or Path(__file__).with_name("catalog.json")
         self._raw: dict[str, Any] = {}
-        self._entries: dict[tuple[str, str], ModelEntry] = {}  # (provider, id)
+        #: (provider, id); an OpenRouter image model is (provider, id, "image") — the
+        #: same id can also be an OpenRouter chat model (google/gemini-3.1-flash-image)
+        self._entries: dict[tuple[str, ...], ModelEntry] = {}
         self._alias_index: dict[str, str] = {}  # alias/tier -> canonical id
         self._discovery: dict[str, DiscoveryResult] = {}
+        #: catalog providers whose key is set and switched on (1.4-M2): an OpenRouter
+        #: image model of such a vendor is a duplicate and is not listed
+        self._direct: set[str] = set()
         #: the owner's tier choices (settings.json / env), laid over catalog.json's tiers
         self._tier_overrides: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self.loaded_at: float | None = None
+        #: what :func:`validate` found at the last ``load()``
+        self.problems: list[str] = []
         self.load()
 
     # ------------------------------------------------------------ loading
     def load(self) -> None:
+        """Read ``catalog.json`` and check it (:func:`validate`). A problem is
+        logged as an error, not raised: a wrong row must not keep the service
+        from starting. ``tests/unit/test_modalities.py`` fails on any."""
         self._raw = json.loads(self.path.read_text(encoding="utf-8"))
+        self.problems = validate(self._raw)
+        curated: dict[str, set[str]] = {}
+        for m in self._raw.get("models") or []:
+            if m.get("modality") and m.get("id"):
+                curated.setdefault(m["modality"], set()).update([str(m["id"]), *map(str, m.get("aliases") or [])])
+        self.problems += validate_popularity(popularity.doc, curated)
+        for problem in self.problems:
+            logger.error("catalog.json: %s", problem)
         self._entries.clear()
         self._alias_index.clear()
         for m in self._raw.get("models", []):
+            if not all(m.get(k) for k in ("id", "provider", "modality")):
+                continue  # reported above; a row without them cannot be keyed
             entry = ModelEntry(
                 id=m["id"],
                 provider=m["provider"],
@@ -235,6 +386,7 @@ class ModelCatalog:
                 leaderboard=dict(m.get("leaderboard") or {}),
                 note=m.get("note"),
                 implemented=m.get("implemented", True),
+                video_params=dict(m["video_params"]) if isinstance(m.get("video_params"), dict) else None,
                 harness=(self._raw.get("providers", {}).get(m["provider"]) or {}).get(
                     "harness"
                 ),
@@ -286,14 +438,72 @@ class ModelCatalog:
             return model
         return self._alias_index.get(model, model)
 
-    def get(self, model_id: str, provider: str | None = None) -> ModelEntry | None:
+    def get(self, model_id: str, provider: str | None = None, modality: str | None = None) -> ModelEntry | None:
+        """The entry for ``model_id``. Without ``modality`` a curated or chat
+        entry wins over an OpenRouter image entry of the same id (callers that
+        price or route an image ask with ``modality="image"``)."""
         model_id = self.resolve(model_id) or model_id
-        if provider:
+        if provider and modality is None:
             return self._entries.get((provider, model_id))
-        for (prov, mid), entry in self._entries.items():
-            if mid == model_id:
+        found = None
+        for entry in self._entries.values():
+            if entry.id != model_id or (provider and entry.provider != provider):
+                continue
+            if modality is not None and entry.modality != modality:
+                continue
+            if not entry.live_media:
                 return entry
-        return None
+            found = found or entry
+        return found
+
+    def openrouter_image(self, model_id: str) -> ModelEntry | None:
+        """The listed OpenRouter image model ``model_id`` (hidden or not)."""
+        return self._entries.get(("openrouter", model_id, "image"))
+
+    def openrouter_video(self, model_id: str) -> ModelEntry | None:
+        """The listed OpenRouter video model ``model_id`` (unlisted ones too)."""
+        return self._entries.get(("openrouter", model_id, "video"))
+
+    # ------------------------------------------------------------ direct vs OpenRouter (1.4-M2)
+    def set_direct_providers(self, settings: Any) -> set[str]:
+        """Which catalog providers we call directly right now (key set and
+        switched on). Called whenever settings are (re)applied."""
+        direct: set[str] = set()
+        for provider, pcfg in self.providers.items():
+            slot = (pcfg or {}).get("settings_key") or provider
+            cfg = getattr(getattr(settings, "providers", None), slot, None)
+            if cfg is not None and getattr(cfg, "enabled", False) and getattr(cfg, "api_key", ""):
+                direct.add(provider)
+        self._direct = direct
+        return set(direct)
+
+    def hidden_as_duplicate(self, entry: ModelEntry) -> bool:
+        """An OpenRouter image or video model whose vendor we already call
+        directly with a working key: listing both would show the same model
+        twice. The rules live in ``openrouter_images.DIRECT_VENDORS`` (images)
+        and ``openrouter_videos.DIRECT_VIDEO_TWINS`` (videos: Google's
+        ``gemini-omni*`` and ``veo-*`` once the Google key is set, 1.4-M5)."""
+        if entry.via_openrouter_image:
+            from .openrouter_images import direct_twin
+
+            twin = direct_twin(entry.id)
+            return bool(twin and twin in self._direct)
+        if entry.via_openrouter_video:
+            from .openrouter_videos import direct_video_twin
+
+            twin = direct_video_twin(entry.id)
+            return bool(twin and twin in self._direct)
+        return False
+
+    @staticmethod
+    def direct_video_listed(entry: ModelEntry) -> bool:
+        """A video id a direct vendor's live ``/models`` listing turned up
+        (OpenAI ``sora-2`` / ``sora-2-pro``, Google ``veo-3.1-*-preview``):
+        not listed in this version. Sora's API is closed and video goes through
+        OpenRouter (or a curated direct row) only, so these would sit on the video
+        list as "not wired yet" without ever being callable. The curated video rows (Gemini Omni,
+        called directly since 1.4-M5) are not discovered ones and stay."""
+        return entry.modality == "video" and entry.provider != "openrouter" and entry.status == "discovered"
 
     def provider_of(self, model_id: str) -> str | None:
         e = self.get(model_id)
@@ -319,10 +529,14 @@ class ModelCatalog:
         include_retired: bool = False,
         include_snapshots: bool = False,
         online_only: bool = False,
+        include_duplicates: bool = False,
+        include_unlisted: bool = False,
     ) -> list[ModelEntry]:
         out = []
         for entry in self._entries.values():
             if modality and entry.modality != modality:
+                continue
+            if entry.unlisted and not include_unlisted:
                 continue
             if provider and entry.provider != provider:
                 continue
@@ -331,6 +545,10 @@ class ModelCatalog:
             if entry.snapshot and not include_snapshots:
                 continue
             if online_only and entry.online is False:
+                continue
+            if not include_duplicates and self.hidden_as_duplicate(entry):
+                continue
+            if not include_unlisted and self.direct_video_listed(entry):
                 continue
             out.append(entry)
         return sorted(out, key=lambda e: (e.modality, e.provider, e.id))
@@ -381,10 +599,20 @@ class ModelCatalog:
         refresh from the API or the MCP tool, a settings change): no request
         leaves, and no key is filed as working by a listing that never happened.
         """
-        from ..devmode import offline
+        from ..devmode import dev_enabled, offline
         from . import health
 
+        self.set_direct_providers(settings)
         if offline():
+            if dev_enabled():
+                # the development sandbox shows stand-in OpenRouter image and video
+                # rosters (saved copies, read from disk: nothing is fetched)
+                from .openrouter_images import sandbox_listing
+                from .openrouter_videos import sandbox_listing as sandbox_videos
+
+                async with self._lock:
+                    self._merge_images(DiscoveryResult(provider=OR_IMAGES, models=sandbox_listing(), fetched_at=time.time()))
+                    self._merge_videos(DiscoveryResult(provider=OR_VIDEOS, models=sandbox_videos(), fetched_at=time.time()))
             return {}
         jobs: dict[str, Any] = {}
         keys: dict[str, str] = {}
@@ -400,6 +628,15 @@ class ModelCatalog:
             if fetcher:
                 keys[provider] = getattr(cfg, "api_key", "") or ""
                 jobs[provider] = discover(provider, fetcher, force=force, key_fp=health.fingerprint(keys[provider]))
+            images = self._image_roster_fetcher(provider, cfg)
+            if images:
+                # 1.4-M2: the image roster is public (no key is sent), but it is only
+                # listed for someone who can call it: the provider's key is set
+                jobs[OR_IMAGES] = discover(OR_IMAGES, images, force=force)
+            videos = self._video_roster_fetcher(provider, cfg)
+            if videos:
+                # 1.4-M3: likewise public, likewise only listed for someone with the key
+                jobs[OR_VIDEOS] = discover(OR_VIDEOS, videos, force=force)
         if not jobs:
             return {}
         results = await asyncio.gather(*jobs.values(), return_exceptions=True)
@@ -409,11 +646,100 @@ class ModelCatalog:
                     logger.warning("Discovery task for %s crashed: %s", provider, res)
                     continue
                 self._discovery[provider] = res
-                self._merge(provider, res)
+                if provider == OR_IMAGES:
+                    self._merge_images(res)
+                elif provider == OR_VIDEOS:
+                    self._merge_videos(res)
+                else:
+                    self._merge(provider, res)
         for provider, res in zip(jobs, results):
-            if not isinstance(res, Exception):
+            if not isinstance(res, Exception) and provider in keys:
                 await asyncio.to_thread(self._record_health, provider, keys[provider], res)
         return dict(self._discovery)
+
+    def _image_roster_fetcher(self, provider: str, cfg: Any):
+        """The fetcher of ``provider``'s image roster (``image_discovery`` in
+        catalog.json), when its key is set."""
+        kind = (self.providers.get(provider) or {}).get("image_discovery")
+        if kind != "openrouter_images" or not (getattr(cfg, "api_key", "") or ""):
+            return None
+        from .discovery import load_cached
+        from .openrouter_images import fetch_openrouter_images
+
+        base = getattr(cfg, "base_url", None) or "https://openrouter.ai/api/v1"
+
+        async def fetch():
+            cached = load_cached(OR_IMAGES)
+            previous = {m.id: m.extra for m in cached.models} if cached else None
+            return await fetch_openrouter_images(base, previous=previous)
+
+        return fetch
+
+    def _merge_images(self, res: DiscoveryResult) -> None:
+        """Lay OpenRouter's image roster over the catalog: one ``image`` row per
+        listed model (``openrouter_images.entry_fields``). A failed listing with
+        nothing cached changes nothing; a model that dropped off the roster
+        goes offline."""
+        from .openrouter_images import bare_id, direct_twin, entry_fields
+
+        if res.error and not res.models:
+            return
+        listed = {dm.id for dm in res.models}
+        for key, entry in self._entries.items():
+            if len(key) == 3 and key[2] == "image" and entry.id not in listed:
+                entry.online = False
+        for dm in res.models:
+            twin_provider = direct_twin(dm.id)
+            twin = self._entries.get((twin_provider, bare_id(dm.id))) if twin_provider else None
+            fields = entry_fields(dm, twin)
+            self._entries[("openrouter", dm.id, "image")] = ModelEntry(
+                id=dm.id,
+                provider="openrouter",
+                modality="image",
+                harness=None,
+                online=True,
+                discovered_name=dm.display_name,
+                **fields,
+            )
+
+    def _video_roster_fetcher(self, provider: str, cfg: Any):
+        """The fetcher of ``provider``'s video roster (``video_discovery`` in
+        catalog.json), when its key is set (the request itself sends none)."""
+        kind = (self.providers.get(provider) or {}).get("video_discovery")
+        if kind != "openrouter_videos" or not (getattr(cfg, "api_key", "") or ""):
+            return None
+        from .openrouter_videos import fetch_openrouter_videos
+
+        base = getattr(cfg, "base_url", None) or "https://openrouter.ai/api/v1"
+        return lambda: fetch_openrouter_videos(base)
+
+    def _merge_videos(self, res: DiscoveryResult) -> None:
+        """Lay OpenRouter's video roster over the catalog: one ``video`` row per
+        listed model (``openrouter_videos.entry_fields``); those that are not
+        generation models are kept but unlisted. A failed listing with nothing
+        cached changes nothing; a model that dropped off the roster goes offline."""
+        from .openrouter_images import bare_id
+        from .openrouter_videos import entry_fields, vendor_of
+
+        if res.error and not res.models:
+            return
+        listed = {dm.id for dm in res.models}
+        for key, entry in self._entries.items():
+            if len(key) == 3 and key[2] == "video" and entry.id not in listed:
+                entry.online = False
+        for dm in res.models:
+            vendor = {"openai": "openai", "google": "google"}.get(vendor_of(dm.id))
+            twin = self._entries.get((vendor, bare_id(dm.id))) if vendor else None
+            fields = entry_fields(dm, twin)
+            self._entries[("openrouter", dm.id, "video")] = ModelEntry(
+                id=dm.id,
+                provider="openrouter",
+                modality="video",
+                harness=None,
+                online=True,
+                discovered_name=dm.display_name,
+                **fields,
+            )
 
     @staticmethod
     def _record_health(provider: str, key: str, res: DiscoveryResult) -> None:
@@ -448,9 +774,10 @@ class ModelCatalog:
         pcfg = self.providers.get(provider) or {}
         covered = set(pcfg.get("discovery_modalities") or pcfg.get("modalities") or MODALITIES)
         seen: set[str] = set()
-        for (prov, mid), entry in self._entries.items():
-            if prov != provider:
-                continue
+        for key, entry in self._entries.items():
+            if entry.provider != provider or len(key) != 2:
+                continue  # another provider's, or an OpenRouter image model (listed by its own roster)
+            mid = entry.id
             seen.add(mid)
             if entry.modality not in covered:
                 continue  # listing endpoint does not cover this modality

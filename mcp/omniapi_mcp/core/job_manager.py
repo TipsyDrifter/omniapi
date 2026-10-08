@@ -120,8 +120,8 @@ class JobManager:
             "operation": label,
             "message": (
                 f"'{label}' is still generating (long jobs like Suno music or "
-                f"high-quality / 4K images can take 1-3 min). Call get_job_result "
-                f"with task_id='{task_id}' in a moment to fetch it."
+                f"high-quality / 4K images can take 1-3 min; a video several minutes). "
+                f"Call get_job_result with task_id='{task_id}' in a moment to fetch it."
             ),
         }
 

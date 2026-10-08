@@ -9,7 +9,11 @@ from __future__ import annotations
 import asyncio
 import re
 
-KINDS = ("quota", "auth", "rejected", "timeout", "too_large", "unavailable", "offline", "interrupted", "invalid", "other")
+KINDS = ("quota", "auth", "rejected", "timeout", "too_large", "unavailable", "offline", "interrupted", "invalid", "other",
+         # 1.4-M3, video only (set by the job runner, never read from words): we stopped waiting at
+         # the time limit / the vendor no longer knows the job or the service died before its id
+         # came back / done there but the file would not download
+         "gave_up", "lost", "download")
 
 # first match wins — order matters: a 429 that says "insufficient_quota" is a
 # quota problem, and a 400 that says "safety" is a rejection, not a bad request
@@ -29,6 +33,9 @@ def classify(error: BaseException | str) -> str:
     """One of ``KINDS`` for an exception (or its message)."""
     if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
         return "timeout"
+    told = getattr(error, "error_kind", None)  # a provider that classified its own failure (ProviderError)
+    if isinstance(told, str) and told in KINDS:
+        return told
     text = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
     for kind, pattern in _RULES:
         if pattern.search(text):

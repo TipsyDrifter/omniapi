@@ -1,14 +1,14 @@
 # OmniAPI
 
-> 把外部 AI 模型收進同一個地方用：派工給 agent、跟任何文字模型聊天、生圖與做聲音、看每一筆花了多少；
+> 把外部 AI 模型收進同一個地方用：派工給 agent、跟任何文字模型聊天、生圖、做聲音與影片、看每一筆花了多少；
 > Claude Code 透過 MCP 用同一套能力，終端機裡有 `omni` 指令。三個入口，背後是同一個常駐服務、同一顆資料庫。
 
-![version](https://img.shields.io/badge/version-1.3.0-1F2330)
+![version](https://img.shields.io/badge/version-1.4.0-1F2330)
 ![platform](https://img.shields.io/badge/platform-Windows%2011-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**OmniAPI** is a local dispatch center for external AI models. One background service (bound to `127.0.0.1`) gives you three doors onto the same store: a web GUI (live board of agent runs, dispatch form, streaming chat with image and file attachments, retries and branches, and images or speech generated inside the conversation, a generation page for images / speech / music / transcripts, a works wall of everything generated, cost ledgers, a model catalog and a settings page where API keys are pasted and tested), an MCP server for Claude Code / Claude Desktop (19 tools: image, transcription, text, chat, speech, music, agent runs), and the `omni` CLI. Agent runs are delegated to the vendor's own headless harness — Claude Code, Codex CLI or Gemini CLI — chosen by model. Install it as a Windows desktop app (a tray icon and a window; Python is bundled) or from a zip with `uv`. The pages fit any width, down to a phone. Tested on Windows 11. MIT licensed.
+**OmniAPI** is a local dispatch center for external AI models. One background service (bound to `127.0.0.1`) gives you three doors onto the same store: a web GUI (live board of agent runs, dispatch form, streaming chat with image and file attachments, retries and branches, and images or speech generated inside the conversation, a generation page for images / speech / music / transcripts / short videos, a works wall of everything generated, cost ledgers, a model catalog and a settings page where API keys are pasted and tested), an MCP server for Claude Code / Claude Desktop (20 tools: image, transcription, text, chat, speech, music, video, agent runs), and the `omni` CLI. Videos and a set of extra image models (FLUX, Seedream, Grok Imagine, Qwen, Recraft and more) come through an OpenRouter key, and Google's Gemini Omni video model directly with a Google key (paid Gemini API tier); model pickers are ordered by the Artificial Analysis leaderboards and can be filtered by vendor and capability; every video is shown with its estimated cost and confirmed before it is sent. Agent runs are delegated to the vendor's own headless harness — Claude Code, Codex CLI or Gemini CLI — chosen by model. Install it as a Windows desktop app (a tray icon and a window; Python is bundled) or from a zip with `uv`. The pages fit any width, down to a phone. Tested on Windows 11. MIT licensed.
 
 ---
 
@@ -20,11 +20,15 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 |---|---|---|
 | **派工** | 把一件事交給 headless agent（Claude Code、Codex CLI、Gemini CLI，依模型自動挑）。它會進你指定的資料夾讀檔、改檔、跑指令，做完回報；可以追問、可以中途中止 | GUI、MCP `run_agent`、`omni run` |
 | **聊天** | 跟任何文字模型多輪對話，逐字顯示，每一則都能換模型；可以附圖片與檔案（PDF、Office 文件、試算表、程式碼……），不滿意的回覆重來一次或改了問題另開分岔；想要圖或語音時模型會提議，按下確認才生成 | GUI、MCP `chat`、`omni chat` |
-| **生成** | 生圖與改圖、語音合成、音樂生成、語音轉錄：填表、看預估費用、送出，成品從出件口出來 | GUI 生成頁、MCP 工具（在 Claude Code／Claude Desktop 裡使用） |
+| **生成** | 生圖與改圖、語音合成、音樂生成、語音轉錄、短影片：填表、看預估費用、送出，成品從出件口出來 | GUI 生成頁、MCP 工具（在 Claude Code／Claude Desktop 裡使用） |
 
-另外有一面**看板**：正在跑的 agent 在做什麼、跑過哪些、兩本帳各花了多少。不管是從生成頁還是從 Claude Code 叫的，做出來的圖、聲音、歌詞與逐字稿都收進同一面**作品牆**：可以篩選，看提示詞與費用，也查得到每一張是從哪一張改出來的。
+**影片**是 1.4 新加的：寫提示詞，可以放一張首幀（圖生影片），有的模型還收尾幀。影片有兩個供應商：OpenRouter（Wan、Kling、Veo、Grok Imagine、Seedance……），以及用你的 Google key 直連的 Gemini Omni（要開 Gemini API 付費層，一定帶聲音）；秒數、解析度、比例、有沒有聲音照每個模型支援的給選。影片一送出就開始計費、供應商沒有「取消」，所以每一支送出前都有一張確認單寫清楚預估金額；等待中可以離開頁面，服務重啟過也會接著等（Gemini Omni 除外，見〈目前的限制〉）。**圖片**也多了 OpenRouter 上的模型（FLUX、Seedream、Grok Imagine、Qwen、Recraft……），不用另外辦 key，現有的 OpenRouter key 就有。**Suno** 一次給的兩首歌現在都收下來，各是一件作品。
 
-**設定頁**是貼 API key 的地方：貼上、按「測試」（只請供應商列出模型清單，不花錢）、存起來，馬上生效、不用重啟；`cheap`／`standard`／`strong` 三個等級各指到哪個模型、聊天與派工等六種用途的預設模型，也都在這裡改。**模型頁**列出每家的模型、價格與能力（看圖、用工具、推理、收 PDF、收音訊），快下架的會提醒。第一次打開、一把 key 都還沒有時，會有一段引導帶你接上第一家。
+**挑模型的清單**（新對話、聊天換模型、生成頁、模型頁）預設照 [Artificial Analysis](https://artificialanalysis.ai) 排行榜的名次排，名稱旁標「AA #n」；可以搜尋，照廠商（可多選）、能力篩，或改照廠商、價格排。
+
+另外有一面**看板**：正在跑的 agent 在做什麼、跑過哪些、兩本帳各花了多少。不管是從生成頁還是從 Claude Code 叫的，做出來的圖、聲音、歌詞、逐字稿與影片都收進同一面**作品牆**：可以篩選，看提示詞與費用，影片點開就能播，也查得到每一張是從哪一張改出來的。
+
+**設定頁**是貼 API key 的地方：貼上、按「測試」（只請供應商列出模型清單，不花錢）、存起來，馬上生效、不用重啟；`cheap`／`standard`／`strong` 三個等級各指到哪個模型、聊天與派工等七種用途的預設模型、影片的花費上限與等待時間，也都在這裡改。**模型頁**列出每家的模型、價格與能力（看圖、用工具、推理、收 PDF、收音訊；影片是收首幀、收尾幀、有聲音），快下架的會提醒。第一次打開、一把 key 都還沒有時，會有一段引導帶你接上第一家。
 
 畫面會隨視窗寬度重排：寬螢幕、半個螢幕、平板到手機寬度都排得開；窄的時候導覽改成底部分頁列。
 
@@ -32,23 +36,25 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 | 聊天 | 費用 |
 |---|---|
-| ![聊天頁：附了圖與檔案的訊息、對話裡生成的作品，回覆可以切換版本](gui/screenshots/chat.png) | ![費用頁：派工帳、聊天・生成帳與最近的生成](gui/screenshots/costs.png) |
+| ![聊天頁：附了圖與檔案的訊息、對話裡生成的作品，回覆可以切換版本](gui/screenshots/chat.png) | ![費用頁：派工帳、聊天・生成帳，以及最近的生成（含影片）](gui/screenshots/costs.png) |
 
-![生成頁：左邊寫提示詞，中間挑模型、比例與解析度並看預估費用，右邊是出件口](gui/screenshots/make.png)
+![生成頁的圖片分頁：模型清單照熱門排、名稱旁標 AA 名次，上方是搜尋、排序、廠商與能力的篩選列；選了經 OpenRouter 的 FLUX 模型，比例 16:9，預估照 OpenRouter 名單上的價格](gui/screenshots/make.png)
+
+![生成頁的影片分頁：從作品牆「拿去做影片」放進首幀，alibaba/wan-3.0、5 秒 480p、預估約 $0.25；模型清單裡有標「Google 直連」的 Gemini Omni；右邊出件口裡做好的短片正在播](gui/screenshots/video.png)
 
 | 作品牆 | 作品詳情 |
 |---|---|
-| ![作品牆：圖、語音、音樂、歌詞與逐字稿依日期排在一起](gui/screenshots/works.png) | ![作品詳情：大圖、提示詞、設定與費用，以及從它改出來的作品](gui/screenshots/works-detail.png) |
+| ![作品牆：圖、聲音與影片依日期排在一起，影片卡標著長度與有沒有聲音](gui/screenshots/works.png) | ![作品詳情：大圖、提示詞、設定與費用，以及「拿去改圖」「拿去做影片」](gui/screenshots/works-detail.png) |
 
 | 設定 | 模型 |
 |---|---|
-| ![設定頁：各家供應商的 key（只顯示末四碼）、能不能用、等級別名](gui/screenshots/settings.png) | ![模型頁：依模態與能力篩選，右邊是選到的模型的價格、能力與它被用在哪](gui/screenshots/models.png) |
+| ![設定頁〈03 預設模型〉：影片的預設模型，以及 MCP 單支上限、最長等待、不等了之後三個影片設定](gui/screenshots/settings.png) | ![模型頁的影片分頁：預設照熱門（AA 名次）排，Wan 3.0 每種解析度的每秒價格](gui/screenshots/models.png) |
 
 <img src="gui/screenshots/mobile.png" alt="手機寬度的聊天：上方是返回列與「⋯」，訊息與附件照寬度重排" width="300" align="right">
 
 <sub>截圖裡的專案、對話、作品、金額與 key 都是示範資料：作品是用程式畫出來、合成出來的圖與聲音，key 是假的字串。右邊是手機寬度的聊天頁。</sub>
 
-支援的供應商：OpenAI、Anthropic、Google Gemini、DeepSeek、OpenRouter（長尾模型）、ElevenLabs、kie.ai（Suno）。模型名單在啟動時向各家即時查詢，新模型上線就能用；`cheap`／`standard`／`strong` 三個等級別名會對到當下設定的模型。
+支援的供應商：OpenAI、Anthropic、Google Gemini（含 Gemini Omni 影片）、DeepSeek、OpenRouter（長尾文字模型、FLUX 等圖片模型、影片）、ElevenLabs、kie.ai（Suno）。模型名單在啟動時向各家即時查詢，新模型上線就能用；`cheap`／`standard`／`strong` 三個等級別名會對到當下設定的模型。
 
 <br clear="right">
 
@@ -69,11 +75,11 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 ### 方法一：桌面版安裝包
 
-1. 到 [Releases](https://github.com/TipsyDrifter/omniapi/releases) 下載 `OmniAPI_1.3.0_x64-setup.exe`
+1. 到 [Releases](https://github.com/TipsyDrifter/omniapi/releases) 下載 `OmniAPI_1.4.0_x64-setup.exe`
 2. 執行它。Windows 可能會跳出藍色的「Windows 已保護您的電腦」（SmartScreen）：按「**其他資訊**」，再按「**仍要執行**」。
    會這樣是因為這個安裝包**沒有程式碼簽章**——簽章憑證是付費的，個人開發者不容易申請到，Windows 認不得發行者就會先擋一下。想確認下載的檔案沒被動過，可以對 Release 裡 `SHA256SUMS.txt` 的雜湊：
    ```powershell
-   Get-FileHash .\OmniAPI_1.3.0_x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\OmniAPI_1.4.0_x64-setup.exe -Algorithm SHA256
    ```
 3. 安裝不需要系統管理員權限，預設裝在 `%LOCALAPPDATA%\OmniAPI`
 4. 打開 OmniAPI（安裝程式最後一頁可以直接勾選執行，或從開始功能表打開）。右下角系統匣會出現 OmniAPI 的圖示，視窗裡先是「正在啟動」頁：**第一次開要等半分鐘左右**（剛裝好的檔案第一次被讀比較慢），之後幾秒就好
@@ -83,10 +89,10 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 ### 方法二：zip＋終端機
 
-到 Releases 下載 `omniapi-v1.3.0.zip`，解壓縮後：
+到 Releases 下載 `omniapi-v1.4.0.zip`，解壓縮後：
 
 ```bash
-cd omniapi-v1.3.0/mcp
+cd omniapi-v1.4.0/mcp
 uv sync
 uv run omni serve
 ```
@@ -155,11 +161,11 @@ uv run omni serve
 - **看板**：執行中的 agent 以票券顯示，右邊是它的即時活動流；下面是歷史與兩本帳
 - **＋新對話**：選「派工」或「聊天」。派工要選模型和工作目錄；聊天只要選模型
 - **聊天**：對話清單與對話內容，輸入列上方可以換下一則要用的模型、改 system prompt，可以匯出成 markdown。訊息可以附圖片與檔案；每則回覆能重新生成、每則問題能改寫，新舊版本用 ‹ 1/2 › 切換；模型提議的圖或語音按「生成」才會做，成品直接出現在對話裡、也收進作品牆。對話可以刪除
-- **生成**：生圖（放一張來源圖就變成改圖）、語音、音樂、轉錄。送出前顯示預估費用；送出後可以離開，做好的成品留在出件口
-- **作品**：所有做出來的作品，可依類型、來源、模型、日期篩選；點開看大圖或試聽、提示詞、費用，以及它的來源與衍生
+- **生成**：生圖（放一張來源圖就變成改圖）、語音、音樂、轉錄、影片。送出前顯示預估費用（影片另有一張確認單）；送出後可以離開，做好的成品留在出件口
+- **作品**：所有做出來的作品，可依類型、來源、模型、日期篩選；點開看大圖、試聽或播影片、提示詞、費用，以及它的來源與衍生
 - **費用**：兩本帳的明細
-- **模型**：每家的模型、價格、能力與狀態；可以篩選、搜尋，快下架的會提醒
-- **設定**：API key、等級別名、預設模型、外觀與送出鍵、服務資訊（版本、資料夾、這台電腦上的外部工具、把 Claude Code 接上）
+- **模型**：每家的模型、價格、能力與狀態；預設照 Artificial Analysis 的名次排，可以篩選、搜尋，快下架的會提醒
+- **設定**：API key、等級別名、預設模型（含影片的單支上限與等待時間）、外觀與送出鍵、服務資訊（版本、資料夾、這台電腦上的外部工具、把 Claude Code 接上）
 
 視窗窄到手機寬度時，導覽改成底部的分頁列（模型與設定收在「更多」裡）。操作細節見 [USER_GUIDE.md](USER_GUIDE.md)。
 
@@ -178,7 +184,7 @@ uv run omni mcp-config --apply
 
 工具清單與參數見 [mcp/README.md](mcp/README.md)；`skill/omniapi/` 是給 Claude 讀的使用說明（skill），可以放進 `~/.claude/skills/`。
 
-Claude Desktop 可以安裝 Release 裡的 `omniapi-mcp.dxt`。它是獨立的 stdio 版 MCP server，不需要常駐服務，但也就沒有看板。
+Claude Desktop 可以安裝 Release 裡的 `omniapi-mcp.dxt`。它是獨立的 stdio 版 MCP server，不需要常駐服務，但也就沒有看板。安裝時要填 OpenAI 的 key；ElevenLabs、kie.ai、OpenRouter 的 key 選填（填了 OpenRouter 才能用影片與 OpenRouter 的圖片模型）。
 
 ### 終端機
 
@@ -196,6 +202,7 @@ uv run omni chat
 ## 花費與安全
 
 - **這會花錢**。派工和聊天都是用你自己的 API key 呼叫供應商。看板的兩本帳會記下每一筆：派工帳是 agent 回報的費用，聊天・生成帳是每呼叫一次模型記一筆
+- **影片一送出就開始計費，而且取消不了**（供應商沒有取消的功能）。一支從幾美分到幾美元。生成頁每一支都先出確認單；Claude Code 透過 MCP 叫的，預估超過每支上限（預設 $1，設定頁可改）或送出前算不出金額的，不會送出
 - **Claude 模型預設走 Claude Code 的訂閱登入**，不扣 API 餘額；要用 API 計費得在派工時明確選擇
 - **服務沒有登入機制**，所以只綁 `127.0.0.1`。不要把 7788 埠開放到網路上。會改東西的請求（例如存 key）只收來自這台電腦本身的頁面
 - **派工的 agent 會真的改你的檔案、跑指令**。預設是「自動接受改檔」；`yolo` 會略過所有權限確認，除非你清楚後果否則不要開。工作目錄請指定到你願意讓它動的資料夾
@@ -214,6 +221,8 @@ OMNIAPI_HOME=/path/to/scratch-home OMNIAPI_DEV=1 OMNIAPI_OFFLINE=1 uv run omni s
 - `OMNIAPI_HOME`：資料放到另一個資料夾，不碰正式的資料庫
 - `OMNIAPI_DEV=1`：開啟兩個替身——`echo` 模型（把固定的稿子逐字吐回來）和「重播」harness（把舊的 run 重新播一次）
 - `OMNIAPI_OFFLINE=1`：拒絕所有會打到真供應商的呼叫，連啟動時的模型清單都不查
+
+兩個都開時，生成頁與作品牆照樣能試：做出來的是示範用的假圖、嗶聲與幾秒的示範短片，都不花錢（影片的預估照樣顯示真的送出時要花多少）。
 
 PowerShell 要先用 `$env:OMNIAPI_DEV = "1"` 這種寫法設定環境變數。
 
@@ -243,7 +252,13 @@ cd gui && npm run dev:sandbox    # 連離線沙盒（7799）
 - 安裝包沒有程式碼簽章，第一次執行會被 SmartScreen 擋一下（略過方式見〈安裝〉）
 - 桌面版不會自己更新：有新版時系統匣選單與設定頁會提示，要自己下載新的安裝包、執行覆蓋安裝
 - 畫面能排到手機寬度，但**還不支援從別台裝置（例如手機）連進來**：服務只綁這台電腦
-- 還不支援影片
+- 影片沒有真正的取消：「不等了」只是 OmniAPI 不再等，供應商多半照樣做完、照樣收費
+- 按 token 計價的影片模型（例如 Seedance）送出前算不出金額，只能送出後記實際費用
+- 預估照 OpenRouter 名單上的價格算；OpenRouter 實際收的有時比名單低，帳上記的是實際收的
+- 影片目前只做文生影片與首幀／尾幀的圖生影片；延長、編輯、對嘴、放大、多張參考圖都還不支援
+- Gemini Omni 直連是一直連著等到做好：等待中重啟服務，那一支接不回來（會標成遺失，多半已收費）；720p 以外的解析度送出前算不出金額
+- 模型清單的名次是手工抓的 Artificial Analysis 快照（2026-10-06），不會自己更新
+- 只出 SVG 向量圖的模型（Recraft 的向量款）還不支援
 
 ## 授權
 

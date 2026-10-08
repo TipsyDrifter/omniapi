@@ -19,7 +19,10 @@ export function ModelLine({ id, entry, data }: { id: string; entry: ModelEntry |
   return (
     <div className="ml">
       <span className="code">{entry.id}</span>
-      <span className="prov">{data?.providers?.[entry.provider]?.label ?? entry.provider}</span>
+      <span className="prov">
+        {data?.providers?.[entry.provider]?.label ?? entry.provider}
+        {entry.vendor_label ? ` · 原廠 ${entry.vendor_label}` : ""}
+      </span>
       {h ? (
         <span className={`hm ${harnessClass(h)}`} style={{ fontSize: "var(--fs-m11)" }}>
           {harnessName(h)}
@@ -49,7 +52,7 @@ export function ModelChooser(props: {
   const ok = (m: ModelEntry) => callable(slotUsable(settings, slotOf(m.provider, data)));
   const shown = useMemo(() => {
     let l = all ? pool : pool.filter(ok);
-    if (dq) l = l.filter((m) => `${m.id} ${m.name ?? ""}`.toLowerCase().includes(dq));
+    if (dq) l = l.filter((m) => `${m.id} ${m.name ?? ""} ${m.vendor_label ?? ""}`.toLowerCase().includes(dq));
     const order = Object.keys(data?.providers ?? {});
     return [...l].sort((a, b) => order.indexOf(a.provider) - order.indexOf(b.provider));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -61,7 +64,7 @@ export function ModelChooser(props: {
   return (
     <div className="pk">
       <div className="pk-bar">
-        <input className="in" type="search" placeholder="搜 id 或名稱" value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜尋模型" autoFocus />
+        <input className="in" type="search" placeholder={modality === "image" ? "搜 id、名稱或原廠" : "搜 id 或名稱"} value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜尋模型" autoFocus />
         <button type="button" className="ck2" style={{ width: "auto", border: 0 }} aria-pressed={all} onClick={() => setAll((v) => !v)}>
           <span>也列沒 key、停用的</span>
         </button>

@@ -80,7 +80,8 @@ function putGens(list: Generation[]): void {
     for (const g of list) {
       const cur = gens[g.id];
       // 匯流排與 REST 可能交錯：已經是終態的不要被較舊的 running 快照拉回去
-      if (cur && cur.status !== "running" && g.status === "running") continue;
+      // （影片「再去問一次」會從等太久回到 running：那一次是較新的快照，看 polled_at 判斷）
+      if (cur && cur.status !== "running" && g.status === "running" && !(g.kind === "video" && (g.video?.polled_at ?? 0) > (cur.video?.polled_at ?? 0))) continue;
       gens[g.id] = g;
     }
     const order = Object.keys(gens).sort((a, b) => gens[b].created_at - gens[a].created_at);
@@ -91,7 +92,7 @@ function putGens(list: Generation[]): void {
 /* ---------------- 匯流排 ---------------- */
 
 function onBus(e: BusEvent): void {
-  if (e.type === "generation.started" || e.type === "generation.finished") {
+  if (e.type === "generation.started" || e.type === "generation.finished" || e.type === "generation.updated") {
     const g = (e as BusGeneration).generation;
     if (g && g.id) putGens([g]);
   }
@@ -163,6 +164,14 @@ export async function cancelGeneration(id: string): Promise<void> {
   putGens([g]);
 }
 
+/** 1.4-M3：影片的兩個動作（畫面的正式版在下一個里程碑；出件口先有保底的按鈕） */
+export async function stopWaitingVideo(id: string): Promise<void> {
+  putGens([await api.stopWaitingGeneration(id)]);
+}
+export async function recheckVideo(id: string): Promise<void> {
+  putGens([await api.recheckGeneration(id)]);
+}
+
 /** 出件口收起一張（只記在這台瀏覽器） */
 export function dismissGeneration(id: string): void {
   set((s) => {
@@ -200,7 +209,8 @@ export function clearCarry(): void {
 }
 
 /** 開發／沙盒用：塞幾張假的失敗卡（?demo=fail），不經後端 */
-export function injectDemoFailures(): void {
+/** video＝只塞影片的（影片分頁）；其他＝原本那三張 */
+export function injectDemoFailures(only: "video" | "other" = "other"): void {
   const now = Date.now() / 1000;
   const base = { finished_at: now - 1, tool: "", sources: {}, estimate: null, cost_usd: null, artifacts: [] };
   const demos: Generation[] = [
@@ -247,9 +257,36 @@ export function injectDemoFailures(): void {
       demo: true,
     },
   ];
-  putGens(demos);
+  // 影片：沙盒做不出來的兩種失敗（額度不足、做好了卻下載不下來）；其他幾種沙盒做得出來（[fail]、[never]、[gone]）
+  const vbase = (id: string, ago: number, extra: Partial<Generation>, v: Partial<NonNullable<Generation["video"]>>): Generation => ({
+    ...base,
+    id,
+    created_at: now - ago,
+    kind: "video",
+    tool: "generate_video",
+    model: "alibaba/wan-3.0",
+    title: null,
+    params: { prompt: "", model: "alibaba/wan-3.0", resolution: "480p", aspect_ratio: "16:9", duration: 5, generate_audio: true },
+    estimate: { basis: "per_second", usd: 0.25, approx: true },
+    status: "error",
+    error: null,
+    error_kind: null,
+    demo: true,
+    video: {
+      provider: "openrouter", remote_id: null, submitted_at: now - ago, remote_status: null, polled_at: null, polls: 0, waited_s: 0, wait_from: null, max_wait_s: 1200,
+      deadline: null, next_poll_at: null, detached_at: null, late: false, keep_collecting: true, resumed: [], charged: "no", request: {}, warnings: [], last_error: null,
+      can_stop_waiting: false, can_recheck: false, ...v,
+    },
+    ...extra,
+  });
+  demos.push(
+    vbase("demo-v-quota", 12, { title: "示意：額度不夠的影片", params: { prompt: "示意：額度不夠的影片", model: "alibaba/wan-3.0", resolution: "480p", duration: 5 }, error: "402 · Insufficient credits", error_kind: "quota" }, { charged: "no" }),
+    vbase("demo-v-download", 15, { title: "示意：做好了卻下載不下來", params: { prompt: "示意：做好了卻下載不下來", model: "alibaba/wan-3.0", resolution: "480p", duration: 5 }, status: "gave_up", error: "the video is done at the provider but could not be downloaded", error_kind: "download" }, { charged: "likely", remote_id: "demo", can_recheck: true, waited_s: 161, remote_status: "completed" }),
+  );
+  const picked = demos.filter((g) => (only === "video") === (g.kind === "video"));
+  putGens(picked);
   // 當成這次送出的：出件口一定列
-  set((s) => ({ dismissed: s.dismissed.filter((id) => !id.startsWith("demo-")), mine: [...demos.map((g) => g.id), ...s.mine.filter((id) => !id.startsWith("demo-"))] }));
+  set((s) => ({ dismissed: s.dismissed.filter((id) => !id.startsWith("demo-")), mine: [...picked.map((g) => g.id), ...s.mine.filter((id) => !id.startsWith("demo-"))] }));
 }
 
 /* ---------------- 選擇器 ---------------- */

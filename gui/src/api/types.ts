@@ -1,4 +1,6 @@
 /* daemon 的資料形狀（以 2026-09-28 實機 /api 回應為準；後端定義在 mcp/omniapi_mcp/harness/events.py 與 store/db.py） */
+import type { ArtifactKind, GenKind } from "@/lib/modalities";
+export type { ArtifactKind, GenKind } from "@/lib/modalities";
 
 export type Harness = "claude" | "codex" | "gemini";
 export type RunState = "starting" | "running" | "done" | "error" | "cancelled" | "dead";
@@ -222,7 +224,8 @@ export interface SettingsProvider {
   suggested_tiers: TierMap | null;
 }
 
-export type DefaultKind = "chat" | "dispatch" | "image" | "speech" | "music" | "transcript";
+/** 設定頁的「預設模型」：聊天、派工，加上每一種生成模態 */
+export type DefaultKind = "chat" | "dispatch" | GenKind;
 
 export interface SettingsView {
   path: string;
@@ -231,6 +234,20 @@ export interface SettingsView {
   providers: Record<Slot, SettingsProvider>;
   tiers: Record<string, { model: string; source: "settings" | "env" | "catalog"; catalog: string }>;
   defaults: Record<DefaultKind, { model: string | null; source: "settings" | "env" | "default" }>;
+  /** 1.4-M3：影片的設定（MCP／CLI 的單支上限、最長等待、不等了之後要不要繼續收） */
+  video?: Record<keyof VideoSettings, { value: number | boolean; source: "settings" | "env" | "default" }>;
+}
+
+/** 1.4-M3：settings.json 的 video 一節 */
+export interface VideoSettings {
+  /** MCP／CLI：預估超過這個金額（美元）就不送出，除非呼叫帶 max_cost_usd */
+  mcp_max_usd: number;
+  /** MCP／CLI：不設上限（此時 mcp_max_usd 不看） */
+  mcp_unlimited: boolean;
+  /** 我們這邊最多等幾分鐘；超過標成「等太久」，保留遠端編號可以再去問一次 */
+  max_wait_minutes: number;
+  /** 不等了之後，背景照樣問、做好照樣收進作品牆 */
+  keep_collecting: boolean;
 }
 
 export interface SettingsPatchResult extends SettingsView {
@@ -244,6 +261,7 @@ export interface SettingsPatch {
   providers?: Partial<Record<Slot, { api_key?: string | null; enabled?: boolean | null }>>;
   tiers?: Partial<Record<string, string | null>>;
   defaults?: Partial<Record<DefaultKind, string | null>>;
+  video?: Partial<{ [K in keyof VideoSettings]: VideoSettings[K] | null }>;
 }
 
 export interface TestKeyResult {
@@ -339,6 +357,8 @@ export type WsMessage = WsHello | WsPing | BusEvent;
 
 /** GET /api/models?modality=text 的一筆 */
 export interface ModelEntry {
+  /** false = listed in the catalogue but not wired up in this version */
+  implemented?: boolean;
   id: string;
   provider: string;
   modality: string;
@@ -358,7 +378,47 @@ export interface ModelEntry {
   context?: number | null;
   aliases?: string[];
   note?: string;
+  /** 1.4-M2：經 OpenRouter 的圖片模型＝原廠（id 前綴與名稱） */
+  vendor?: string;
+  vendor_label?: string;
+  /** 1.4-M2：OpenRouter 圖片模型的名單寫明它收哪些參數 */
+  image_params?: OrImageParams;
+  /** 熱門：在 Artificial Analysis 各榜的名次（後端 catalog/popularity.py）；沒上榜就沒有這三欄 */
+  popularity?: Record<string, number>;
+  rank?: number;
+  rank_badge?: RankBadgeInfo;
   [k: string]: unknown;
+}
+
+/** 名次徽章：最好的那個「不是猜的對應」的名次（猜的對應只拿來排序，不出徽章） */
+export interface RankBadgeInfo {
+  board: string;
+  /** 榜名（智慧指數、文生圖、改圖…） */
+  label: string;
+  rank: number;
+  score?: number | null;
+}
+
+/** OpenRouter 圖片模型收的參數（後端 catalog/openrouter_images.image_params） */
+export interface OrImageParams {
+  resolutions: string[];
+  aspect_ratios: string[];
+  qualities: string[];
+  output_formats: string[];
+  backgrounds: string[];
+  /** 0＝不收參考圖（不能改圖） */
+  max_references: number;
+  /** >0＝沒有參考圖不能用（Recraft 的風格系列） */
+  min_references: number;
+  max_n: number;
+  seed: boolean;
+}
+/** OpenRouter 名單上的一條定價（pricing.unit === "openrouter" 時的 pricing.lines） */
+export interface OrPriceLine {
+  billable: string;
+  unit: string;
+  cost_usd: number;
+  variant?: string;
 }
 
 export interface ModelsResponse {
@@ -792,10 +852,7 @@ export interface BusChatProposal extends BusBase {
 
 /* ---------------- 1.1-M3：生成頁（後端 mcp/omniapi_mcp/generate/） ---------------- */
 
-/** 生成的四種模態（＝/make/:kind） */
-export type GenKind = "image" | "speech" | "music" | "transcript";
-/** 作品的種類（多一種歌詞） */
-export type ArtifactKind = "image" | "speech" | "music" | "transcript" | "lyrics";
+/* GenKind（生成的模態，＝/make/:kind）與 ArtifactKind（作品的種類，多一種歌詞）定義在 lib/modalities.ts，檔頭轉出 */
 
 /** GET /api/generate/options 的一個模型：ModelEntry＋能不能叫 */
 export interface GenModel {
@@ -810,8 +867,16 @@ export interface GenModel {
   note?: string;
   available: boolean;
   unavailable?: { reason: "missing_key" | "not_implemented" | "offline" | string; env?: string };
-  /** 生成模型的定價：unit 決定其他欄位（per_image／per_1m_tokens／per_1k_chars／per_1m_chars／per_minute／per_song／credits） */
+  /** 生成模型的定價：unit 決定其他欄位（per_image／per_1m_tokens／per_1k_chars／per_1m_chars／per_minute／per_song／credits／openrouter） */
   pricing?: { unit?: string; [k: string]: unknown } | null;
+  /** 1.4-M2：經 OpenRouter 的圖片模型 */
+  vendor?: string;
+  vendor_label?: string;
+  image_params?: OrImageParams;
+  /** 熱門（同 ModelEntry） */
+  popularity?: Record<string, number>;
+  rank?: number;
+  rank_badge?: RankBadgeInfo;
   [k: string]: unknown;
 }
 
@@ -822,6 +887,8 @@ export interface ImageCaps {
   formats: string[];
   max_images: number;
   supports_background: boolean;
+  /** 1.4-M2：provider === "openrouter" 時，模型自己宣告的參數（第三種表單形狀） */
+  or?: OrImageParams;
   [k: string]: unknown;
 }
 
@@ -850,12 +917,77 @@ export interface GenOptions {
   offline: boolean;
   /** 離線開發沙盒：不呼叫供應商、不花錢、每個模型都可選 */
   sandbox: boolean;
-  kinds: {
-    image: GenKindOptions & { capabilities: Record<string, ImageCaps> };
-    speech: GenKindOptions & { voices: Record<string, VoiceSet> };
-    music: GenKindOptions;
-    transcript: GenKindOptions;
+  kinds: { [K in GenKind]: GenKindOptions & GenKindExtras[K] };
+}
+/** 各模態在 /api/generate/options 多帶的欄位（每一種都要列，沒有就寫 NoExtras） */
+type NoExtras = Record<never, never>;
+interface GenKindExtras {
+  image: { capabilities: Record<string, ImageCaps> };
+  speech: { voices: Record<string, VoiceSet> };
+  music: NoExtras;
+  transcript: NoExtras;
+  video: VideoKindExtras;
+}
+
+/* ---------------- 1.4-M3：影片（後端 mcp/omniapi_mcp/video/、catalog/openrouter_videos.py） ---------------- */
+
+/** OpenRouter 影片模型自己宣告收什麼（名單現查）；audio／seed：true／false／null＝名單沒標 */
+export interface VideoParams {
+  durations: number[];
+  resolutions: string[];
+  aspect_ratios: string[];
+  sizes: string[];
+  frames: ("first_frame" | "last_frame")[];
+  audio: boolean | null;
+  seed: boolean | null;
+  passthrough: string[];
+  /** 一定有聲音、沒有開關（Gemini Omni 直連）：不送 generate_audio */
+  audio_fixed?: boolean;
+  /** 沒選解析度時模型自己用的那一級（Gemini Omni：720p，也是唯一算得出價的一級） */
+  default_resolution?: string;
+  /** 尾幀只能跟首幀一起給（Gemini Omni 直連） */
+  last_frame_needs_first?: boolean;
+}
+export interface VideoKindExtras {
+  limits: {
+    /** MCP／CLI 的單支上限（美元）；null＝不限 */
+    mcp_max_usd: number | null;
+    max_wait_s: number;
+    keep_collecting: boolean;
+    /** 問供應商的間隔：第 1、2、3 次之後每次 */
+    poll_s: number[];
   };
+  /** 名單上有、這一版不收的（編輯、放大、數位人） */
+  unlisted: { id: string; name: string; reason: string; note: string | null }[];
+}
+/** 影片工作的等待資訊（generation.video） */
+export interface VideoJobView {
+  provider: string | null;
+  remote_id: string | null;
+  /** 送出時間（已等多久從這裡算，離開再回來是連續的） */
+  submitted_at: number | null;
+  /** 供應商上次說的：pending／in_progress／completed／failed… */
+  remote_status: string | null;
+  polled_at: number | null;
+  polls: number;
+  waited_s: number | null;
+  wait_from: number | null;
+  max_wait_s: number;
+  deadline: number | null;
+  next_poll_at: number | null;
+  detached_at: number | null;
+  /** 不等了之後才收回來的 */
+  late: boolean;
+  keep_collecting: boolean;
+  /** 服務重啟過、接回來的紀錄（重啟前已等多久） */
+  resumed: { at: number; after_s: number }[];
+  /** 有沒有可能已經計費：yes／no／likely／unknown */
+  charged: "yes" | "no" | "likely" | "unknown" | string;
+  request: Record<string, unknown>;
+  warnings: string[];
+  last_error: string | null;
+  can_stop_waiting: boolean;
+  can_recheck: boolean;
 }
 
 export type EstimateBasis =
@@ -869,7 +1001,12 @@ export type EstimateBasis =
   | "credits"
   | "needs_length"
   | "unknown"
-  | "sandbox";
+  | "sandbox"
+  | "variant"
+  | "range"
+  | "per_megapixel"
+  | "per_token"
+  | "no_price";
 
 /** POST /api/generate/estimate：basis 決定其他欄位 */
 export interface Estimate {
@@ -885,6 +1022,15 @@ export interface Estimate {
   samples?: number;
   credit_usd?: number;
   unit?: string;
+  /** 1.4-M2（OpenRouter）：對到的分級、參考圖張數與它們的費用、約略值、沙盒裡「真的送出」的估價 */
+  variant?: string;
+  refs?: number;
+  ref_usd?: number;
+  refs_unpriced?: boolean;
+  approx?: boolean;
+  megapixels?: number;
+  mp_price?: number;
+  listed?: Estimate;
   [k: string]: unknown;
 }
 
@@ -894,10 +1040,26 @@ export type SourceView = SourceRef & { name: string | null; file_url: string; th
 export interface GenSources {
   images?: SourceRef[];
   audio?: SourceRef;
+  /** 1.4-M3：影片的首幀、尾幀 */
+  frames?: { first?: SourceRef; last?: SourceRef };
 }
 
-export type GenStatus = "running" | "done" | "error" | "cancelled" | "interrupted";
-export type GenErrorKind = "quota" | "auth" | "rejected" | "timeout" | "too_large" | "unavailable" | "offline" | "interrupted" | "invalid" | "other";
+/** 影片多三種：detached（不等了，背景還在收）、gave_up（等太久，可以再去問一次）、abandoned（不等了也不收） */
+export type GenStatus = "running" | "done" | "error" | "cancelled" | "interrupted" | "detached" | "gave_up" | "abandoned";
+export type GenErrorKind =
+  | "quota"
+  | "auth"
+  | "rejected"
+  | "timeout"
+  | "too_large"
+  | "unavailable"
+  | "offline"
+  | "interrupted"
+  | "invalid"
+  | "other"
+  | "gave_up"
+  | "lost"
+  | "download";
 
 /** 作品（artifacts 表的一列，去掉路徑） */
 export interface Artifact {
@@ -925,6 +1087,24 @@ export interface Artifact {
   exists: boolean;
   /** 後端有帶，但頁面不顯示路徑 */
   file_path?: string;
+  /** 影片：有沒有封面（沒有＝縮圖端點回 204，畫面讓 <video> 自己顯示第一格） */
+  poster?: boolean;
+  /** 影片：檔案裡有沒有聲音（讀檔案，不信名單）；null＝讀不出來 */
+  has_audio?: boolean | null;
+  /** 詳情才有：影片的等待紀錄、送出時的預估、首尾幀 */
+  meta?: ArtifactMeta | null;
+  [k: string]: unknown;
+}
+
+/** 作品的 meta（影片用到的那幾個；其他種類的另有欄位） */
+export interface ArtifactMeta {
+  fps?: number | null;
+  waited_s?: number | null;
+  late?: boolean;
+  resumed?: boolean;
+  estimate?: { basis?: string; usd?: number; low?: number; high?: number } | null;
+  frames?: { first?: { artifact_id?: string; upload_id?: string }; last?: { artifact_id?: string; upload_id?: string } } | null;
+  requested?: Record<string, unknown> | null;
   [k: string]: unknown;
 }
 
@@ -937,7 +1117,7 @@ export interface Generation {
   model: string | null;
   title: string | null;
   params: Record<string, unknown>;
-  sources: { images?: SourceView[]; audio?: SourceView };
+  sources: { images?: SourceView[]; audio?: SourceView; frames?: { first?: SourceView; last?: SourceView } };
   status: GenStatus;
   error: string | null;
   error_kind: GenErrorKind | null;
@@ -947,6 +1127,8 @@ export interface Generation {
   source?: string;
   /** 1.2-M4：聊天來的生成記著是哪段聊天、哪一則、哪張提議 */
   meta?: { conversation_id?: string; message_id?: string; tool_call_id?: string; [k: string]: unknown } | null;
+  /** 1.4-M3：只有影片有 */
+  video?: VideoJobView;
   [k: string]: unknown;
 }
 
@@ -1049,7 +1231,8 @@ export interface BusArtifactCreated extends BusBase {
 }
 
 export interface BusGeneration extends BusBase {
-  type: "generation.started" | "generation.finished";
+  /** generation.updated：1.4-M3，影片每次問到供應商、重啟後接回、不等了、再去問一次 */
+  type: "generation.started" | "generation.updated" | "generation.finished";
   generation: Generation;
 }
 

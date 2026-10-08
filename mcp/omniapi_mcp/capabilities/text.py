@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -635,6 +636,33 @@ class OpenRouterTextProvider(OpenAITextProvider):
     def default_base_url(cls) -> str:
         return "https://openrouter.ai/api/v1"
 
+    def _build_request(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        request = super()._build_request(model, messages, params)
+        if not model.lower().startswith("anthropic/"):
+            return request
+        # Claude through OpenRouter. OpenRouter turns its unified `reasoning`
+        # parameter into Anthropic's thinking config itself (budget or
+        # adaptive), so no budget_tokens ever leaves here. Its docs (reasoning
+        # tokens page, read 2026-10-06): reasoning on Anthropic models is
+        # enabled "only using the unified `reasoning` parameter" — so the
+        # OpenAI-style top-level reasoning_effort is moved into it.
+        effort = request.pop("reasoning_effort", None)
+        if effort and effort != "none":  # OpenRouter rejects "none" for Claude
+            extra = dict(request.get("extra_body") or {})
+            extra["reasoning"] = {"effort": effort}
+            request["extra_body"] = extra
+        if claude_thinking_shape(model) == CLAUDE_SHAPE_ADAPTIVE:
+            # Claude 4.7+ answers temperature/top_p with HTTP 400
+            for k in ("temperature", "top_p"):
+                if request.pop(k, None) is not None:
+                    self._logger.warning("Dropping %s for %s (rejected with HTTP 400 on Claude 4.7+)", k, model)
+        return request
+
 
 # ============================================================================
 # Anthropic (Messages API)
@@ -644,6 +672,101 @@ class OpenRouterTextProvider(OpenAITextProvider):
 #: private key on an assistant message: the signed thinking blocks Anthropic
 #: returned with its tool calls (``TextResult.metadata["replay"]`` carries them out)
 ANTHROPIC_THINKING_KEY = "_anthropic_thinking"
+
+# --- which thinking request shape a Claude model takes ----------------------
+# Source: claude-api skill 2.1.286 (Thinking & Effort table), checked
+# 2026-10-06 — see docs/research/2026-10-06-anthropic-thinking與effort參數查證.md
+#   * 4.7 and later (Opus 4.7/4.8/5/5.5, Sonnet 5/5.5, Fable 5/5.1, Mythos):
+#     ``thinking: {type: "enabled", budget_tokens}`` is a 400, and so are
+#     temperature/top_p. Thinking on = ``{type: "adaptive"}`` + depth in
+#     ``output_config.effort`` (low/medium/high/xhigh/max).
+#   * 4.6 (Opus 4.6, Sonnet 4.6): adaptive + effort too (budget_tokens is
+#     deprecated there), but no ``xhigh`` and sampling params are still allowed.
+#   * Older (Haiku 4.5, Sonnet 4.5, Opus 4.5, Claude 3.x, …): only
+#     ``{type: "enabled", budget_tokens: N}``; effort errors on most of them.
+# An id we cannot read a version from is treated as a NEW model: every Claude
+# released from 4.7 on rejects budget_tokens, so that is the safe default.
+CLAUDE_SHAPE_ADAPTIVE = "adaptive"        # 4.7+
+CLAUDE_SHAPE_ADAPTIVE_46 = "adaptive-4.6"  # 4.6
+CLAUDE_SHAPE_BUDGET = "budget"            # older than 4.6
+_CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# claude-<family>-<major>[-<minor>][-<yyyymmdd>]; OpenRouter writes the minor with a dot
+_CLAUDE_NEW_ID = re.compile(
+    r"^claude-(?P<family>fable|mythos|opus|sonnet|haiku)-(?P<major>\d+)(?:[.-](?P<minor>\d{1,2})(?!\d))?"
+)
+# legacy order: claude-<major>[-<minor>]-<family>… (Claude 3.x)
+_CLAUDE_OLD_ID = re.compile(r"^claude-(?P<major>\d+)(?:[.-](?P<minor>\d{1,2})(?!\d))?-(?P<family>opus|sonnet|haiku)")
+
+
+def claude_family_version(model: str) -> tuple[str, tuple[int, int]] | None:
+    """(family, (major, minor)) read from a Claude model id, or None when the
+    id does not look like a versioned Claude id. Accepts the vendor-prefixed
+    forms (``anthropic/claude-opus-4.7`` on OpenRouter, ``anthropic.claude-…``
+    on Bedrock) and ignores date / context suffixes."""
+    m = (model or "").strip().lower()
+    for prefix in ("anthropic/", "anthropic."):
+        if m.startswith(prefix):
+            m = m[len(prefix):]
+    hit = _CLAUDE_NEW_ID.match(m) or _CLAUDE_OLD_ID.match(m)
+    if not hit:
+        return None
+    return hit.group("family"), (int(hit.group("major")), int(hit.group("minor") or 0))
+
+
+def claude_version(model: str) -> tuple[int, int] | None:
+    """(major, minor) of a Claude model id; see ``claude_family_version``."""
+    fv = claude_family_version(model)
+    return fv[1] if fv else None
+
+
+# --- forced tool choice -----------------------------------------------------
+# Source: claude-api skill 2.1.286 ("Forced tool use removed" pitfall),
+# checked 2026-10-06: Claude Fable 5.1 / Mythos 5.1 / Opus 5.5 / Sonnet 5.5
+# answer ``tool_choice`` ``{type:"any"}`` and ``{type:"tool", name}`` with a
+# 400; ``auto`` and ``none`` still work. Earlier models (Fable 5, Opus 5,
+# Sonnet 5, 4.x, …) accept forced tool use. Per-family first version that
+# rejects it; Haiku has no such model yet — a Haiku 5 is GUESSED to follow
+# the line. An id with no readable version counts as rejecting (newest rules).
+_FORCED_TOOL_CHOICE_REJECTED_FROM = {
+    "fable": (5, 1),
+    "mythos": (5, 1),
+    "opus": (5, 5),
+    "sonnet": (5, 5),
+    "haiku": (5, 0),  # guess: no Haiku after 4.5 exists yet
+}
+
+
+def claude_rejects_forced_tool_choice(model: str) -> bool:
+    fv = claude_family_version(model)
+    if fv is None:
+        return True
+    family, version = fv
+    first = _FORCED_TOOL_CHOICE_REJECTED_FROM.get(family)
+    return first is not None and version >= first
+
+
+def claude_thinking_shape(model: str) -> str:
+    """The one place that decides how thinking is asked for on a Claude model
+    (see the table above)."""
+    v = claude_version(model)
+    if v is None or v >= (4, 7):
+        return CLAUDE_SHAPE_ADAPTIVE
+    if v >= (4, 6):
+        return CLAUDE_SHAPE_ADAPTIVE_46
+    return CLAUDE_SHAPE_BUDGET
+
+
+def claude_effort(effort: str, shape: str) -> str | None:
+    """Our ``reasoning_effort`` value → ``output_config.effort`` for an
+    adaptive-shape model; None when there is no matching level."""
+    e = (effort or "").strip().lower()
+    if e == "minimal":
+        e = "low"
+    if e not in _CLAUDE_EFFORTS:
+        return None
+    if shape == CLAUDE_SHAPE_ADAPTIVE_46 and e == "xhigh":
+        return "high"  # xhigh arrived with Opus 4.7
+    return e
 
 
 class AnthropicTextProvider(TextProvider):
@@ -668,8 +791,12 @@ class AnthropicTextProvider(TextProvider):
     }
     DEFAULT_MODEL = "claude-sonnet-5"
     DEFAULT_MAX_TOKENS = 4096
-    # reasoning_effort → extended-thinking budget (tokens)
-    THINKING_BUDGETS = {"low": 1024, "medium": 4096, "high": 16000, "xhigh": 32000}
+    # max_tokens when adaptive thinking is asked for and the caller set none:
+    # thinking counts against max_tokens, and 4096 would cut a high-effort
+    # answer short (the skill's non-streaming default is ~16000)
+    ADAPTIVE_DEFAULT_MAX_TOKENS = 16000
+    # reasoning_effort → extended-thinking budget (tokens); pre-4.6 models only
+    THINKING_BUDGETS = {"low": 1024, "medium": 4096, "high": 16000, "xhigh": 32000, "max": 32000}
 
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
@@ -837,9 +964,17 @@ class AnthropicTextProvider(TextProvider):
         req: dict[str, Any] = {"model": model, "messages": converted, "max_tokens": max_tokens}
         if system:
             req["system"] = system
+        shape = claude_thinking_shape(model)
+        warnings: list[str] = []
         for k in ("temperature", "top_p"):
-            if params.get(k) is not None:
-                req[k] = params[k]
+            if params.get(k) is None:
+                continue
+            if shape == CLAUDE_SHAPE_ADAPTIVE:
+                # 4.7+ answer temperature/top_p with HTTP 400 (thinking on or off)
+                logger.warning("Dropping %s=%s for %s (rejected with HTTP 400 on Claude 4.7+); "
+                               "use reasoning_effort instead.", k, params[k], model)
+                continue
+            req[k] = params[k]
         if params.get("stop") is not None:
             stop = params["stop"]
             req["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
@@ -847,30 +982,62 @@ class AnthropicTextProvider(TextProvider):
         if tools:
             req["tools"] = tools
             tc = self._convert_tool_choice(params.get("tool_choice"))
+            if tc and tc.get("type") in ("any", "tool") and claude_rejects_forced_tool_choice(model):
+                what = f"tool {tc['name']!r}" if tc.get("type") == "tool" else "a tool (required)"
+                note = (f"{model} rejects a forced tool_choice (HTTP 400); asked with tool_choice=auto instead "
+                        f"of forcing {what}, so the model may answer without calling it.")
+                logger.warning(note)
+                warnings.append(note)
+                tc = {"type": "auto"}
             if tc:
                 req["tool_choice"] = tc
+        if shape == CLAUDE_SHAPE_ADAPTIVE and not params.get("max_completion_tokens"):
+            # 4.7+ may think even without reasoning_effort (always on for Fable /
+            # Opus 5.5, default on for Opus 5 / Sonnet 5 / 5.5), and thinking
+            # counts against max_tokens — 4096 would cut answers short
+            req["max_tokens"] = max(req["max_tokens"], self.ADAPTIVE_DEFAULT_MAX_TOKENS)
+        # output_config goes out via extra_body so an older SDK does not choke on it
+        output_config: dict[str, Any] = {}
         thinking = params.get("thinking")
         effort = params.get("reasoning_effort")
         if isinstance(thinking, dict) and thinking.get("type"):
-            req["thinking"] = thinking
+            req["thinking"] = thinking  # caller's own thinking config: sent as given
         elif effort and effort != "none":
-            budget = self.THINKING_BUDGETS.get(effort, self.THINKING_BUDGETS["medium"])
-            req["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            if req["max_tokens"] <= budget:
-                req["max_tokens"] = budget + self.DEFAULT_MAX_TOKENS
-            # extended thinking forbids temperature/top_p tweaks
-            req.pop("temperature", None)
-            req.pop("top_p", None)
+            if shape == CLAUDE_SHAPE_BUDGET:
+                budget = self.THINKING_BUDGETS.get(effort, self.THINKING_BUDGETS["medium"])
+                req["thinking"] = {"type": "enabled", "budget_tokens": budget}
+                if req["max_tokens"] <= budget:
+                    req["max_tokens"] = budget + self.DEFAULT_MAX_TOKENS
+                # extended thinking forbids temperature/top_p tweaks
+                req.pop("temperature", None)
+                req.pop("top_p", None)
+            else:
+                # 4.6+: adaptive thinking, depth via output_config.effort. Sent
+                # explicitly: on Opus 4.7/4.8 (and 4.6) omitting it means no thinking.
+                req["thinking"] = {"type": "adaptive"}
+                level = claude_effort(effort, shape)
+                if level:
+                    output_config["effort"] = level
+                else:
+                    logger.warning("reasoning_effort=%r has no Claude effort level; %s runs at its default effort",
+                                   effort, model)
+                if not params.get("max_completion_tokens"):
+                    req["max_tokens"] = max(req["max_tokens"], self.ADAPTIVE_DEFAULT_MAX_TOKENS)
         rf = params.get("response_format")
         if isinstance(rf, dict) and rf.get("type") == "json_schema":
             schema = (rf.get("json_schema") or {}).get("schema") or rf.get("schema")
             if schema:
                 # Structured outputs: output_config.format (platform docs 2026-09).
-                # Sent via extra_body so an older SDK does not choke on it.
-                req["extra_body"] = {
-                    "output_config": {"format": {"type": "json_schema", "schema": schema}}
-                }
+                output_config["format"] = {"type": "json_schema", "schema": schema}
+        if output_config:
+            req["extra_body"] = {"output_config": output_config}
+        if warnings:
+            req[self._REQUEST_WARNINGS] = warnings  # popped before sending; ends up in metadata["warnings"]
         return req
+
+    #: private request key carrying what _build_request changed on the caller;
+    #: never sent (complete/stream pop it) — lands in TextResult.metadata["warnings"]
+    _REQUEST_WARNINGS = "_omniapi_warnings"
 
     @staticmethod
     def _parse_response(resp: Any, model: str, provider: str) -> TextResult:
@@ -943,10 +1110,14 @@ class AnthropicTextProvider(TextProvider):
                 error_code="UNSUPPORTED_MODEL",
             )
         request = self._build_request(model, messages, kwargs)
+        warnings = request.pop(self._REQUEST_WARNINGS, None)
         try:
             self._logger.info("Text completion with %s model %s", self.name, model)
             resp = await self.client.messages.create(**request)
-            return self._parse_response(resp, model, self.name)
+            result = self._parse_response(resp, model, self.name)
+            if warnings:
+                result.metadata["warnings"] = warnings
+            return result
         except ProviderError:
             raise
         except Exception as e:
@@ -974,6 +1145,7 @@ class AnthropicTextProvider(TextProvider):
                 error_code="UNSUPPORTED_MODEL",
             )
         request = self._build_request(model, messages, kwargs)
+        warnings = request.pop(self._REQUEST_WARNINGS, None)
         request["stream"] = True
         texts: list[str] = []
         thoughts: list[str] = []
@@ -1058,7 +1230,7 @@ class AnthropicTextProvider(TextProvider):
                 finish_reason=self._STOP_MAP.get(stop or "", stop),
                 usage=usage or None,
                 tool_calls=tool_calls or None,
-                metadata=self._metadata(self.name, tool_calls, signed),
+                metadata={**self._metadata(self.name, tool_calls, signed), **({"warnings": warnings} if warnings else {})},
             ),
         }
 

@@ -16,7 +16,12 @@ ledger row, same works index. What this adds is a *job* around it:
 Events on the bus:
 
     generation.started   {generation}
-    generation.finished  {generation}      status: done | error | cancelled
+    generation.updated   {generation}      (video: each answer from the vendor, a resume, stop waiting, ask again)
+    generation.finished  {generation}      status: done | error | cancelled (video also: gave_up | abandoned)
+
+A video job is not a tool run: it is handed to ``video.jobs.VideoJobs``
+(``self.videos``), which stores the vendor's job id the moment it is sent and
+waits on it across restarts. ``cancel`` on a video means "stop waiting".
 
 ``generation`` is the public row: the stored job plus ``artifacts`` (the
 public rows of the works it produced).
@@ -31,6 +36,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
+from .. import modalities as M
 from ..artifacts import public_row
 from ..bus import EventBus
 from ..core.job_manager import wait_to_finish
@@ -41,22 +47,27 @@ from .estimate import estimate as estimate_cost
 
 logger = logging.getLogger(__name__)
 
-KINDS = ("image", "speech", "music", "transcript")
+KINDS = M.KINDS
 
 #: the tool arguments a GUI request may set, per tool. Blob and path
 #: arguments are absent on purpose: files come in through ``sources``.
+#: One entry per tool a generation kind runs (checked below).
 ALLOWED_PARAMS: dict[str, frozenset[str]] = {
     "generate_image": frozenset({"prompt", "model", "quality", "size", "output_format", "compression", "background", "n",
                                  "image_size", "aspect_ratio", "moderation"}),
-    "edit_image": frozenset({"prompt", "model", "quality", "size", "output_format", "compression", "background", "input_fidelity"}),
+    "edit_image": frozenset({"prompt", "model", "quality", "size", "output_format", "compression", "background", "input_fidelity",
+                             "image_size", "aspect_ratio"}),
     "generate_speech": frozenset({"text", "voice", "model", "output_format", "instructions", "speed", "language_code", "voice_settings"}),
     "generate_music": frozenset({"prompt", "model", "instrumental", "output_format", "music_length_ms", "style", "title",
                                  "custom_mode", "vocal_gender", "negative_tags"}),
     "transcribe_audio": frozenset({"model", "language", "prompt", "response_format", "temperature"}),
+    # 1.4-M3: frames come in through ``sources.frames`` ({first, last}), never as paths
+    "generate_video": frozenset({"prompt", "model", "duration", "resolution", "aspect_ratio", "generate_audio", "seed"}),
 }
+M.require_keys(ALLOWED_PARAMS, (t for m in M.GENERATION for t in (m.tool, m.source_tool) if t), "generate.ALLOWED_PARAMS")
 
 #: which kinds of work (or upload) may feed which source slot
-_SOURCE_KINDS = {"images": ({"image"}, {"image"}), "audio": ({"speech", "music"}, {"audio"})}
+_SOURCE_KINDS = M.SOURCE_SLOTS
 MAX_SOURCE_IMAGES = 16  # gpt-image edits take up to 16 input images
 _TITLE_CHARS = 60
 
@@ -70,9 +81,67 @@ class GenerationError(ValueError):
 
 
 def tool_for(kind: str, sources: dict[str, Any]) -> str:
-    if kind == "image":
-        return "edit_image" if sources.get("images") else "generate_image"
-    return {"speech": "generate_speech", "music": "generate_music", "transcript": "transcribe_audio"}[kind]
+    slot = M.BY_KIND[kind].source_slot
+    return M.tool_for(kind, bool(slot and sources.get(slot)))
+
+
+def _told_kind(error: BaseException) -> Optional[str]:
+    """The ``error_kind`` a provider put on its exception (``ProviderError``),
+    looked for down the cause chain (the tool and the MCP layer each wrap it)."""
+    seen = 0
+    e: Optional[BaseException] = error
+    while e is not None and seen < 8:
+        kind = getattr(e, "error_kind", None)
+        if isinstance(kind, str) and kind:
+            return classify(e)
+        e = e.__cause__ or e.__context__
+        seen += 1
+    return None
+
+
+async def public_generation(store: Store, row: dict[str, Any], settings: Any = None) -> dict[str, Any]:
+    """A stored job as the page sees it: the row plus its works and named
+    sources; a video adds ``video`` (the waiting card's facts) and leaves
+    out its bookkeeping (lease, raw remote answers)."""
+    out = dict(row)
+    works = await store.artifacts_by_ids(row.get("artifact_ids") or [])
+    out["artifacts"] = [public_row(w) for w in works]
+    out["sources"] = await _describe_sources(store, row.get("sources") or {})
+    if row.get("kind") == "video":
+        from ..video.jobs import video_view
+
+        if settings is None:
+            from ..runtime import runtime
+
+            settings = getattr(runtime.context, "settings", None)
+        out["video"] = video_view(row, settings)
+    for k in ("lease_owner", "lease_until", "remote"):
+        out.pop(k, None)
+    return out
+
+
+async def _describe_sources(store: Store, sources: dict[str, Any]) -> dict[str, Any]:
+    """Sources as the page shows them: ids plus a name and a URL, no paths."""
+    async def one(ref: dict[str, Any]) -> dict[str, Any]:
+        if ref.get("artifact_id"):
+            work = await store.artifact(ref["artifact_id"])
+            name = Path(work["file_path"]).name if work else None
+            return {**ref, "name": (work or {}).get("title") or name, "file_url": f"/api/artifacts/{ref['artifact_id']}/file",
+                    "thumb_url": f"/api/artifacts/{ref['artifact_id']}/thumb" if work and M.MEDIA_OF.get(work["kind"]) == "image" else None}
+        if ref.get("upload_id"):
+            up = await store.upload(ref.get("upload_id") or "")
+            return {**ref, "name": (up or {}).get("filename"), "file_url": f"/api/uploads/{ref.get('upload_id')}/file", "thumb_url": None}
+        # a frame MCP named by a local file (or inline data) that is not a work: its name only
+        return {**ref, "name": ref.get("file") or ("inline image" if ref.get("inline") else None), "file_url": None, "thumb_url": None}
+
+    out: dict[str, Any] = {}
+    if sources.get("images"):
+        out["images"] = [await one(r) for r in sources["images"]]
+    if sources.get("audio"):
+        out["audio"] = await one(sources["audio"])
+    if isinstance(sources.get("frames"), dict):
+        out["frames"] = {k: await one(v) for k, v in sources["frames"].items() if isinstance(v, dict)}
+    return out
 
 
 def _first_line(text: Any) -> str:
@@ -94,6 +163,8 @@ class GenerationManager:
         self._settling: dict[str, asyncio.Task] = {}
         #: set by ``close()``: a job cancelled from here on was stopped by the shutdown, not by anyone
         self.closing = False
+        #: 1.4-M3: video jobs (``video.jobs.VideoJobs``), set by the runtime
+        self.videos: Any = None
 
     @property
     def live_count(self) -> int:
@@ -101,29 +172,11 @@ class GenerationManager:
 
     # ------------------------------------------------------------ rows
     async def public(self, row: dict[str, Any]) -> dict[str, Any]:
-        out = dict(row)
-        works = await self.store.artifacts_by_ids(row.get("artifact_ids") or [])
-        out["artifacts"] = [public_row(w) for w in works]
-        out["sources"] = await self._describe_sources(row.get("sources") or {})
-        return out
+        settings = getattr(self.videos, "settings", None) if self.videos is not None else None
+        return await public_generation(self.store, row, settings)
 
     async def _describe_sources(self, sources: dict[str, Any]) -> dict[str, Any]:
-        """Sources as the page shows them: ids plus a name and a URL, no paths."""
-        async def one(ref: dict[str, Any]) -> dict[str, Any]:
-            if ref.get("artifact_id"):
-                work = await self.store.artifact(ref["artifact_id"])
-                name = Path(work["file_path"]).name if work else None
-                return {**ref, "name": (work or {}).get("title") or name, "file_url": f"/api/artifacts/{ref['artifact_id']}/file",
-                        "thumb_url": f"/api/artifacts/{ref['artifact_id']}/thumb" if work and work["kind"] == "image" else None}
-            up = await self.store.upload(ref.get("upload_id") or "")
-            return {**ref, "name": (up or {}).get("filename"), "file_url": f"/api/uploads/{ref.get('upload_id')}/file", "thumb_url": None}
-
-        out: dict[str, Any] = {}
-        if sources.get("images"):
-            out["images"] = [await one(r) for r in sources["images"]]
-        if sources.get("audio"):
-            out["audio"] = await one(sources["audio"])
-        return out
+        return await _describe_sources(self.store, sources)
 
     async def get(self, generation_id: str) -> dict[str, Any]:
         row = await self.store.generation(generation_id)
@@ -145,6 +198,9 @@ class GenerationManager:
             if not row:
                 raise GenerationError("source work not found", 404)
             if row["kind"] not in work_kinds:
+                if M.MEDIA_OF.get(row["kind"]) == "video":
+                    raise GenerationError(f"a video work cannot be used as a source in this version ({slot} take images"
+                                          f"{' or audio' if slot == 'audio' else ''})")
                 raise GenerationError(f"a {row['kind']} work cannot be used here")
         else:
             row = await self.store.upload(str(ref["upload_id"]))
@@ -164,7 +220,7 @@ class GenerationManager:
         sources = dict(sources or {}) if isinstance(sources, dict) or sources is None else None
         if params is None or sources is None:
             raise GenerationError("params and sources must be objects")
-        bad = set(sources) - {"images", "audio"}
+        bad = set(sources) - set(M.SOURCE_SLOTS)
         if bad:
             raise GenerationError(f"unknown sources: {sorted(bad)}")
         tool = tool_for(kind, sources)
@@ -173,24 +229,64 @@ class GenerationManager:
             raise GenerationError(f"'{tool}' does not take: {sorted(bad)}")
         args = {k: v for k, v in params.items() if v is not None and v != ""}
         clean: dict[str, Any] = {}
-        if kind == "image" and sources.get("images"):
-            refs = sources["images"]
-            if not isinstance(refs, list) or len(refs) > MAX_SOURCE_IMAGES:
-                raise GenerationError(f"images is a list of at most {MAX_SOURCE_IMAGES} sources")
-            paths = [await self._resolve(r, "images") for r in refs]
-            args["image_path"] = paths[0]
-            if paths[1:]:
-                args["additional_image_paths"] = paths[1:]
-            clean["images"] = [{k: r[k] for k in ("artifact_id", "upload_id") if r.get(k)} for r in refs]
-        elif kind == "transcript":
-            if not sources.get("audio"):
-                raise GenerationError("a transcription needs an audio source")
-            args["audio_path"] = await self._resolve(sources["audio"], "audio")
-            clean["audio"] = {k: sources["audio"][k] for k in ("artifact_id", "upload_id") if sources["audio"].get(k)}
-        elif sources.get("images") or sources.get("audio"):
+        mod = M.BY_KIND[kind]
+        slot = mod.source_slot
+        if slot and (sources.get(slot) or mod.source_required):
+            if not sources.get(slot):
+                raise GenerationError(f"a {mod.catalog} needs an {slot} source")
+            await _SLOT_READERS[slot](self, sources[slot], args, clean)
+        elif any(sources.get(s) for s in M.SOURCE_SLOTS):
             raise GenerationError(f"a {kind} generation takes no source file")
+        if kind == "video":
+            # the listing decides (videos.check): refused here, before a job exists or anything is paid
+            if self.videos is None:
+                raise GenerationError("video generation is not available", 503)
+            from ..video.jobs import VideoError
+
+            try:
+                self.videos.check(args, first=bool(args.get("first_frame")), last=bool(args.get("last_frame")))
+            except VideoError as e:
+                raise GenerationError(str(e), e.status) from None
+            return tool, args, clean
         self._validate(tool, args)
+        if kind == "image" and args.get("model"):
+            # an OpenRouter model's listing says what it takes (reference images, tiers):
+            # a request it cannot take is refused here, before a job exists or anything is paid
+            from ..catalog import catalog
+            from ..catalog.openrouter_images import check_tool_args
+
+            problem = check_tool_args(catalog.openrouter_image(str(args["model"])), tool, args)
+            if problem:
+                raise GenerationError(problem)
         return tool, args, clean
+
+    async def _read_images(self, refs: Any, args: dict[str, Any], clean: dict[str, Any]) -> None:
+        """``images``: up to 16 source images -> ``image_path`` + ``additional_image_paths``."""
+        if not isinstance(refs, list) or len(refs) > MAX_SOURCE_IMAGES:
+            raise GenerationError(f"images is a list of at most {MAX_SOURCE_IMAGES} sources")
+        paths = [await self._resolve(r, "images") for r in refs]
+        args["image_path"] = paths[0]
+        if paths[1:]:
+            args["additional_image_paths"] = paths[1:]
+        clean["images"] = [{k: r[k] for k in ("artifact_id", "upload_id") if r.get(k)} for r in refs]
+
+    async def _read_frames(self, refs: Any, args: dict[str, Any], clean: dict[str, Any]) -> None:
+        """``frames``: ``{"first": ref, "last": ref}`` (either may be left out) ->
+        ``first_frame`` / ``last_frame`` paths."""
+        if not isinstance(refs, dict) or not refs or set(refs) - {"first", "last"}:
+            raise GenerationError("frames is {first?: source, last?: source}")
+        clean["frames"] = {}
+        for which in ("first", "last"):
+            ref = refs.get(which)
+            if ref is None:
+                continue
+            args[f"{which}_frame"] = await self._resolve(ref, "frames")
+            clean["frames"][which] = {k: ref[k] for k in ("artifact_id", "upload_id") if ref.get(k)}
+
+    async def _read_audio(self, ref: Any, args: dict[str, Any], clean: dict[str, Any]) -> None:
+        """``audio``: one source audio file -> ``audio_path``."""
+        args["audio_path"] = await self._resolve(ref, "audio")
+        clean["audio"] = {k: ref[k] for k in ("artifact_id", "upload_id") if ref.get(k)}
 
     @staticmethod
     def _tool(name: str) -> Any:
@@ -217,8 +313,16 @@ class GenerationManager:
         if kind not in KINDS:
             raise GenerationError(f"kind must be one of {list(KINDS)}")
         params = params if isinstance(params, dict) else {}
-        tool = tool_for(kind, sources if isinstance(sources, dict) else {})
-        return await estimate_cost(self.store, kind=kind, tool=tool, params=params, duration_s=duration_s)
+        sources = sources if isinstance(sources, dict) else {}
+        tool = tool_for(kind, sources)
+        if kind == "video" and not params.get("model") and self.videos is not None:
+            params = {**params, "model": self.videos.default_model()}
+        refs = len(sources.get("images") or []) if isinstance(sources.get("images"), list) else 0
+        frames = sources.get("frames") if isinstance(sources.get("frames"), dict) else None
+        if frames:
+            refs = sum(1 for k in ("first", "last") if frames.get(k))
+        return await estimate_cost(self.store, kind=kind, tool=tool, params=params, duration_s=duration_s, refs=refs,
+                                   first_frame=bool(frames and frames.get("first")))
 
     # ------------------------------------------------------------ jobs
     async def start(self, kind: str, params: Any = None, sources: Any = None, *,
@@ -230,11 +334,21 @@ class GenerationManager:
         is awaited once the ending is recorded — ``shutting_down`` tells a
         cancel by the daemon's own shutdown from one somebody asked for."""
         tool, args, clean_sources = await self.prepare(kind, params, sources)
-        estimate = await estimate_cost(self.store, kind=kind, tool=tool, params=args, duration_s=duration_s)
+        if kind == "video":
+            from ..video.jobs import VideoError
+
+            try:
+                return await self.videos.start(args, source=source, links=links, sources=clean_sources)
+            except VideoError as e:
+                raise GenerationError(str(e), e.status) from None
+        estimate = await estimate_cost(self.store, kind=kind, tool=tool, params=args, duration_s=duration_s,
+                                       refs=len(clean_sources.get("images") or []))
         public_params = {k: v for k, v in args.items() if not k.endswith("_path") and not k.endswith("_paths")}
-        if kind == "transcript":
-            src = (await self._describe_sources(clean_sources)).get("audio") or {}
-            title = src.get("name") or "audio"
+        mod = M.BY_KIND[kind]
+        if mod.source_required:  # no prompt of its own (a transcription): named after its source
+            src = (await self._describe_sources(clean_sources)).get(mod.source_slot or "") or {}
+            src = (src[0] if src else {}) if isinstance(src, list) else src
+            title = src.get("name") or mod.source_slot
         else:
             title = args.get("title") or _first_line(args.get("prompt") or args.get("text"))
         gid = uuid.uuid4().hex[:16]
@@ -285,7 +399,9 @@ class GenerationManager:
         except Exception as e:  # noqa: BLE001 — every failure becomes a row the page can show
             cause = e.__cause__ if getattr(e, "__cause__", None) is not None else e
             message = str(cause) or type(cause).__name__
-            fields = {"status": "error", "error": message[:2000], "error_kind": classify(f"{type(cause).__name__}: {message}")}
+            told = _told_kind(e)  # a provider that classified its own failure, however deep it was wrapped
+            fields = {"status": "error", "error": message[:2000],
+                      "error_kind": told or classify(f"{type(cause).__name__}: {message}")}
             logger.warning("generation %s (%s) failed: %s", gid, tool, message[:300])
         finally:
             call_scope.reset(scope_token)
@@ -314,6 +430,8 @@ class GenerationManager:
         row = await self.store.generation(generation_id)
         if not row:
             raise GenerationError("generation not found", 404)
+        if row.get("kind") == "video" and self.videos is not None:
+            return await self.videos.stop_waiting(generation_id)  # no vendor can cancel: our waiting stops
         task = self._tasks.get(generation_id)
         if task is not None and not task.done():
             task.cancel()
@@ -334,3 +452,9 @@ class GenerationManager:
         if self._settling:
             await asyncio.gather(*list(self._settling.values()), return_exceptions=True)
         self._tasks.clear()
+
+
+#: source slot -> how its references become tool arguments
+_SLOT_READERS = {"images": GenerationManager._read_images, "audio": GenerationManager._read_audio,
+                 "frames": GenerationManager._read_frames}
+M.require_keys(_SLOT_READERS, M.SOURCE_SLOTS, "generate._SLOT_READERS")

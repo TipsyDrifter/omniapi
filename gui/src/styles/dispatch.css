@@ -183,3 +183,29 @@ a.stamp-btn { display: inline-block; }
 /* system prompt：和 prompt 同屬本文角色（楷 400 16/1.6），矮一點 */
 .dp-prompt.dp-system { min-height: 150px; }
 .dp-chatnote { font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); line-height: 1.6; margin: 0; }
+
+/* ============ 挑模型的篩選列（components/ModelFilterBar：新對話、派工、聊天換模型、生成頁、影片共用） ============
+   搜尋＋筆數／排序（熱門・廠商・價格）＋只看可用＋顯示全部／廠商 chips（多選，數字跟著其他條件變；多的收進「＋N 家」）／能力 chips */
+.mf-bar { display: flex; flex-direction: column; gap: 7px; margin: 12px 0 8px; min-width: 0; }
+.mf-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mf-top .dp-in { flex: 1; min-width: 0; }
+.mf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.mf-row .k { font-family: var(--font-label); font-weight: 600; font-size: var(--fs-m10); letter-spacing: 0.12em; color: var(--ink-70); margin-right: 2px; }
+.mf-row .wk-chip { font-size: var(--fs-xs); padding: 2px 8px 1px; }
+.mf-row .vd-cmpbtn { margin-left: auto; }
+.mk-seg.mf-seg { gap: 4px; flex-wrap: nowrap; }
+.mk-seg.mf-seg button { padding: 2px 9px 1px; font-size: var(--fs-xs); }
+.mk-seg.mf-seg button[aria-pressed="true"] { padding: 1.5px 8.5px 0.5px; }
+.mf-vendors { margin: 0; }
+.mf-vendors .mf-more { border-style: dashed; }
+.dp-off .mf-row .wk-chip, .dp-off .mf-seg button { border-style: dashed; color: var(--ink-70); cursor: not-allowed; }
+
+/* 名次徽章「AA #3」：細框小字；前三名用實墨框 */
+.mf-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; min-width: 0; }
+.mf-id .code { min-width: 0; overflow-wrap: anywhere; }
+.aa-badge {
+  flex: none; font-family: var(--font-mono); font-size: var(--fs-m10); line-height: 1.35; font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: var(--ink-70); border: 1px solid var(--ink-45); padding: 0 4px;
+}
+.aa-badge.aa-top { color: var(--ink); border-color: var(--ink); }
+.mr-id .mf-id .code { font-size: var(--fs-s); font-weight: 500; }

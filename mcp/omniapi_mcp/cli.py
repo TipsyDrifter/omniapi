@@ -22,6 +22,7 @@ from typing import Any, Optional
 import typer
 
 from . import __version__
+from . import modalities as _MOD
 from .catalog import data_home
 from .daemon.app import DEFAULT_HOST, DEFAULT_PORT, clear_pid, read_pid
 
@@ -481,17 +482,22 @@ def runs_cmd(limit: int = typer.Option(15), state: Optional[str] = typer.Option(
         typer.echo(f"{icon.get(r['state'], '·')} {r['id']}  {started}  {r.get('harness'):6} {str(r.get('model'))[:22]:22} {cost:>9}  {r.get('turns') or 0:>3}t  {str(r.get('dispatcher') or '')[:18]:18} {r.get('title') or ''}")
 
 
+#: one mark per kind of work in ``omni works``
+_WORK_ICON = {"image": "🖼", "speech": "🗣", "music": "🎵", "transcript": "📝", "lyrics": "🎤", "video": "🎬"}
+_MOD.require_keys(_WORK_ICON, _MOD.WORK_KINDS, "cli._WORK_ICON")
+
+
 @app.command("works")
 def works_cmd(
     limit: int = typer.Option(20),
-    kind: Optional[str] = typer.Option(None, help="image | speech | music | transcript | lyrics"),
+    kind: Optional[str] = typer.Option(None, help=" | ".join(_MOD.WORK_KINDS)),
     query: Optional[str] = typer.Option(None, "--query", "-q", help="Search prompts, titles and transcripts"),
     backfill: bool = typer.Option(False, "--backfill", help="Index files in the storage folder that are not in the works library yet"),
     dry_run: bool = typer.Option(False, "--dry-run", help="With --backfill: only count"),
     host: str = typer.Option(DEFAULT_HOST),
     port: int = typer.Option(DEFAULT_PORT),
 ) -> None:
-    """List generated works (images, speech, music, transcripts)."""
+    """List generated works (images, speech, music, transcripts, videos)."""
     import httpx
     from datetime import datetime
 
@@ -504,11 +510,14 @@ def works_cmd(
         return
     params = {"limit": limit, **({"kind": kind} if kind else {}), **({"q": query} if query else {})}
     data = httpx.get(_api(host, port) + "/api/artifacts", params=params, timeout=10).json()
-    icon = {"image": "🖼", "speech": "🗣", "music": "🎵", "transcript": "📝", "lyrics": "🎤"}
+    icon = _WORK_ICON
     for a in data["items"]:
         when = datetime.fromtimestamp(a["created_at"]).strftime("%m-%d %H:%M")
         cost = f"${a['cost_usd']:.4f}" if a.get("cost_usd") is not None else "—"
         label = " ".join(str(a.get("title") or a.get("prompt") or Path(a["file_path"]).name).split())[:60]
+        if a.get("kind") == "video" and a.get("duration_s"):
+            size = f" {a['width']}x{a['height']}" if a.get("width") and a.get("height") else ""
+            label = f"[{a['duration_s']:.1f}s{size}{'' if a.get('has_audio') else ' silent'}] {label}"[:72]
         typer.echo(f"{icon.get(a['kind'], '·')} {a['id']}  {when}  {str(a.get('model') or '?')[:22]:22} {cost:>9}  {str(a.get('source') or ''):8} {label}")
     typer.echo("  ".join(f"{k} {n}" for k, n in sorted(data["counts"].items())) or "no works yet")
 
@@ -691,12 +700,24 @@ def desktop_autostart(read: Any = None) -> Optional[dict]:
             except OSError:
                 return None
 
-    command = read(_RUN_KEY, DESKTOP_RUN_VALUE)
+    name = (os.environ.get("OMNIAPI_DESKTOP_RUN_VALUE") or "").strip() or DESKTOP_RUN_VALUE  # the test build's own name
+    command = read(_RUN_KEY, name)
     if not command:
         return None
-    approved = read(_APPROVED_KEY, DESKTOP_RUN_VALUE)
+    approved = read(_APPROVED_KEY, name)
     enabled = not (isinstance(approved, (bytes, bytearray)) and len(approved) > 0 and approved[0] % 2 == 1)
     return {"command": str(command), "enabled": enabled}
+
+
+def _refuse_in_test_build() -> None:
+    """The desktop test build's omni.cmd names its own logon entry; the old launchers
+    (Startup-folder .vbs, scheduled task) have one fixed name shared with the released app,
+    so a test install never creates or removes them."""
+    name = (os.environ.get("OMNIAPI_DESKTOP_RUN_VALUE") or "").strip()
+    if name and name != DESKTOP_RUN_VALUE:
+        typer.echo(f"this is the {name} test build: `omni autostart install/remove` would change the "
+                   "released app's launcher; use the tray's 開機時啟動 instead")
+        raise typer.Exit(1)
 
 
 @autostart_app.command("install")
@@ -716,6 +737,7 @@ def autostart_install(
     if os.name != "nt":
         typer.echo("autostart is Windows-only for now")
         raise typer.Exit(1)
+    _refuse_in_test_build()
     desk = desktop_autostart()
     if desk and desk["enabled"] and not force:
         typer.echo("the OmniAPI desktop app already starts at logon and starts the service itself "
@@ -745,6 +767,7 @@ def autostart_install(
 
 @autostart_app.command("remove")
 def autostart_remove() -> None:
+    _refuse_in_test_build()
     removed = False
     script = _startup_script()
     if script.exists():

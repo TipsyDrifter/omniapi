@@ -11,10 +11,13 @@ logger = logging.getLogger(__name__)
 class ProviderError(Exception):
     """Base exception for provider-related errors."""
 
-    def __init__(self, message: str, provider_name: str, error_code: str | None = None):
+    def __init__(self, message: str, provider_name: str, error_code: str | None = None, error_kind: str | None = None):
         super().__init__(message)
         self.provider_name = provider_name
         self.error_code = error_code
+        #: one of ``generate.errors.KINDS`` when the provider knows better than
+        #: reading the words (an HTTP status it was given); ``None`` = read the words
+        self.error_kind = error_kind
 
     def __str__(self) -> str:
         base_msg = f"[{self.provider_name}] {super().__str__()}"

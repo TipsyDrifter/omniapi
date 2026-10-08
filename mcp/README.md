@@ -2,39 +2,40 @@
 
 > **This file is the MCP tool reference.** OmniAPI is more than the MCP server: a local daemon with a web GUI (live board of agent runs, dispatch, chat, generation, works wall, cost ledgers, model catalog, settings) and the `omni` CLI, installable as a Windows desktop app or from a zip. For what it is, how to install it and how to use the GUI, start with the [root README](../README.md) and the [user guide](../USER_GUIDE.md).
 
-**One MCP server for image, audio transcription, text/chat, speech, music and agent dispatch — across OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, ElevenLabs, and Suno.**
+**One MCP server for image, audio transcription, text/chat, speech, music, video and agent dispatch — across OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, ElevenLabs, and Suno.**
 
-Traditional AI chatbot interfaces are limited to text-only interactions, regardless of how powerful their underlying language models are. OmniAPI MCP Server bridges this gap by giving **any LLM-powered chatbot client** one unified interface for image generation & editing, audio transcription, text/chat completion, speech synthesis, and music generation — through the standardized Model Context Protocol (MCP).
+Traditional AI chatbot interfaces are limited to text-only interactions, regardless of how powerful their underlying language models are. OmniAPI MCP Server bridges this gap by giving **any LLM-powered chatbot client** one unified interface for image generation & editing, audio transcription, text/chat completion, speech synthesis, music generation and short video generation — through the standardized Model Context Protocol (MCP).
 
-Whether you're using Claude Desktop, a custom ChatGPT interface, Llama-based applications, or any other LLM client that supports MCP, this server democratizes access to **multiple AI models across five modalities** — OpenAI's gpt-image family and Google's Nano Banana for pictures, GPT-6 / Claude / Gemini / DeepSeek for text, and more — transforming text-only conversations into rich, multimodal experiences.
+Whether you're using Claude Desktop, a custom ChatGPT interface, Llama-based applications, or any other LLM client that supports MCP, this server democratizes access to **multiple AI models across six modalities** — OpenAI's gpt-image family, Google's Nano Banana and OpenRouter's image models (FLUX, Seedream, Grok Imagine, Qwen…) for pictures, GPT-6 / Claude / Gemini / DeepSeek for text, OpenRouter's video models for short clips, and more — transforming text-only conversations into rich, multimodal experiences.
 
 > **📦 Package Manager**: This project uses [UV](https://docs.astral.sh/uv/) for fast, reliable Python package management. UV provides better dependency resolution, faster installs, and proper environment isolation compared to traditional pip/venv workflows.
 
 ## Capabilities
 
-OmniAPI unifies **five modalities** behind one MCP interface (**19 tools total**):
+OmniAPI unifies **six modalities** behind one MCP interface (**20 tools total**):
 
 | Capability | Tools | Providers |
 |---|---|---|
-| 🎨 Image generation & editing | `generate_image`, `edit_image` | OpenAI gpt-image (2.5 / 2 / 1.5 / 1-mini), Google Nano Banana |
+| 🎨 Image generation & editing | `generate_image`, `edit_image` | OpenAI gpt-image (2.5 / 2 / 1.5 / 1-mini), Google Nano Banana, OpenRouter image models (FLUX, Seedream, Grok Imagine, Qwen, Recraft, MAI…) |
 | 🎙️ Audio transcription | `transcribe_audio` | OpenAI `gpt-transcribe` (+ subtitles / timestamps / diarization on the deprecated whisper-1 & gpt-4o-transcribe family) |
 | 💬 Text / chat completion | `complete_text`, `chat` (multi-turn, kept in the GUI) | OpenAI GPT-6 & GPT-5.x, Anthropic Claude, Google Gemini, DeepSeek, OpenRouter long tail |
 | 🔊 Speech synthesis (TTS) | `generate_speech` | OpenAI, ElevenLabs, Gemini TTS |
 | 🎵 Music generation | `generate_music`, `edit_music`, `music_lyrics`, `music_utility`, `compose_music` | Suno V6 (via kie.ai), ElevenLabs Music |
+| 🎬 Video generation | `generate_video` (text-to-video, first / last frame) | OpenRouter video models (Wan, Kling, Veo, Grok Imagine, Seedance…); Google Gemini Omni direct with a Google key |
 
 Plus diagnostics and job retrieval: `list_available_models`, `health_check`, `server_info`, `get_job_result`; and agent runs: `run_agent`, `get_run`, `list_runs`, `cancel_run`.
 
 > The four music tools other than `generate_music` are **action-dispatched**: one tool covers several operations, selected by an `action` argument (e.g. `edit_music(action="extend" | "cover" | "separate_vocals" | …)`). See [Available Tools](#available-tools).
 
-> A single **OpenAI** key unlocks image / transcription / text / speech. **Music** needs a **kie.ai** key (Suno) or a paid **ElevenLabs** plan. **Anthropic**, **Google**, **DeepSeek** and **OpenRouter** are optional and add text models.
+> A single **OpenAI** key unlocks image / transcription / text / speech. **Music** needs a **kie.ai** key (Suno) or a paid **ElevenLabs** plan. **Video** needs an **OpenRouter** key (the same key also adds OpenRouter's image models and text long tail). **Anthropic**, **Google** and **DeepSeek** are optional and add text models.
 
-> **Model rosters are live.** Each provider is asked what is online at startup, merged with a curated pricing/capability overlay. Call `list_available_models(modality="text" | "image" | "transcription" | "speech" | "music")` for the current list — including deprecation and shutdown dates — rather than trusting any hard-coded list. `complete_text` also accepts the tier aliases **`cheap`** / **`standard`** / **`strong`** so callers need not pin a model id.
+> **Model rosters are live.** Each provider is asked what is online at startup, merged with a curated pricing/capability overlay. Call `list_available_models(modality="text" | "image" | "transcription" | "speech" | "music" | "video")` for the current list — including deprecation and shutdown dates — rather than trusting any hard-coded list. `complete_text` also accepts the tier aliases **`cheap`** / **`standard`** / **`strong`** so callers need not pin a model id.
 
 > **Keys, tiers and defaults can be changed on the GUI's settings page** (`http://127.0.0.1:7788/settings`) and take effect at once, without restarting the daemon or reconnecting MCP clients. What a tier alias points at right now is the `tiers` field of `list_available_models`; the values below are the shipped defaults.
 
 ## Available Tools
 
-19 tools across five modalities plus diagnostics, agent runs and chat.
+20 tools across six modalities plus diagnostics, agent runs and chat.
 
 ### Diagnostics & jobs
 
@@ -42,10 +43,12 @@ Plus diagnostics and job retrieval: `list_available_models`, `health_check`, `se
 List every model OmniAPI can call, **across all modalities**, with provider, online status, pricing, deprecation/shutdown info and the tier aliases (`cheap` / `standard` / `strong`). Rosters are live — providers are asked what is online at startup and merged with a curated overlay.
 
 **Parameters**:
-- `modality`: `"text"` | `"image"` | `"transcription"` | `"speech"` | `"music"` — omit for everything
+- `modality`: `"text"` | `"image"` | `"transcription"` | `"speech"` | `"music"` | `"video"` — omit for everything. OpenRouter image models carry `image_params` (aspect ratios, resolutions, qualities, `max_references`, seed); video models carry `video_params` (durations, resolutions, aspect ratios, frames, audio, seed; Gemini Omni also `audio_fixed` and `last_frame_needs_first`)
 - `include_retired` (default `false`): also list models the provider has shut down
 - `include_snapshots` (default `false`): also list dated snapshot ids (e.g. `gpt-5.5-2026-04-23`); hidden by default but still callable
 - `refresh` (default `false`): force a fresh discovery round instead of the 24h cache
+
+A model that is on an Artificial Analysis leaderboard of its modality also carries `rank` (its best rank there; lower is more popular), `popularity` (`{board: rank}`) and `rank_badge` (the board, label, rank and score the GUI shows as "AA #n"; left out when the id mapping is only a guess). The ranks are a hand-taken snapshot shipped with the release (2026-10-06), not fetched live; a model on no board has none of the three.
 
 **Returns** `models` (by modality), `counts`, `tiers` (the current tier mapping, including any override from the settings page), `configured_providers`, `default_text_model`, `discovery`, and per provider `providers.<name>` with `label`, `harness`, `modalities`, `get_key` (where to get a key) and `suggested_tiers` (that provider's cheap / standard / strong suggestion; none for OpenRouter).
 
@@ -56,7 +59,7 @@ Overall server health plus a per-provider ping.
 Server metadata: version, capabilities, and non-sensitive configuration.
 
 #### `get_job_result`
-Fetch the result of a long-running generation that returned a ticket (`{status: "running", task_id}`). If it is still `running`, wait ~20–30s and call again.
+Fetch the result of a long-running generation that returned a ticket (`{status: "running", task_id}`). If it is still `running`, wait ~20–30s (a video: a minute or two) and call again. A video's ticket (`video_<id>`) is stored with the job, so it still works after the OmniAPI service restarts.
 
 **Parameters**: `task_id` (required).
 
@@ -67,17 +70,18 @@ Generate images from text descriptions using any supported model.
 
 **Parameters**:
 - `prompt` (required): Text description of desired image (1–4000 chars)
-- `model` (optional): e.g. `"gpt-image-2.5-sunburst"`, `"gpt-image-2"`, `"gpt-image-1.5"`, `"nano-banana-2"`. Defaults to `IMAGES__DEFAULT_MODEL`
+- `model` (optional): e.g. `"gpt-image-2.5-sunburst"`, `"gpt-image-2"`, `"gpt-image-1.5"`, `"nano-banana-2"`, or an OpenRouter image model by its OpenRouter id (e.g. `"black-forest-labs/flux-3-image"`). Defaults to `IMAGES__DEFAULT_MODEL`
 - `quality`: `"auto"` | `"high"` | `"medium"` | `"low"` (default `"auto"`) — the main cost lever
 - `size`: `"auto"`, presets like `1024x1024` / `1536x1024` / `1024x1536` / `3840x2160`, or (for the `gpt-image-2` family) any `WxH` within the model's constraints
 - `output_format`: `"png"` | `"jpeg"` | `"webp"` (default `"png"`); `compression` 0–100 for jpeg/webp
 - `background`: `"auto"` | `"transparent"` | `"opaque"` — **the gpt-image-2 family does not support transparency** and silently downgrades to `auto`
 - `moderation`, `style`, `user`: OpenAI only
 - `n`: 1–10 candidates (gpt-image only; Gemini is always 1). `n > 1` adds an `images` list
-- **Gemini only**: `image_size` (`"512"` / `"1K"` / `"2K"` / `"4K"`, uppercase K), `aspect_ratio` (e.g. `"16:9"`, `"21:9"`, `"4:5"`), `person_generation`
-- **Legacy, ignored by every current model**: `seed`, `safety_filter_level`, `enhance_prompt`, `guidance_scale` — kept only so older callers do not break
+- **Gemini**: `image_size` (`"512"` / `"1K"` / `"2K"` / `"4K"`, uppercase K), `aspect_ratio` (e.g. `"16:9"`, `"21:9"`, `"4:5"`), `person_generation` (Gemini only)
+- **OpenRouter models**: `image_size` (one of the model's `image_params.resolutions`, e.g. `"768"`, `"1.5K"`), `aspect_ratio` (one of its `image_params.aspect_ratios`), `quality` (its `image_params.qualities`), `seed` (when `image_params.seed` is true)
+- **Legacy, ignored by every current model**: `safety_filter_level`, `enhance_prompt`, `guidance_scale` — kept only so older callers do not break
 
-**Note**: Parameter availability depends on the selected model. Use `list_available_models(modality="image")` to check capabilities.
+**Note**: Parameter availability depends on the selected model. Use `list_available_models(modality="image")` to check capabilities. OpenRouter's image models are listed live (refreshed daily) once an OpenRouter key is set; when the OpenAI or Google key is set, OpenRouter's copies of those vendors' models are not listed. Models that answer with SVG only (Recraft's vector models) are marked unavailable in this version. The reported cost is what OpenRouter charged.
 
 #### `edit_image`
 Edit existing images with text instructions.
@@ -89,8 +93,9 @@ Edit existing images with text instructions.
 - `model`, `size`, `quality`, `output_format`, `compression`, `background`: same as `generate_image`
 - `input_fidelity`: `"high"` keeps faces/style close to the source — **gpt-image-1 family only**, ignored by gpt-image-2
 - `additional_images` / `additional_image_paths`: extra reference images (up to 16 total)
+- `image_size`, `aspect_ratio`: OpenRouter models only, from the model's `image_params`
 
-> **Today `edit_image` routes to OpenAI only.** A Gemini edit path exists in the provider layer but is not wired into this tool yet, and the tool's default model comes from `IMAGES__DEFAULT_MODEL` — pass `model` explicitly if you care which one runs.
+> **`edit_image` routes by model**: `gpt-image-*` → OpenAI (masks supported); Nano Banana → Gemini (references via `additional_images`, no mask); an OpenRouter id → OpenRouter, for models whose `image_params.max_references` is above 0 (the source and `additional_images` go as reference images, no mask). The default model comes from `IMAGES__DEFAULT_MODEL` — pass `model` explicitly if you care which one runs.
 
 ### Transcription
 
@@ -185,6 +190,8 @@ Generate music from a text description. ElevenLabs Music (`music_v1` / `music_v2
 
 **Parameters**: `prompt`, `model`, `instrumental`, `output_format` / `music_length_ms` (ElevenLabs), `custom_mode` + `style` + `title` + `vocal_gender` (Suno), `negative_tags`.
 
+**Returns** `audio_path`, `audio_url`, `provider`, `model`, `title`, `duration`, `bytes`; Suno also `audio_id` / `task_id` for chaining. **A Suno job makes two songs** (so do `edit_music`'s extend / cover / upload_extend / add_instrumental / add_vocals): both are saved (the second as `<first file>_2`), the top-level fields describe the first, `tracks` lists every song (`audio_path`, `audio_id`, `title`, `duration`, `bytes`; a song that failed to download has `audio_id` + `error`) and `track_count` says how many. Each song is its own work on the works wall, the job's cost split between them. `music.suno_all_tracks: false` in `settings.json` (env `MUSIC__SUNO_ALL_TRACKS=false`) keeps only the first.
+
 #### `edit_music(action)`
 Transform existing audio with Suno. Each `action` needs a different subset of parameters:
 
@@ -212,6 +219,32 @@ Both actions need `task_id` + `audio_id` from a prior generation.
 ElevenLabs composition-plan workflow — section-level control over a song (paid plan).
 - `create_plan` — turn a prompt into an editable plan (sections, styles, lyrics, durations), returned as JSON. Needs `prompt`; optional `music_length_ms`, `source_composition_plan`.
 - `compose` — render audio plus the plan used and song metadata. Needs **exactly one** of `prompt` or `composition_plan`.
+
+### Video
+
+#### `generate_video`
+Generate a short video from a text prompt, optionally starting from a first frame (and, for models that take one, ending on a last frame). Video models go through OpenRouter, and Google's Gemini Omni (`gemini-omni-1.1-flash`) is called directly with the Google key (its project needs a paid Gemini API tier). **A video is billed the moment it is sent and the provider cannot cancel it.**
+
+**Parameters**:
+- `prompt` (required): what happens — subject, motion, camera, light, sound (1–4000 chars)
+- `model`: an OpenRouter video model id (e.g. `"alibaba/wan-3.0"`, `"kwaivgi/kling-v3.0-std"`, `"x-ai/grok-imagine-video"`) or `"gemini-omni-1.1-flash"`. Default: the settings page's video default (shipped as `alibaba/wan-3.0`)
+- `duration`: seconds, one of the model's `video_params.durations` (default 5, or the length it takes closest to 5)
+- `resolution`: one of `video_params.resolutions` (e.g. `"480p"`, `"720p"`, `"1080p"`); omitted, the model's own default is used and the estimate becomes a range
+- `aspect_ratio`: one of `video_params.aspect_ratios`
+- `generate_audio`: sound on or off, for models whose `video_params.audio` is not false (on by default for models that make sound)
+- `seed`: for models whose `video_params.seed` is true
+- `first_frame` / `last_frame`: an image work's id, a local image path or a data URL; only for models whose `video_params.frames` lists `first_frame` / `last_frame`
+- `max_cost_usd`: allow this video up to this many US dollars (estimated)
+
+**Per-video limit.** A video whose estimate is above the per-video limit (default **$1**; `video.mcp_max_usd` on the settings page, or no limit at all) is **not sent**: the call returns `{status: "refused", reason: "over_limit", estimate_usd, limit_usd, message}`, and the message says which `max_cost_usd` would allow it. A model whose price cannot be computed up front (priced per token, e.g. Seedance) is refused the same way (`reason: "price_unknown"`) unless the call passes `max_cost_usd`. The GUI's generate page asks for confirmation on every video instead and is not bound by this limit.
+
+**Waiting.** The call waits ~45 s, then returns a ticket (`status: "running"`, `task_id: "video_<id>"`) for `get_job_result`. The remote job id is stored when the video is sent, so a service restart does not lose it: the job is picked up again and the ticket still works. After `video.max_wait_minutes` (default 20) the job is reported as `waited_too_long`; it can be asked about again from the GUI without resending or paying again.
+
+**Returns** (completed): `status`, `generation_id`, `artifact_id`, `file_path`, `video_url` (file://), `duration_s`, `width`, `height`, `has_audio` (read from the file), `fps`, `cost_usd` (what the provider charged — OpenRouter sometimes charges less than its listed price), `estimate`, `waited_s`. The video lands on the works wall.
+
+**Gemini Omni** (direct, Google key): always makes sound (`generate_audio=false` is refused), 3–10 s, `360p` / `720p` (default) / `1080p`, `16:9` / `9:16`; a `last_frame` needs a `first_frame`. 720p is estimated at about $0.10 per second; other resolutions cannot be priced up front (`price_unknown`, needs `max_cost_usd`); the cost recorded is the one Google reports. While a Google key is set, OpenRouter's `google/gemini-omni*` and `google/veo-*` rows are not listed. This version waits for an Omni video in one held request, so **a service restart while it is being made loses that video** (sent, probably billed); it is marked as such, not waited on.
+
+Not supported in this version: video extension, video editing, lip-sync, upscaling, multiple reference images.
 
 ## Available Resources
 
@@ -252,7 +285,7 @@ Each provider has an API key and an on/off switch; a provider is used only when 
 | Anthropic | `PROVIDERS__ANTHROPIC__API_KEY`, `PROVIDERS__ANTHROPIC__ENABLED` | text (agent runs on Claude models use the Claude Code login by default, not this key) |
 | Google Gemini | `PROVIDERS__GEMINI__API_KEY`, `PROVIDERS__GEMINI__ENABLED` | text, Nano Banana images, TTS; Gemini CLI agent runs. An AI Studio key — a plain string, not a file path |
 | DeepSeek | `PROVIDERS__DEEPSEEK__API_KEY`, `PROVIDERS__DEEPSEEK__ENABLED` | text; agent runs through Claude Code |
-| OpenRouter | `PROVIDERS__OPENROUTER__API_KEY`, `PROVIDERS__OPENROUTER__ENABLED` | the long tail of text models; agent runs through Claude Code |
+| OpenRouter | `PROVIDERS__OPENROUTER__API_KEY`, `PROVIDERS__OPENROUTER__ENABLED` | the long tail of text models, OpenRouter's image models, video; agent runs through Claude Code |
 | ElevenLabs | `PROVIDERS__ELEVENLABS__API_KEY`, `PROVIDERS__ELEVENLABS__ENABLED` | speech, music |
 | kie.ai | `PROVIDERS__KIE__API_KEY`, `PROVIDERS__KIE__ENABLED` | Suno music |
 
@@ -270,14 +303,30 @@ Other settings you may want:
 | `OMNIAPI_OFFLINE` | unset | `1` refuses every call that would reach a paid vendor |
 | `OMNIAPI_GUI_DIST` | the repo's `gui/dist` | a built GUI folder to serve (for a copy of the service outside the repo) |
 | `OMNIAPI_LOG_MAX_MB` / `OMNIAPI_LOG_BACKUPS` | `5` / `5` | size cap and kept copies of `<data home>/logs/daemon.log` |
-| `DEFAULTS__CHAT` / `DEFAULTS__DISPATCH` | `cheap` / `cheap` | model for new chats / agent runs that name none (also `DEFAULTS__SPEECH`, `__MUSIC`, `__TRANSCRIPT`) |
+| `DEFAULTS__CHAT` / `DEFAULTS__DISPATCH` | `cheap` / `cheap` | model for new chats / agent runs that name none (also `DEFAULTS__SPEECH`, `__MUSIC`, `__TRANSCRIPT`, `__VIDEO`) |
+| `VIDEO__MCP_MAX_USD` / `VIDEO__MCP_UNLIMITED` | `1.0` / `false` | per-video estimate limit for `generate_video` (above it, or unpriceable, the call needs `max_cost_usd`); `true` removes the limit |
+| `VIDEO__MAX_WAIT_MINUTES` | `20` | how long a video is waited on before it is reported as waited too long |
+| `MUSIC__SUNO_ALL_TRACKS` | `true` | keep both songs of a Suno job (each its own file and work, the cost split); `false` keeps only the first. Not on the settings page: `settings.json` (`"music": {"suno_all_tracks": false}`) or this variable |
+| `VIDEO__KEEP_COLLECTING` | `true` | after "stop waiting" in the GUI, keep collecting the video and its real cost in the background; `false` leaves it uncollected (cost unknown) |
 | `TIERS__CHEAP` / `TIERS__STANDARD` / `TIERS__STRONG` | from `catalog.json` | which model each tier means |
 
-**Settings without a restart.** Keys, provider switches, tiers and default models can also live in `<data home>/settings.json`, which wins over `.env` and the environment. Change it through the running daemon — `GET /api/settings` shows each key only as set / last four characters / where it came from; `PATCH /api/settings` (same shape as the file, `null` removes an entry) applies at once; `POST /api/settings/test-key` checks a key with a free call. Example: `curl -X PATCH http://127.0.0.1:7788/api/settings -H "Content-Type: application/json" -d "{\"providers\":{\"deepseek\":{\"api_key\":\"sk-…\"}}}"`. Only requests from this computer may change anything (non-GET `/api/*` and WebSockets need a loopback `Host` and, if sent, a loopback `Origin`).
+**Settings without a restart.** Keys, provider switches, tiers, default models, the video settings and `music.suno_all_tracks` can also live in `<data home>/settings.json`, which wins over `.env` and the environment. Change it through the running daemon — `GET /api/settings` shows each key only as set / last four characters / where it came from; `PATCH /api/settings` (same shape as the file, `null` removes an entry) applies at once; `POST /api/settings/test-key` checks a key with a free call. Example: `curl -X PATCH http://127.0.0.1:7788/api/settings -H "Content-Type: application/json" -d "{\"providers\":{\"deepseek\":{\"api_key\":\"sk-…\"}}}"`. Only requests from this computer may change anything (non-GET `/api/*` and WebSockets need a loopback `Host` and, if sent, a loopback `Origin`).
 
 **Running outside the repo.** When the package has no `pyproject.toml` beside it (a copied or packaged install), the background daemon works in the data home and, unless `STORAGE__BASE_PATH` is set, saves works to `Documents\OmniAPI`. `omni stop` asks the daemon to shut down cleanly (`POST /api/shutdown`) and only kills it when it has not exited after 15 seconds.
 
 ## Version History
+
+### v1.4.0 — Video, and OpenRouter's image models 🎬
+- **New modality: video.** `generate_video` makes short clips through OpenRouter's video models — text-to-video, or from a first frame (and a last frame where the model takes one). Options follow each model's `video_params`. A per-video estimate limit (default $1, settings `video.mcp_max_usd` / `video.mcp_unlimited`) keeps MCP callers from sending expensive or unpriceable videos without `max_cost_usd`. Long waits return a `video_<id>` ticket that survives a service restart; the remote job is resumed after a restart. The GUI has a video tab with a confirmation sheet before every send, waiting tickets, a player and video cards on the works wall.
+- **OpenRouter's image models** (FLUX, Seedream, Grok Imagine, Qwen, Recraft, MAI…) work with an existing OpenRouter key in `generate_image` and `edit_image`, by their OpenRouter ids; list and prices are fetched live and refreshed daily. `edit_image` gained `image_size` and `aspect_ratio` for them. (This page also corrects an old note: `edit_image` has routed Nano Banana models to Gemini since v1.0.0-alpha.1.)
+- **Gemini Omni direct.** `gemini-omni-1.1-flash` is called with the Google key (paid Gemini API tier): always with sound, 720p priced up front, the cost Google reports recorded. A restart while it is being made loses that video in this version. OpenRouter's Google video rows are hidden while the Google key is set.
+- **Suno keeps both songs.** `generate_music` and the song-making `edit_music` actions return `tracks` / `track_count`; each song is a work, the cost split. `music.suno_all_tracks` switches back to the first song only. Eight Suno operations (generate, extend, cover, add_instrumental, add_vocals, lyrics, WAV, music video) moved to kie.ai's unified endpoints after a real-key run; upload_extend and stem separation stay on the old ones.
+- **`list_available_models` rows carry `rank`** (plus `popularity` and `rank_badge`) from a snapshot of the Artificial Analysis leaderboards; the GUI's model pickers sort by it.
+- **Claude thinking.** Claude 4.7+ get adaptive thinking with `output_config.effort` (and no `temperature` / `top_p`), 4.6 the same with `xhigh` lowered to `high`; 4.7+ default to `max_tokens` 16000; Fable 5.1 / Opus 5.5 / Sonnet 5.5 get `tool_choice: auto` instead of a forced tool (with a warning); OpenRouter's Claude models get OpenRouter's `reasoning`. Not verified against a real account.
+- **kie.ai**: a task that fails upstream with "please try again later" is reported as a generation failure, not a bad request.
+- **Speech**: ElevenLabs `eleven_v4` and `eleven_v4_turbo`. Shutdown dates added for several older image and speech models.
+- **Desktop extension**: optional OpenRouter key field (video and OpenRouter's image models).
+- 20 tools.
 
 ### v1.0.0 — Dispatch center: daemon, web GUI, CLI 🗂️
 - **One background daemon, three doors.** `omni serve` runs a single process on `127.0.0.1:7788` that serves the MCP endpoint (`/mcp`, streamable HTTP), a REST + WebSocket API, and the web GUI. Every entry point writes to the same SQLite store (`~/.omniapi/omniapi.db`), so a run dispatched from Claude Code shows up on the board. The stdio server is kept for Claude Desktop.

@@ -252,3 +252,13 @@ def test_logging_and_prints_share_the_rotating_stream(tmp_path):
         s.close()
     text = (tmp_path / "daemon.log").read_text(encoding="utf-8")
     assert "from logging" in text and "from print" in text
+
+
+def test_model_rows_carry_their_leaderboard_rank(daemon):
+    """Popularity (Artificial Analysis ranks) rides on the rows of both lists the page sorts."""
+    texts = {m["id"]: m for m in daemon.get("/api/models", params={"modality": "text"}).json()["models"]["text"]}
+    assert texts["claude-opus-5-5"]["rank"] == 1 and texts["claude-opus-5-5"]["rank_badge"]["rank"] == 1
+    assert "rank" not in texts["gpt-4o"]
+    opts = daemon.get("/api/generate/options").json()
+    images = {m["id"]: m for m in opts["kinds"]["image"]["models"]}
+    assert images["gpt-image-2.5-sunburst"]["rank"] == 1

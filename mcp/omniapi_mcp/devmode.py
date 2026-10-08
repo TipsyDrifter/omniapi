@@ -30,6 +30,7 @@ PAID_TOOLS = frozenset(
         "music_lyrics",
         "music_utility",
         "compose_music",
+        "generate_video",
     }
 )
 

@@ -203,6 +203,33 @@ commit "unleak4"
 run_case "用環境變數、別的使用者名稱 → 通過" 0 --export-to "$T/out4c"
 expect "" "$(has '安全網 4（開發機的路徑）：通過' && echo 0 || echo 1)"
 
+# ---------------------------------------------------------------- 1.4 的新檔案
+echo "▸ 1.4 的新檔案（影片、OpenRouter 名單夾具、測試版的殼）"
+w prototypes/video-design/index.html "<p>版面稿</p>"
+w prototypes/readme-screenshots/seed_demo.py "KEY = 'demo-not-a-key'"
+w desktop/config/shell.test.json '{"comment": "test build only", "port": 7939}'
+w mcp/tests/fixtures/openrouter/videos.json '{"data": [{"id": "alibaba/wan-3.0", "pricing": {"per_second": 0.05}}]}'
+mkdir -p "$R/mcp/omniapi_mcp/video"; printf 'ftyp\0\0isom\0%s\0' "$FAKE_SK" > "$R/mcp/omniapi_mcp/video/sample.mp4"
+commit "v14 files"
+run_case "原型與 README 截圖的種子不出去、測試版的殼設定與影片樣本出去" 0 --export-to "$T/out14"
+bad=0
+[[ ! -e "$T/out14/prototypes" ]] || bad=1
+[[ -f "$T/out14/desktop/config/shell.test.json" && -f "$T/out14/mcp/tests/fixtures/openrouter/videos.json" && -f "$T/out14/mcp/omniapi_mcp/video/sample.mp4" ]] || bad=1
+expect "二進位的影片樣本不當文字掃（就算裡面剛好有像 key 的位元組）" "$bad"
+w mcp/tests/fixtures/openrouter/videos.json "{\"data\": [], \"key\": \"$FAKE_SK\"}"
+commit "leak in fixture"
+run_case "名單夾具裡長得像 key 的字串 → 停" nz --export-to "$T/out14b"
+expect "" "$(has '安全網 2' && has 'mcp/tests/fixtures/openrouter/videos.json:1:' && echo 0 || echo 1)"
+w mcp/tests/fixtures/openrouter/videos.json '{"data": []}'
+w desktop/config/shell.test.json '{"comment": "test build only (1.4-M6)", "port": 7939}'
+commit "internal id in the test shell config"
+run_case "測試版殼設定的內部編號 → 停（JSON 整份都算）" nz --export-to "$T/out14c"
+expect "" "$(has '安全網 3' && has 'desktop/config/shell.test.json' && echo 0 || echo 1)"
+w desktop/config/shell.test.json '{"comment": "test build only", "port": 7939}'
+commit "clean v14"
+run_case "清掉之後 → 通過" 0 --export-to "$T/out14d"
+expect "" "$(has '安全網 2（疑似密鑰）：通過' && has '安全網 3（畫面文字的內部編號）：通過' && echo 0 || echo 1)"
+
 # ---------------------------------------------------------------- 公開 commit 的訊息取自 tag
 echo "▸ 公開 commit 訊息"
 g commit -q --allow-empty -m "docs: owner approved the release"

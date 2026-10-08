@@ -277,34 +277,289 @@ def test_anthropic_message_conversion_roundtrip():
     assert msgs[2]["content"][1] == {"type": "text", "text": "thanks"}
 
 
-def test_anthropic_tools_and_thinking_request():
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "f",
+            "description": "d",
+            "parameters": {"type": "object", "properties": {"x": {"type": "string"}}},
+        },
+    }
+]
+
+
+def _anthropic_on_fake_wire():
+    """Anthropic provider whose client records the request body instead of calling out."""
+    from types import SimpleNamespace as NS
+
     p = AnthropicTextProvider(CFG)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "f",
-                "description": "d",
-                "parameters": {"type": "object", "properties": {"x": {"type": "string"}}},
-            },
-        }
-    ]
+    sent: dict = {}
+
+    async def create(**req):
+        sent.update(req)
+        return NS(content=[NS(type="text", text="ok")], usage=None, stop_reason="end_turn", model=req["model"])
+
+    p.client = NS(messages=NS(create=create))
+    return p, sent
+
+
+async def test_anthropic_new_model_gets_adaptive_thinking_and_effort_on_the_wire():
+    """4.7+ (here Opus 5.5): budget_tokens and temperature are HTTP 400 there."""
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete(
+        "claude-opus-5-5",
+        [{"role": "user", "content": "go"}],
+        tools=_TOOLS,
+        tool_choice="auto",
+        reasoning_effort="xhigh",
+        temperature=0.9,
+        top_p=0.5,
+    )
+    assert sent["thinking"] == {"type": "adaptive"}
+    assert sent["extra_body"] == {"output_config": {"effort": "xhigh"}}
+    assert "budget_tokens" not in json.dumps(sent, default=str)
+    assert "temperature" not in sent and "top_p" not in sent
+    assert sent["max_tokens"] == AnthropicTextProvider.ADAPTIVE_DEFAULT_MAX_TOKENS
+    assert sent["tools"][0]["input_schema"]["properties"]["x"]["type"] == "string"
+
+
+async def test_anthropic_new_model_without_effort_sends_no_thinking_and_still_drops_sampling():
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete("claude-opus-4-7", [{"role": "user", "content": "go"}], temperature=0.3, max_completion_tokens=50)
+    assert "thinking" not in sent and "extra_body" not in sent
+    assert "temperature" not in sent and sent["max_tokens"] == 50
+
+
+def test_anthropic_new_model_keeps_callers_max_tokens_and_merges_effort_with_json_schema():
+    p = AnthropicTextProvider(CFG)
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
     req = p._build_request(
         "claude-sonnet-5",
         [{"role": "user", "content": "go"}],
         {
-            "tools": tools,
-            "tool_choice": "required",
-            "reasoning_effort": "high",
-            "temperature": 0.9,
+            "reasoning_effort": "low",
             "max_completion_tokens": 100,
+            "response_format": {"type": "json_schema", "json_schema": {"name": "r", "schema": schema}},
         },
     )
-    assert req["tools"][0]["input_schema"]["properties"]["x"]["type"] == "string"
-    assert req["tool_choice"] == {"type": "any"}
-    assert req["thinking"] == {"type": "enabled", "budget_tokens": 16000}
-    assert req["max_tokens"] > 16000  # headroom above the thinking budget
-    assert "temperature" not in req  # forbidden with extended thinking
+    assert req["thinking"] == {"type": "adaptive"}
+    assert req["max_tokens"] == 100
+    assert req["extra_body"]["output_config"] == {
+        "effort": "low",
+        "format": {"type": "json_schema", "schema": schema},
+    }
+
+
+async def test_anthropic_old_model_keeps_budget_tokens_on_the_wire():
+    """Pre-4.6 (here Haiku 4.5) only knows enabled + budget_tokens; effort would error."""
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete(
+        "claude-haiku-4-5-20251001",
+        [{"role": "user", "content": "go"}],
+        tools=_TOOLS,
+        tool_choice="required",
+        reasoning_effort="high",
+        temperature=0.9,
+        max_completion_tokens=100,
+    )
+    assert sent["tool_choice"] == {"type": "any"}
+    assert sent["thinking"] == {"type": "enabled", "budget_tokens": 16000}
+    assert sent["max_tokens"] > 16000  # headroom above the thinking budget
+    assert "temperature" not in sent  # forbidden with extended thinking
+    assert "extra_body" not in sent  # no output_config.effort on old models
+
+
+def test_anthropic_4_6_gets_adaptive_with_xhigh_lowered_to_high_and_keeps_temperature():
+    p = AnthropicTextProvider(CFG)
+    req = p._build_request(
+        "claude-opus-4-6",
+        [{"role": "user", "content": "go"}],
+        {"reasoning_effort": "xhigh", "temperature": 0.4},
+    )
+    assert req["thinking"] == {"type": "adaptive"}
+    assert req["extra_body"] == {"output_config": {"effort": "high"}}
+    assert req["temperature"] == 0.4  # sampling is still allowed on 4.6
+
+
+async def test_anthropic_callers_own_thinking_dict_is_sent_as_given():
+    p, sent = _anthropic_on_fake_wire()
+    own = {"type": "adaptive", "display": "summarized"}
+    await p.complete("claude-opus-5-5", [{"role": "user", "content": "go"}], thinking=own, reasoning_effort="low")
+    assert sent["thinking"] == own
+    assert "extra_body" not in sent
+
+
+@pytest.mark.parametrize(
+    "model, shape",
+    [
+        ("claude-fable-5-1", "adaptive"),
+        ("claude-fable-5", "adaptive"),
+        ("claude-mythos-5-1", "adaptive"),
+        ("claude-opus-5-5", "adaptive"),
+        ("claude-opus-5", "adaptive"),
+        ("claude-opus-4-8", "adaptive"),
+        ("claude-opus-4-7", "adaptive"),
+        ("claude-sonnet-5-5", "adaptive"),
+        ("claude-sonnet-5", "adaptive"),
+        ("claude-opus-4-6", "adaptive-4.6"),
+        ("claude-sonnet-4-6", "adaptive-4.6"),
+        ("claude-sonnet-4-5-20250929", "budget"),
+        ("claude-opus-4-5-20251101", "budget"),
+        ("claude-haiku-4-5-20251001", "budget"),
+        ("claude-sonnet-4-20250514", "budget"),
+        ("claude-3-7-sonnet-20250219", "budget"),
+        ("anthropic/claude-opus-4.7", "adaptive"),
+        ("anthropic/claude-sonnet-4.5", "budget"),
+        ("anthropic/claude-sonnet-4.6", "adaptive-4.6"),
+        ("claude-something-new", "adaptive"),  # unreadable id -> newest rules
+    ],
+)
+def test_claude_thinking_shape_rule(model, shape):
+    from omniapi_mcp.capabilities.text import claude_thinking_shape
+
+    assert claude_thinking_shape(model) == shape
+
+
+def test_every_catalog_claude_id_has_a_readable_version():
+    """A catalog id we cannot parse would silently get the 'new model' shape."""
+    from pathlib import Path
+
+    from omniapi_mcp.capabilities.text import claude_version
+
+    path = Path(__file__).resolve().parents[2] / "omniapi_mcp" / "catalog" / "catalog.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    ids = [m["id"] for m in data["models"] if str(m.get("id", "")).startswith("claude-")]
+    assert ids
+    assert [i for i in ids if claude_version(i) is None] == []
+
+
+def test_openrouter_claude_uses_unified_reasoning_and_drops_sampling_on_4_7_plus():
+    p = OpenRouterTextProvider(CFG)
+    req = p._build_request(
+        "anthropic/claude-opus-4.7",
+        [{"role": "user", "content": "go"}],
+        {"reasoning_effort": "high", "temperature": 0.5},
+    )
+    assert "reasoning_effort" not in req
+    assert req["extra_body"]["reasoning"] == {"effort": "high"}
+    assert req["extra_body"]["usage"] == {"include": True}  # the provider's own extras survive
+    assert "temperature" not in req
+    assert "budget_tokens" not in json.dumps(req, default=str)
+
+
+def test_openrouter_older_claude_keeps_temperature_and_non_claude_is_untouched():
+    p = OpenRouterTextProvider(CFG)
+    old = p._build_request(
+        "anthropic/claude-sonnet-4.5", [{"role": "user", "content": "go"}], {"reasoning_effort": "none", "temperature": 0.5}
+    )
+    assert old["temperature"] == 0.5 and "reasoning" not in old["extra_body"] and "reasoning_effort" not in old
+    other = p._build_request("moonshotai/kimi-k2", [{"role": "user", "content": "go"}], {"reasoning_effort": "low", "temperature": 0.5})
+    assert other["reasoning_effort"] == "low" and other["temperature"] == 0.5
+
+
+async def test_anthropic_new_model_without_effort_or_max_tokens_gets_room_to_think():
+    """Fable / Opus 5.5 think even without reasoning_effort; thinking counts against max_tokens."""
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete("claude-opus-5-5", [{"role": "user", "content": "go"}])
+    assert "thinking" not in sent
+    assert sent["max_tokens"] == AnthropicTextProvider.ADAPTIVE_DEFAULT_MAX_TOKENS
+
+
+async def test_anthropic_old_model_without_max_tokens_keeps_the_old_default():
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete("claude-haiku-4-5-20251001", [{"role": "user", "content": "go"}])
+    assert sent["max_tokens"] == AnthropicTextProvider.DEFAULT_MAX_TOKENS
+
+
+async def test_anthropic_forced_tool_choice_becomes_auto_with_a_warning_on_models_that_reject_it():
+    p, sent = _anthropic_on_fake_wire()
+    result = await p.complete(
+        "claude-opus-5-5", [{"role": "user", "content": "go"}], tools=_TOOLS, tool_choice="required"
+    )
+    assert sent["tool_choice"] == {"type": "auto"}
+    assert not any(k.startswith("_") for k in sent)  # the private warnings key never goes out
+    assert len(result.metadata["warnings"]) == 1 and "tool_choice" in result.metadata["warnings"][0]
+
+
+def test_anthropic_named_tool_choice_becomes_auto_on_sonnet_5_5():
+    p = AnthropicTextProvider(CFG)
+    req = p._build_request(
+        "claude-sonnet-5-5",
+        [{"role": "user", "content": "go"}],
+        {"tools": _TOOLS, "tool_choice": {"type": "function", "function": {"name": "f"}}},
+    )
+    assert req["tool_choice"] == {"type": "auto"}
+    assert "'f'" in req[AnthropicTextProvider._REQUEST_WARNINGS][0]
+
+
+def test_anthropic_forced_tool_choice_kept_where_it_is_accepted():
+    p = AnthropicTextProvider(CFG)
+    named = {"type": "function", "function": {"name": "f"}}
+    for model in ("claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-4-8"):
+        req = p._build_request(model, [{"role": "user", "content": "go"}], {"tools": _TOOLS, "tool_choice": named})
+        assert req["tool_choice"] == {"type": "tool", "name": "f"}, model
+        assert AnthropicTextProvider._REQUEST_WARNINGS not in req
+    req = p._build_request("claude-opus-5-5", [{"role": "user", "content": "go"}], {"tools": _TOOLS, "tool_choice": "none"})
+    assert req["tool_choice"] == {"type": "none"} and AnthropicTextProvider._REQUEST_WARNINGS not in req
+
+
+async def test_anthropic_stream_carries_the_tool_choice_warning_on_done():
+    from types import SimpleNamespace as NS
+
+    p = AnthropicTextProvider(CFG)
+    sent: dict = {}
+
+    class _Events:
+        def __init__(self, events):
+            self._it = iter(events)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._it)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    async def create(**req):
+        sent.update(req)
+        return _Events([
+            NS(type="content_block_start", index=0, content_block=NS(type="text", text="")),
+            NS(type="content_block_delta", index=0, delta=NS(type="text_delta", text="hi")),
+            NS(type="message_delta", delta=NS(stop_reason="end_turn"), usage=NS(output_tokens=1)),
+        ])
+
+    p.client = NS(messages=NS(create=create))
+    pieces = [x async for x in p.stream("claude-fable-5-1", [{"role": "user", "content": "x"}], tools=_TOOLS, tool_choice="required")]
+    assert sent["tool_choice"] == {"type": "auto"} and not any(k.startswith("_") for k in sent)
+    done = pieces[-1]["result"]
+    assert done.metadata["warnings"] and "tool_choice" in done.metadata["warnings"][0]
+
+
+@pytest.mark.parametrize(
+    "model, rejects",
+    [
+        ("claude-fable-5-1", True),
+        ("claude-mythos-5-1", True),
+        ("claude-opus-5-5", True),
+        ("claude-sonnet-5-5", True),
+        ("anthropic/claude-sonnet-5.5", True),
+        ("claude-something-new", True),  # unreadable id -> newest rules
+        ("claude-fable-5", False),
+        ("claude-opus-5", False),
+        ("claude-sonnet-5", False),
+        ("claude-opus-4-8", False),
+        ("claude-opus-4-6", False),
+        ("claude-haiku-4-5-20251001", False),
+        ("claude-3-7-sonnet-20250219", False),
+    ],
+)
+def test_claude_forced_tool_choice_rule(model, rejects):
+    from omniapi_mcp.capabilities.text import claude_rejects_forced_tool_choice
+
+    assert claude_rejects_forced_tool_choice(model) is rejects
 
 
 def test_anthropic_json_schema_goes_to_output_config():

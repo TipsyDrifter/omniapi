@@ -108,9 +108,15 @@ class ElevenLabsProvider(SpeechProvider):
     §2.1). `eleven_turbo_v2_5` is marked deprecated on the official models page
     ("outclassed by Flash models") with `eleven_flash_v2_5` as the named
     replacement — no shutdown date has been announced, so it stays callable.
+
+    2026-10-05: Eleven v4 and v4 Turbo (released 2026-09-28) go through the
+    same endpoint with their own ``model_id`` (docs/research/
+    2026-10-05-kie的API形狀與現有key的目錄缺口查證.md §2).
     """
 
     SUPPORTED_MODELS = {
+        "eleven_v4",                # newest, most expressive (2026-09-28)
+        "eleven_v4_turbo",          # v4 at half the price
         "eleven_v3",                # most advanced / expressive
         "eleven_v3_conversational",  # most expressive realtime (~280ms)
         "eleven_multilingual_v2",   # most lifelike, rich emotion
@@ -121,6 +127,8 @@ class ElevenLabsProvider(SpeechProvider):
     DEFAULT_MODEL = "eleven_flash_v2_5"
 
     MODEL_STATUS = {
+        "eleven_v4": "current",
+        "eleven_v4_turbo": "current",
         "eleven_v3": "current",
         "eleven_v3_conversational": "current",
         "eleven_multilingual_v2": "current",
@@ -277,18 +285,24 @@ class OpenAITTSProvider(SpeechProvider):
 
     Roster unchanged as of 2026-09-25 (docs/research/
     2026-09-25-多模態模型榜單查證.md §2.2): `gpt-4o-mini-tts` remains OpenAI's
-    newest TTS model and no deprecation notice covers `tts-1` / `tts-1-hd`.
-    The GPT-Live-1 family is realtime conversation, not a TTS API model, so it
-    is deliberately not listed here.
+    newest TTS model. The GPT-Live-1 family is realtime conversation, not a
+    TTS API model, so it is deliberately not listed here.
+
+    2026-10-05 (docs/research/2026-10-05-kie的API形狀與現有key的目錄缺口查證.md
+    §2): OpenAI's deprecations page announced on 2026-10-01 that `tts-1` and
+    `tts-1-hd` shut down on 2027-01-06.
     """
 
     SUPPORTED_MODELS = {"gpt-4o-mini-tts", "tts-1", "tts-1-hd"}
     DEFAULT_MODEL = "gpt-4o-mini-tts"
     MODEL_STATUS = {
         "gpt-4o-mini-tts": "current",
-        "tts-1": "current",
-        "tts-1-hd": "current",
+        "tts-1": "deprecated",
+        "tts-1-hd": "deprecated",
     }
+    # No replacement named here: the notice points at a realtime model this
+    # TTS path does not call; gpt-4o-mini-tts (the default) is the one to use.
+    MODEL_SHUTDOWN = {"tts-1": "2027-01-06", "tts-1-hd": "2027-01-06"}
     DEFAULT_VOICE = "alloy"
     # Built-in voices (docs/research/2026-10-01-語音聲音清單與上傳上限查證.md §1).
     # The last four exist on gpt-4o-mini-tts only; OpenAI recommends marin / cedar.

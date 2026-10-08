@@ -41,6 +41,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import modalities as _MOD
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- limits (決策記錄 1.2-M5-c)
@@ -78,7 +80,8 @@ CODE_EXTS = {
     ".bat", ".cmd", ".vue", ".svelte", ".css", ".scss", ".less", ".dart", ".ex", ".exs", ".hs", ".clj", ".gradle",
 }
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".avif"}
-AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".opus", ".flac", ".aac", ".m4a", ".mp4", ".webm", ".mpga", ".mpeg", ".aiff", ".aif"}
+#: an attached .mp4 is offered for transcription like any audio (its audio track is what is read)
+AUDIO_EXTS = _MOD.CHAT_AUDIO_EXTS
 LEGACY_OFFICE_EXTS = {".doc", ".xls", ".ppt"}
 
 #: type → the word the model and the page read
@@ -192,6 +195,10 @@ def audio_format(path: Path) -> Optional[str]:
 
 _MP3_KBPS = {  # MPEG-1 Layer III bitrate index → kbps
     1: 32, 2: 40, 3: 48, 4: 56, 5: 64, 6: 80, 7: 96, 8: 112, 9: 128, 10: 160, 11: 192, 12: 224, 13: 256, 14: 320}
+#: MPEG-2 / 2.5 Layer III (24 kHz and lower: OpenAI's TTS writes these) bitrate index → kbps
+_MP3_LSF_KBPS = {1: 8, 2: 16, 3: 24, 4: 32, 5: 40, 6: 48, 7: 56, 8: 64, 9: 80, 10: 96, 11: 112, 12: 128, 13: 144, 14: 160}
+#: second header byte (without the protection bit) → that version's table: MPEG-1, MPEG-2, MPEG-2.5 Layer III
+_MP3_TABLES = {0xFA: _MP3_KBPS, 0xF2: _MP3_LSF_KBPS, 0xE2: _MP3_LSF_KBPS}
 
 
 def audio_duration(path: Path) -> tuple[Optional[float], bool]:
@@ -215,14 +222,28 @@ def audio_duration(path: Path) -> tuple[Optional[float], bool]:
                     f.seek(i)
                     head, i = f.read(4096), 0
             while i + 4 <= len(head):
-                if head[i] == 0xFF and head[i + 1] & 0xFE == 0xFA:  # MPEG-1 Layer III frame
-                    kbps = _MP3_KBPS.get(head[i + 2] >> 4)
+                table = _MP3_TABLES.get(head[i + 1] & 0xFE) if head[i] == 0xFF else None  # a Layer III frame
+                if table:
+                    kbps = table.get(head[i + 2] >> 4)
                     if kbps:
                         return round(path.stat().st_size * 8 / (kbps * 1000), 1), True
                 i += 1
     except (OSError, EOFError, ValueError) as e:
         logger.debug("audio duration of %s: %s", path.name, e)
     return None, False
+
+
+def work_seconds(row: dict[str, Any]) -> Optional[float]:
+    """An audio work's length: what the index stored, else read from the file.
+    The index only stores a length the tool reported (or a WAV's); a speech
+    or music MP3 from the works wall has none, and without it a transcription
+    asked about in a chat had no estimate (v1.2.0 acceptance)."""
+    if row.get("duration_s"):
+        return row["duration_s"]
+    p = Path(row["file_path"]) if row.get("file_path") else None
+    if p is None or not p.is_file():
+        return row.get("duration_s")
+    return audio_duration(p)[0]
 
 
 def audio_info(path: Path) -> dict[str, Any]:

@@ -1,0 +1,86 @@
+{
+ "request": {
+  "model": "ai-music-api/extend",
+  "input": {
+   "audio_id": "song-1",
+   "model": "V6_MINI"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task2",
+   "model": "ai-music-api/extend",
+   "state": "generating",
+   "param": "{\"input\": \"{\\\"model\\\": \\\"V6_MINI\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/extend\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277273214,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/extend",
+   "status": "PENDING",
+   "type": "chirp-goose",
+   "parentMusicId": "song-1",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"model\\\": \\\"V6_MINI\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/extend\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task2",
+   "model": "ai-music-api/extend",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"model\\\": \\\"V6_MINI\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/extend\"}",
+   "resultJson": "{\"code\": 200, \"data\": [{\"audio_url\": \"https://files.kie.test/r/song-3.mp3\", \"createTime\": 1791277347764, \"duration\": 167.6, \"id\": \"song-3\", \"image_url\": \"https://img.suno.test/image_song-4.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"[Instrumental]\\n\\n\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-3.mp3\", \"tags\": \"Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty...\", \"title\": \"\"}, {\"audio_url\": \"https://files.kie.test/r/song-5.mp3\", \"createTime\": 1791277347764, \"duration\": 184.36, \"id\": \"song-5\", \"image_url\": \"https://img.suno.test/image_song-6.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"[Instrumental]\\n\\n\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-5.mp3\", \"tags\": \"Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty...\", \"title\": \"\"}], \"msg\": \"success\", \"task_id\": \"task2\"}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 74,
+   "completeTime": 1791277347764,
+   "createTime": 1791277273214,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/extend",
+   "status": "SUCCESS",
+   "type": "chirp-goose",
+   "parentMusicId": "song-1",
+   "response": {
+    "msg": "success",
+    "code": 200,
+    "data": [
+     {
+      "duration": 167.6,
+      "stream_audio_url": "https://stream.kie.test/stream/song-3.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277347764,
+      "image_url": "https://img.suno.test/image_song-4.jpeg",
+      "audio_url": "https://files.kie.test/r/song-3.mp3",
+      "id": "song-3",
+      "title": "",
+      "prompt": "[Instrumental]\n\n",
+      "tags": "Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty..."
+     },
+     {
+      "duration": 184.36,
+      "stream_audio_url": "https://stream.kie.test/stream/song-5.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277347764,
+      "image_url": "https://img.suno.test/image_song-6.jpeg",
+      "audio_url": "https://files.kie.test/r/song-5.mp3",
+      "id": "song-5",
+      "title": "",
+      "prompt": "[Instrumental]\n\n",
+      "tags": "Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty..."
+     }
+    ],
+    "task_id": "task2"
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"model\\\": \\\"V6_MINI\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/extend\"}"
+  }
+ },
+ "polls": 9
+}

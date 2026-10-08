@@ -4,7 +4,7 @@ import { Glyph } from "@/components/make";
 import Sheet from "@/components/Sheet";
 import { DateSlug, WorkCard } from "@/components/works/Cards";
 import { Lightbox } from "@/components/works/Lightbox";
-import { DATE_OPTS, KIND_TABS, KIND_ZH, cellsOf, filterParams, isFiltered, layoutRows, parseFilter, sourceZh, toQuery, type WallFilter } from "@/components/works/wall";
+import { DATE_OPTS, KIND_TABS, KIND_ZH, WALL_KINDS, cellsOf, filterParams, isFiltered, layoutRows, parseFilter, sourceZh, toQuery, type WallFilter } from "@/components/works/wall";
 import { useBoard } from "@/store/board";
 import { useTier, type Tier } from "@/lib/rwd";
 import { enterWall, leaveWall, loadFacets, loadMore, loadWall, markSeen, useWorks } from "@/store/works";
@@ -18,7 +18,6 @@ const WALL_LAYOUT: Record<Tier, { gap: number; target: number; maxH: number; box
   m: { gap: 14, target: 174, maxH: 226, boxScale: 1, slugRow: false },
   s: { gap: 10, target: 116, maxH: 170, boxScale: 1.3, slugRow: true },
 };
-const WALL_KINDS = ["image", "speech", "music", "lyrics", "transcript"];
 
 export default function WorksPage() {
   const { id } = useParams();

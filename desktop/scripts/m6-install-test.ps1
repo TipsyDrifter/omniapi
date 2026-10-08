@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 $StepList = @($Steps -split '[,\s]+' | Where-Object { $_ })
 . (Join-Path $PSScriptRoot 'm6-common.ps1')
 $Dir = Join-Path $M6 'install'
-$Exe = Join-Path $Dir 'OmniAPI.exe'
+$Exe = Join-Path $Dir $ExeName
 $StateFile = Join-Path $M6 'install-test.state.json'
 function Has([string]$s) { $StepList -contains $s }
 function Save-State($o) { [IO.File]::WriteAllText($StateFile, ($o | ConvertTo-Json -Depth 4)) }
@@ -109,6 +109,7 @@ if (Has 'cli') {
     New-TestConfig 'main' $state.home | Out-Null
     $omni = Join-Path $Dir 'omni.cmd'
     $env:OMNIAPI_HOME = $state.home
+    $env:STORAGE__BASE_PATH = Join-Path $state.home 'works'
     $saved = $env:PATH; $env:PATH = $SystemPath
     try {
         Say "omni.cmd version: $((& $omni version) -join ' ')"
@@ -135,7 +136,7 @@ if (Has 'cli') {
         Say "test service answering after omni stop --port $TestPort : $([bool](Get-Health))"
     } finally {
         $env:PATH = $saved
-        Remove-Item Env:OMNIAPI_HOME, Env:OMNIAPI_DEV, Env:OMNIAPI_OFFLINE -ErrorAction SilentlyContinue
+        Remove-Item Env:OMNIAPI_HOME, Env:OMNIAPI_DEV, Env:OMNIAPI_OFFLINE, Env:STORAGE__BASE_PATH -ErrorAction SilentlyContinue
     }
     $null = Start-TestShell $Exe @('--background') -CleanPath
     [void](Wait-Up 300)
@@ -153,21 +154,23 @@ if (Has 'autostart') {
     if (-not (Get-ShellProcs)) { $null = Start-TestShell $Exe @('--background') -CleanPath; [void](Wait-Up 300) }
     Assert-TestConfig; Assert-NoForeignShell
     $before = Get-RunSnapshot
-    $had =(Get-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue).OmniAPI
-    Say "Run\OmniAPI before: $(if ($had) { $had } else { '(none)' })"
+    $ownerRun = (Get-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue).OmniAPI
+    $had = (Get-ItemProperty $RunKey -Name $AppName -ErrorAction SilentlyContinue).$AppName
+    Say "Run\$AppName before: $(if ($had) { $had } else { '(none)' })"
     try {
         Start-Process -FilePath $Exe -ArgumentList '--autostart-on' -Wait | Out-Null
-        [void](Wait-Until { (Get-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue).OmniAPI } 15)
-        Say "Run\OmniAPI after --autostart-on: $((Get-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue).OmniAPI)"
+        [void](Wait-Until { (Get-ItemProperty $RunKey -Name $AppName -ErrorAction SilentlyContinue).$AppName } 15)
+        Say "Run\$AppName after --autostart-on: $((Get-ItemProperty $RunKey -Name $AppName -ErrorAction SilentlyContinue).$AppName)"
+        if ($Identity -eq 'test') { Say ("Run\OmniAPI (the released app's value) unchanged: {0}" -f ((Get-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue).OmniAPI -eq $ownerRun)) }
         $env:OMNIAPI_HOME = $state.home
         & (Join-Path $Dir 'omni.cmd') autostart status | ForEach-Object { Say "    omni autostart status: $_" }
-        & (Join-Path $Dir 'omni.cmd') autostart install | ForEach-Object { Say "    omni autostart install: $_" }
+        if ($Identity -ne 'test') { & (Join-Path $Dir 'omni.cmd') autostart install | ForEach-Object { Say "    omni autostart install: $_" } }   # the test build refuses it anyway; not even tried
         Say "    (exit ${LASTEXITCODE}: refused while the desktop app starts at logon)"
     } finally {
         Remove-Item Env:OMNIAPI_HOME -ErrorAction SilentlyContinue
         Start-Process -FilePath $Exe -ArgumentList '--autostart-off' -Wait | Out-Null
-        [void](Wait-Until { -not (Get-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue) } 15)
-        if (-not $had) { Remove-ItemProperty $RunKey -Name 'OmniAPI' -ErrorAction SilentlyContinue }
+        [void](Wait-Until { -not (Get-ItemProperty $RunKey -Name $AppName -ErrorAction SilentlyContinue) } 15)
+        if (-not $had) { Remove-ItemProperty $RunKey -Name $AppName -ErrorAction SilentlyContinue }
     }
     Say "Run key restored to the state before: $((Get-RunSnapshot) -eq $before)"
 }
@@ -201,7 +204,7 @@ if (Has 'e2e') {
     $env:OMNIAPI_HOME = $homeE
     Push-Location (Join-Path $RepoDir 'mcp')
     try {
-        foreach ($t in 'chat_e2e', 'generate_e2e', 'artifacts_e2e', 'settings_e2e') {
+        foreach ($t in 'chat_e2e', 'generate_e2e', 'artifacts_e2e', 'openrouter_images_e2e', 'settings_e2e') {
             if (-not (Get-Health)) { [void](Wait-Up 120) }
             $sw = [Diagnostics.Stopwatch]::StartNew()
             # the installed Python runs the repo's test script; -I so the installed omniapi_mcp is the one imported
@@ -303,7 +306,7 @@ if (Has 'cjk') {
     $homeC = New-Home 'cjk'
     New-TestConfig 'cjk' $homeC | Out-Null
     Protect-Install $DirC
-    $exeC = Join-Path $DirC 'OmniAPI.exe'
+    $exeC = Join-Path $DirC $ExeName
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $null = Start-TestShell $exeC @('--background') -CleanPath
     $r = Wait-Up 300

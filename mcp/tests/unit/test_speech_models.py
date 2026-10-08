@@ -78,6 +78,8 @@ class TestTranscriptionRoster:
 class TestElevenLabsRoster:
     def test_expected_models_present(self):
         expected = {
+            "eleven_v4",
+            "eleven_v4_turbo",
             "eleven_v3",
             "eleven_v3_conversational",
             "eleven_flash_v2_5",
@@ -102,10 +104,13 @@ class TestElevenLabsRoster:
 
 
 class TestOpenAITTSRoster:
-    def test_roster_unchanged_and_all_current(self):
+    def test_roster_unchanged_tts1_deprecated(self):
         provider = OpenAITTSProvider(_cfg())
         assert provider.SUPPORTED_MODELS == {"gpt-4o-mini-tts", "tts-1", "tts-1-hd"}
-        assert provider.deprecated_models() == set()
+        # OpenAI's deprecations page (2026-10-01): both shut down 2027-01-06
+        assert provider.deprecated_models() == {"tts-1", "tts-1-hd"}
+        assert provider.MODEL_SHUTDOWN == {"tts-1": "2027-01-06", "tts-1-hd": "2027-01-06"}
+        assert provider.model_status(provider.DEFAULT_MODEL) == "current"
 
 
 # --------------------------------------------------------------------------

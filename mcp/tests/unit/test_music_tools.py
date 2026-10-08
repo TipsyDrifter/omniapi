@@ -369,7 +369,7 @@ class TestModelLists:
             "music_v2",
             "music_v2_5",
         }
-        assert ElevenLabsMusicProvider.DEFAULT_MODEL == "music_v1"
+        assert ElevenLabsMusicProvider.DEFAULT_MODEL == "music_v2_5"
 
 
 class TestMusicToolSurface:

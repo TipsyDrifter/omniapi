@@ -133,7 +133,11 @@ def test_patch_sets_and_null_removes():
     {"tiers": {"premium": "x"}},
     {"tiers": {"cheap": "strong"}},
     {"tiers": {"cheap": ""}},
-    {"defaults": {"video": "x"}},
+    {"defaults": {"hologram": "x"}},
+    {"video": {"max_wait_minutes": 0}},
+    {"video": {"mcp_max_usd": "1"}},
+    {"video": {"keep_collecting": "yes"}},
+    {"video": {"poll_every": 5}},
     [],
 ])
 def test_patch_rejects_what_it_does_not_know(body):

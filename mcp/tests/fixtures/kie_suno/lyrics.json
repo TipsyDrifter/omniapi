@@ -1,0 +1,75 @@
+{
+ "request": {
+  "model": "ai-music-api/generate-lyrics",
+  "input": {
+   "prompt": "a short song about rain on a window"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task6",
+   "model": "ai-music-api/generate-lyrics",
+   "state": "waiting",
+   "param": "{\"input\": \"{\\\"prompt\\\": \\\"a short song about rain on a window\\\"}\", \"model\": \"ai-music-api/generate-lyrics\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277363221,
+   "creditsConsumed": 0.4,
+   "operationType": "ai-music-api/generate-lyrics",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"prompt\\\": \\\"a short song about rain on a window\\\"}\", \"model\": \"ai-music-api/generate-lyrics\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task6",
+   "model": "ai-music-api/generate-lyrics",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"prompt\\\": \\\"a short song about rain on a window\\\"}\", \"model\": \"ai-music-api/generate-lyrics\"}",
+   "resultJson": "{\"resultObject\": {\"lyricsData\": [{\"error_message\": \"\", \"text\": \"[Verse 1]\\nRain on the window\\nMaking little maps\\nDrip by drip it’s saying\\nCome on, don’t look back\\n\\n[Chorus]\\n(shortened for the fixture)\", \"title\": \"Rain Glass\", \"status\": \"complete\", \"tags\": [\"Indie-folk ballad with a gentle swung pulse, fingerpicked ac...\"]}, {\"error_message\": \"\", \"text\": \"[Verse 1]\\nRain on the window\\nDrawing little lines\\nYou and me in quiet\\nWatching time unwind\\n\\n[Chorus]\\n(shortened for the fixture)\", \"title\": \"Rain on Glass\", \"status\": \"complete\", \"tags\": [\"Indie-pop ballad with a soft swung pulse, brushed percussion...\"]}], \"code\": 200, \"message\": \"success\", \"taskId\": \"task6\"}}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 5,
+   "completeTime": 1791277368877,
+   "createTime": 1791277363221,
+   "creditsConsumed": 0.4,
+   "operationType": "ai-music-api/generate-lyrics",
+   "response": {
+    "resultObject": {
+     "lyricsData": [
+      {
+       "error_message": "",
+       "text": "[Verse 1]\nRain on the window\nMaking little maps\nDrip by drip it’s saying\nCome on, don’t look back\n\n[Chorus]\n(shortened for the fixture)",
+       "title": "Rain Glass",
+       "status": "complete",
+       "tags": [
+        "Indie-folk ballad with a gentle swung pulse, fingerpicked ac..."
+       ]
+      },
+      {
+       "error_message": "",
+       "text": "[Verse 1]\nRain on the window\nDrawing little lines\nYou and me in quiet\nWatching time unwind\n\n[Chorus]\n(shortened for the fixture)",
+       "title": "Rain on Glass",
+       "status": "complete",
+       "tags": [
+        "Indie-pop ballad with a soft swung pulse, brushed percussion..."
+       ]
+      }
+     ],
+     "code": 200,
+     "message": "success",
+     "taskId": "task6"
+    }
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"prompt\\\": \\\"a short song about rain on a window\\\"}\", \"model\": \"ai-music-api/generate-lyrics\"}"
+  }
+ },
+ "polls": 3
+}

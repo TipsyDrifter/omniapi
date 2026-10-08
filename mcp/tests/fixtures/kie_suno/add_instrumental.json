@@ -1,0 +1,89 @@
+{
+ "request": {
+  "model": "ai-music-api/add-instrumental",
+  "input": {
+   "upload_url": "https://files.kie.test/r/song-1.mp3",
+   "title": "Probe backing",
+   "tags": "lo-fi, piano",
+   "negative_tags": "metal",
+   "model": "V6_MINI"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task4",
+   "model": "ai-music-api/add-instrumental",
+   "state": "generating",
+   "param": "{\"input\": \"{\\\"negative_tags\\\": \\\"metal\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe backing\\\", \\\"tags\\\": \\\"lo-fi, piano\\\"}\", \"model\": \"ai-music-api/add-instrumental\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277921124,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/add-instrumental",
+   "status": "PENDING",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"negative_tags\\\": \\\"metal\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe backing\\\", \\\"tags\\\": \\\"lo-fi, piano\\\"}\", \"model\": \"ai-music-api/add-instrumental\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task4",
+   "model": "ai-music-api/add-instrumental",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"negative_tags\\\": \\\"metal\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe backing\\\", \\\"tags\\\": \\\"lo-fi, piano\\\"}\", \"model\": \"ai-music-api/add-instrumental\"}",
+   "resultJson": "{\"code\": 200, \"data\": [{\"audio_url\": \"https://files.kie.test/r/song-9.mp3\", \"createTime\": 1791277996444, \"duration\": 183.16, \"id\": \"song-9\", \"image_url\": \"https://img.suno.test/image_song-9.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-9.mp3\", \"tags\": \"lo-fi, piano\", \"title\": \"Probe backing\"}, {\"audio_url\": \"https://files.kie.test/r/song-10.mp3\", \"createTime\": 1791277996444, \"duration\": 182.8, \"id\": \"song-10\", \"image_url\": \"https://img.suno.test/image_song-10.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-10.mp3\", \"tags\": \"lo-fi, piano\", \"title\": \"Probe backing\"}], \"msg\": \"success\", \"task_id\": \"task4\"}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 75,
+   "completeTime": 1791277996444,
+   "createTime": 1791277921124,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/add-instrumental",
+   "status": "SUCCESS",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "response": {
+    "msg": "success",
+    "code": 200,
+    "data": [
+     {
+      "duration": 183.16,
+      "stream_audio_url": "https://stream.kie.test/stream/song-9.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277996444,
+      "image_url": "https://img.suno.test/image_song-9.jpeg",
+      "audio_url": "https://files.kie.test/r/song-9.mp3",
+      "id": "song-9",
+      "title": "Probe backing",
+      "prompt": "",
+      "tags": "lo-fi, piano"
+     },
+     {
+      "duration": 182.8,
+      "stream_audio_url": "https://stream.kie.test/stream/song-10.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277996444,
+      "image_url": "https://img.suno.test/image_song-10.jpeg",
+      "audio_url": "https://files.kie.test/r/song-10.mp3",
+      "id": "song-10",
+      "title": "Probe backing",
+      "prompt": "",
+      "tags": "lo-fi, piano"
+     }
+    ],
+    "task_id": "task4"
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"negative_tags\\\": \\\"metal\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe backing\\\", \\\"tags\\\": \\\"lo-fi, piano\\\"}\", \"model\": \"ai-music-api/add-instrumental\"}"
+  }
+ },
+ "polls": 9
+}

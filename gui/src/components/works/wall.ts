@@ -1,6 +1,7 @@
 /* 作品牆（1.1-M4）的純函式：網址 query ⇄ 篩選、篩選 → API query、接觸印樣的排列、顯示用的字。 */
-import type { Artifact, WallQuery } from "@/api/types";
+import type { Artifact, ArtifactKind, WallQuery } from "@/api/types";
 import { day } from "@/lib/format";
+import { WORK_KINDS, WORK_KIND_INFO, isWorkKind, mediaOf, warnUnknown } from "@/lib/modalities";
 
 /* ---------------- 篩選（網址 query 是唯一真相） ---------------- */
 
@@ -18,14 +19,28 @@ export interface WallFilter {
   hidden: boolean;
 }
 
-/** 模態分頁：全部＋圖／聲／曲＋詞／字（歌詞是作曲的副產品，跟音樂同一頁） */
+/** 每一種作品落在哪一個分頁（歌詞是作曲的副產品，跟音樂同一頁）；加了作品種類沒排分頁＝編譯不過 */
+const WALL_TAB: Record<ArtifactKind, { v: string; zh: string }> = {
+  image: { v: "image", zh: "圖片" },
+  speech: { v: "speech", zh: "語音" },
+  music: { v: "music,lyrics", zh: "音樂＋歌詞" },
+  lyrics: { v: "music,lyrics", zh: "音樂＋歌詞" },
+  transcript: { v: "transcript", zh: "逐字稿" },
+  video: { v: "video", zh: "影片" },
+};
+/** 模態分頁：全部＋圖／聲／曲＋詞／字（照 WORK_KINDS 的順序，一頁收它底下的種類） */
 export const KIND_TABS: { v: string; zh: string; glyphs: string[] }[] = [
   { v: "", zh: "全部", glyphs: [] },
-  { v: "image", zh: "圖片", glyphs: ["image"] },
-  { v: "speech", zh: "語音", glyphs: ["speech"] },
-  { v: "music,lyrics", zh: "音樂＋歌詞", glyphs: ["music", "lyrics"] },
-  { v: "transcript", zh: "逐字稿", glyphs: ["transcript"] },
+  ...WORK_KINDS.reduce<{ v: string; zh: string; glyphs: string[] }[]>((tabs, k) => {
+    const t = WALL_TAB[k];
+    const hit = tabs.find((x) => x.v === t.v);
+    if (hit) hit.glyphs.push(k);
+    else tabs.push({ ...t, glyphs: [k] });
+    return tabs;
+  }, []),
 ];
+/** 作品牆頂上件數的順序（＝分頁裡的順序） */
+export const WALL_KINDS: string[] = KIND_TABS.flatMap((t) => t.glyphs);
 export const DATE_OPTS: { v: DateRange; zh: string }[] = [
   { v: "", zh: "全部" },
   { v: "today", zh: "今天" },
@@ -86,10 +101,10 @@ export function toQuery(f: WallFilter): WallQuery {
 
 /* ---------------- 顯示用 ---------------- */
 
-export const KIND_ZH: Record<string, string> = { image: "圖片", speech: "語音", music: "音樂", lyrics: "歌詞", transcript: "逐字稿" };
-export const KIND_EN: Record<string, string> = { image: "IMAGE", speech: "SPEECH", music: "MUSIC", lyrics: "LYRICS", transcript: "TRANSCRIPT" };
-export const isAudio = (a: Pick<Artifact, "kind">) => a.kind === "speech" || a.kind === "music";
-export const isText = (a: Pick<Artifact, "kind">) => a.kind === "lyrics" || a.kind === "transcript";
+export const KIND_ZH: Record<string, string> = Object.fromEntries(WORK_KINDS.map((k) => [k, WORK_KIND_INFO[k].zh]));
+export const KIND_EN: Record<string, string> = Object.fromEntries(WORK_KINDS.map((k) => [k, WORK_KIND_INFO[k].en]));
+export const isAudio = (a: Pick<Artifact, "kind">) => mediaOf(a.kind) === "audio";
+export const isText = (a: Pick<Artifact, "kind">) => mediaOf(a.kind) === "text";
 export const fileName = (a: Artifact): string => (a.file_path ? a.file_path.split(/[\\/]/).pop() ?? a.id : a.id);
 /** 回填的語音與音樂：當時沒留提示詞與模型 */
 export const isBare = (a: Artifact): boolean => isAudio(a) && !a.prompt && !a.model;
@@ -97,10 +112,8 @@ export const isBare = (a: Artifact): boolean => isAudio(a) && !a.prompt && !a.mo
 /** 動作的中文（燈箱標題沒有 title 時用：「生圖・09-05 16:42」） */
 export function verbOf(a: Artifact): string {
   if (a.kind === "image") return a.tool === "edit_image" || a.parent_id ? "改圖" : "生圖";
-  if (a.kind === "speech") return "語音";
-  if (a.kind === "music") return "音樂";
-  if (a.kind === "lyrics") return "歌詞";
-  if (a.kind === "transcript") return "逐字稿";
+  if (isWorkKind(a.kind)) return WORK_KIND_INFO[a.kind].zh;
+  warnUnknown("作品種類", a.kind);
   return String(a.kind);
 }
 
@@ -115,6 +128,7 @@ export const TOOL_ZH: Record<string, string> = {
   music_utility: "音樂工具",
   music_lyrics: "寫歌詞",
   transcribe_audio: "轉錄",
+  generate_video: "生影片",
 };
 export const GEN_TOOLS = Object.keys(TOOL_ZH);
 
@@ -131,7 +145,9 @@ export interface Row {
 
 /** 卡片的寬高比（寬／高）：圖照原比例；音檔卡、文字卡近方形（A 版的緊湊卡）；日期籤很窄 */
 export function aspectOf(w: Artifact): number {
-  if (w.kind === "image") return w.width && w.height ? Math.max(0.3, Math.min(3.2, w.width / w.height)) : 1;
+  const md = mediaOf(w.kind);
+  if (md === "image") return w.width && w.height ? Math.max(0.3, Math.min(3.2, w.width / w.height)) : 1;
+  if (md === "video") return w.width && w.height ? Math.max(0.3, Math.min(3.2, w.width / w.height)) : 16 / 9;
   if (isAudio(w)) return 0.92;
   return 0.86;
 }

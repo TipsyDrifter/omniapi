@@ -1,6 +1,6 @@
 import { Fragment, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { ModelEntry, ModelsResponse, SettingsView, Slot } from "@/api/types";
+import type { GenModel, ModelEntry, ModelsResponse, OrImageParams, SettingsView, Slot } from "@/api/types";
 import { SLOTS } from "@/api/types";
 import {
   allModels,
@@ -8,6 +8,7 @@ import {
   CAPS,
   callable,
   capList,
+  capsOf,
   daysLeft,
   EXTRA_CAPS,
   hasCap,
@@ -17,6 +18,9 @@ import {
   MOD,
   MOD_ORDER,
   money,
+  orLineLabel,
+  orLineMoney,
+  orLines,
   PRICE_LABEL,
   priceMain,
   slotOf,
@@ -28,8 +32,11 @@ import {
   type Modality,
 } from "@/lib/catalog";
 import { harnessClass, harnessName } from "@/lib/format";
+import { RankBadge, byPopularity } from "@/components/ModelFilterBar";
 import { useTier } from "@/lib/rwd";
 import { loadModels, useSettings } from "@/store/settings";
+import { loadOptions, useMake } from "@/store/make";
+import { audioPricedApart, durTxt, orderRatios, perSecondSpan, perTxt, sortRes, videoPrice, vparams, vUsd, type VideoPrice } from "@/components/make";
 
 /* 模型頁 /models（1.3-M4，版面稿 models-*）：查表用，不是用來挑模型的。三欄：篩選｜名單｜詳情。
    資料：/api/models?include_retired=true（定價、狀態、下架日、能力——收 PDF、收音訊是 API 算出的布林）＋/api/settings（誰用到）。
@@ -43,10 +50,12 @@ interface Filt {
   status: "live" | "sunset";
   caps: string[];
   usable: boolean;
-  sort: "provider" | "price" | "sunset" | "name";
+  sort: "popular" | "provider" | "price" | "sunset" | "name";
 }
-const F0: Filt = { mod: "text", q: "", provs: [], status: "live", caps: [], usable: false, sort: "provider" };
+const F0: Filt = { mod: "text", q: "", provs: [], status: "live", caps: [], usable: false, sort: "popular" };
 const MAX_ROWS = 200;
+/** 影片的能力字（audio 在文字模型是「收音訊」，影片是「有聲音」） */
+const VIDEO_CAP_ZH: Record<string, string> = { first_frame: "收首幀", last_frame: "收尾幀", audio: "有聲音" };
 
 function Wg({ m, cls = "sm" }: { m: Modality; cls?: string }) {
   return (
@@ -63,7 +72,10 @@ function SunStamp({ m }: { m: ModelEntry }) {
         已下架{m.shutdown ? <small>{m.shutdown}</small> : null}
       </span>
     );
-  if (!isSunset(m)) return m.status === "discovered" ? <span className="tg def">未整理</span> : null;
+  if (!isSunset(m)) {
+    if (m.implemented === false) return <span className="tg def">這一版還沒接上</span>;
+    return m.status === "discovered" ? <span className="tg def">未整理</span> : null;
+  }
   if (!m.shutdown)
     return (
       <span className="sun nodate">
@@ -119,12 +131,14 @@ export default function ModelsPage() {
     if (f.provs.length) l = l.filter((m) => f.provs.includes(slotOf(m.provider, data) as Slot));
     if (f.caps.length) l = l.filter((m) => f.caps.every((c) => hasCap(m, c)));
     if (f.usable) l = l.filter((m) => callable(uOf(m)));
-    if (dq) l = l.filter((m) => `${m.id} ${m.name ?? ""} ${label(m.provider)}`.toLowerCase().includes(dq));
+    if (dq) l = l.filter((m) => `${m.id} ${m.name ?? ""} ${label(m.provider)} ${m.vendor_label ?? ""}`.toLowerCase().includes(dq));
     const pr = (m: ModelEntry) => provOrder.indexOf(m.provider);
     const st = (m: ModelEntry) => (m.status === "current" ? 0 : m.status === "deprecated" ? 1 : 2);
     if (f.sort === "price") l = [...l].sort((a, b) => (priceMain(a)?.key ?? 1e9) - (priceMain(b)?.key ?? 1e9));
     else if (f.sort === "sunset") l = [...l].sort((a, b) => (a.shutdown || "9999").localeCompare(b.shutdown || "9999") || st(a) - st(b));
     else if (f.sort === "name") l = [...l].sort((a, b) => a.id.localeCompare(b.id));
+    // 熱門：Artificial Analysis 各榜的名次（沒上榜的照供應商、狀態排在後面）
+    else if (f.sort === "popular") l = [...l].sort((a, b) => byPopularity(a, b) || pr(a) - pr(b) || st(a) - st(b));
     else l = [...l].sort((a, b) => pr(a) - pr(b) || st(a) - st(b));
     return l;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -247,6 +261,7 @@ export default function ModelsPage() {
               <input type="search" placeholder="id、名稱、供應商" value={f.q} onChange={(e) => upd({ q: e.target.value })} aria-label="搜尋模型" />
             </label>
             <select aria-label="排序" value={f.sort} onChange={(e) => upd({ sort: e.target.value as Filt["sort"] })}>
+              <option value="popular">熱門（AA 名次）</option>
               <option value="provider">依供應商</option>
               <option value="price">價格 低→高</option>
               <option value="sunset">下架日 近→遠</option>
@@ -309,7 +324,7 @@ function FilterGroups({ f, upd, all, data, settings }: { f: Filt; upd: (p: Parti
         <h5>
           狀態<small>STATUS</small>
         </h5>
-        <button type="button" className="ck2" aria-pressed={f.status === "live"} onClick={() => upd({ status: "live", sort: f.sort === "sunset" ? "provider" : f.sort })}>
+        <button type="button" className="ck2" aria-pressed={f.status === "live"} onClick={() => upd({ status: "live", sort: f.sort === "sunset" ? "popular" : f.sort })}>
           <span>現行＋快下架</span>
           <span className="n">{base.filter((m) => !isRetired(m)).length}</span>
         </button>
@@ -394,9 +409,9 @@ function ModelList(props: {
   const label = (prov: string) => data.providers?.[prov]?.label ?? prov;
   const caps = f.mod === "all" ? [] : CAPS[f.mod];
   const chips: [string, () => void][] = [];
-  if (f.status === "sunset") chips.push(["只看快下架", () => upd({ status: "live", sort: f.sort === "sunset" ? "provider" : f.sort })]);
+  if (f.status === "sunset") chips.push(["只看快下架", () => upd({ status: "live", sort: f.sort === "sunset" ? "popular" : f.sort })]);
   f.provs.forEach((s) => chips.push([settings?.providers[s]?.label ?? s, () => upd({ provs: f.provs.filter((x) => x !== s) })]));
-  f.caps.forEach((c) => chips.push([CAP_ZH[c] ?? c, () => upd({ caps: f.caps.filter((x) => x !== c) })]));
+  f.caps.forEach((c) => chips.push([(f.mod === "video" ? VIDEO_CAP_ZH[c] : undefined) ?? CAP_ZH[c] ?? c, () => upd({ caps: f.caps.filter((x) => x !== c) })]));
   if (f.usable) chips.push(["只看能用的", () => upd({ usable: false })]);
   if (f.q) chips.push([`搜「${f.q}」`, () => upd({ q: "" })]);
 
@@ -405,13 +420,17 @@ function ModelList(props: {
     const pr = priceMain(m);
     const on = selected?.id === m.id;
     const cls = ["mr", !callable(u) ? "is-blocked" : "", isSunset(m) ? "is-sunset" : "", isRetired(m) ? "is-gone" : ""].filter(Boolean).join(" ");
-    const cs = CAPS[(m.modality as Modality) in CAPS ? (m.modality as Modality) : "music"] ?? [];
+    const cs = capsOf(m.modality);
     return (
       <Fragment key={`${m.provider}/${m.id}`}>
         <button type="button" className={cls} aria-current={on} onClick={() => pick(m.id)} data-model={m.id}>
           <span className="mr-id">
-            <span className="code">{m.id}</span>
+            <span className="mf-id">
+              <span className="code">{m.id}</span>
+              <RankBadge m={m} />
+            </span>
             <small>
+              {m.vendor_label ? `${m.vendor_label} · ` : ""}
               {m.name ?? ""}
               {f.mod === "all" ? ` · ${MOD[m.modality as Modality]?.zh ?? m.modality}` : ""}
               {f.sort !== "provider" ? ` · ${label(m.provider)}` : ""}
@@ -421,11 +440,15 @@ function ModelList(props: {
             <UsedTags settings={settings} id={m.id} />
           </span>
           <span className="mr-caps">
-            {cs.map(([k, g, zh], i) => (
-              <span key={k} className={`capg${hasCap(m, k) ? "" : " off"}${i === 2 ? " x-l" : ""}`} title={`${zh}${hasCap(m, k) ? "" : "：沒有"}`}>
-                {g}
-              </span>
-            ))}
+            {cs.map(([k, g, zh], i) => {
+              // 影片的聲音：名單沒標（null）畫虛線「?」，不當成「沒有」
+              const unk = m.modality === "video" && (m.capabilities ?? {})[k] === null;
+              return (
+                <span key={k} className={`capg${unk ? " unk" : hasCap(m, k) ? "" : " off"}${i === 2 ? " x-l" : ""}`} title={`${zh}${unk ? "：名單沒標" : hasCap(m, k) ? "" : "：沒有"}`}>
+                  {unk ? "?" : g}
+                </span>
+              );
+            })}
           </span>
           <span className={`mr-price${pr ? "" : " none"}`}>
             {pr ? (
@@ -470,8 +493,10 @@ function ModelList(props: {
 
   const gone = f.status === "live" ? all.filter((m) => isRetired(m) && (f.mod === "all" || m.modality === f.mod) && (!f.provs.length || f.provs.includes(slotOf(m.provider, data) as Slot))) : [];
   const orSlot = settings?.providers.openrouter;
-  const orModels = all.filter((m) => m.provider === "openrouter" && !isRetired(m)).length;
-  const showOr = (f.mod === "all" || f.mod === "text") && f.status === "live" && (!f.provs.length || f.provs.includes("openrouter"));
+  const orVideo = f.mod === "video";
+  const orImage = f.mod === "image";
+  const orModels = all.filter((m) => m.provider === "openrouter" && !isRetired(m) && (!orImage || m.modality === "image")).length;
+  const showOr = (f.mod === "all" || f.mod === "text" || orImage) && f.status === "live" && (!f.provs.length || f.provs.includes("openrouter"));
   return (
     <>
       {chips.length ? (
@@ -513,21 +538,32 @@ function ModelList(props: {
           {goneOpen ? gone.map(row) : null}
         </details>
       ) : null}
+      {orVideo ? <VideoLive orKey={!!orSlot?.key.set} n={all.filter((m) => m.modality === "video" && m.provider === "openrouter" && !isRetired(m)).length} /> : null}
       {showOr && orSlot ? (
         <div className="ml-live">
           <b>OpenRouter</b>
           {!orSlot.key.set ? (
             <>
               <span className="st none">沒有 key</span>
-              <span>OpenRouter 的模型不在目錄裡，是貼了 key 之後現查的（通常幾百個，價格照 OpenRouter 回的）。現查到的會排在名單裡，標「未整理」。</span>
+              <span>
+                {orImage
+                  ? "FLUX、Seedream、Grok Imagine、Qwen、Recraft 這些圖片模型經 OpenRouter 用，貼了 key 之後現查（名單與定價每天更新）。"
+                  : "OpenRouter 的模型不在目錄裡，是貼了 key 之後現查的（通常幾百個，價格照 OpenRouter 回的）。現查到的會排在名單裡，標「未整理」。"}
+              </span>
               <Link className="lnk" to="/settings?p=openrouter">
                 去設定貼 key →
               </Link>
             </>
           ) : orModels ? (
-            <span>
-              現查到 <span className="n">{orModels}</span> 個，排在上面 OpenRouter 那一段，標「未整理」。
-            </span>
+            orImage ? (
+              <span>
+                現查到 <span className="n">{orModels}</span> 個圖片模型，排在上面 OpenRouter 那一段（名單與定價每天更新）。已經直連的 OpenAI、Google 不重複列出 OpenRouter 那一份。
+              </span>
+            ) : (
+              <span>
+                現查到 <span className="n">{orModels}</span> 個，排在上面 OpenRouter 那一段，標「未整理」。
+              </span>
+            )
           ) : (
             <>
               <span className="st unk">還沒查到</span>
@@ -540,6 +576,45 @@ function ModelList(props: {
         </div>
       ) : null}
     </>
+  );
+}
+
+/** 影片一類的底下：名單從哪來、不是生影片的那幾個這一版不列（名字取自生成頁的 options） */
+function VideoLive({ orKey, n }: { orKey: boolean; n: number }) {
+  const unlisted = useMake((s) => s.options?.kinds.video?.unlisted ?? null);
+  const sandbox = useMake((s) => s.options?.sandbox ?? false);
+  useEffect(() => {
+    void loadOptions();
+  }, []);
+  return (
+    <div className="ml-live">
+      <b>影片</b>
+      {!orKey && !sandbox ? (
+        <>
+          <span className="st none">沒有 key</span>
+          <span>影片這一版都經 OpenRouter 生：貼了 OpenRouter 的 key 之後現查名單與每秒價格（每天更新）。</span>
+          <Link className="lnk" to="/settings?p=openrouter">
+            去設定貼 key →
+          </Link>
+        </>
+      ) : (
+        <span>
+          {sandbox ? "離線沙盒的示範名單" : "OpenRouter 名單現查"}：<span className="n">{n}</span> 個生影片的模型。原廠已關閉或公告下架的標在右邊；名單還在的照列，好查得到。
+          {unlisted?.length ? (
+            <>
+              {" "}不是生影片的 <span className="n">{unlisted.length}</span> 個（
+              {unlisted.map((u, i) => (
+                <Fragment key={u.id}>
+                  {i ? "、" : ""}
+                  <span className="code">{u.id}</span>
+                </Fragment>
+              ))}
+              ）是影片編輯、放大、數位人，這一版不列。
+            </>
+          ) : null}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -611,7 +686,7 @@ function Detail({ m, data, settings, pick, inline }: { m: ModelEntry; data: Mode
       <div className="hd">
         <div className="row">
           <span className="k10">
-            {prov?.label ?? m.provider} · {MOD[m.modality as Modality]?.zh ?? m.modality}
+            {m.vendor_label ? `經 ${prov?.label ?? m.provider} · 原廠 ${m.vendor_label}` : prov?.label ?? m.provider} · {MOD[m.modality as Modality]?.zh ?? m.modality}
           </span>
           {h ? (
             <span className={`hm ${harnessClass(h)}`} style={{ fontSize: "var(--fs-m11)" }}>
@@ -685,7 +760,11 @@ function Detail({ m, data, settings, pick, inline }: { m: ModelEntry; data: Mode
         ) : null}
         <div className="sec">
           <span className="k10">價格 · USD {unit}</span>
-          {rows.length ? (
+          {p.unit === "openrouter" ? (
+            <OrPricing p={p} />
+          ) : p.unit === "openrouter_video" ? (
+            <OrVideoPricing m={m} />
+          ) : rows.length ? (
             <>
               <table className="ptab">
                 <tbody>
@@ -721,10 +800,12 @@ function Detail({ m, data, settings, pick, inline }: { m: ModelEntry; data: Mode
             <span className="nil">目錄沒有定價</span>
           )}
         </div>
+        {m.image_params ? <OrParams ip={m.image_params} /> : null}
+        {m.modality === "video" && m.video_params ? <OrVideoParams m={m} /> : null}
         <div className="sec">
           <span className="k10">能力</span>
           <div className="capl">
-            {caps.length ? caps.map((c) => <span key={c}>{CAP_ZH[c] ?? c}</span>) : <span className="x-dim" style={{ border: 0, padding: 0 }}>目錄沒記</span>}
+            {caps.length ? caps.map((c) => <span key={c}>{(m.modality === "video" ? VIDEO_CAP_ZH[c] : undefined) ?? CAP_ZH[c] ?? c}</span>) : <span className="x-dim" style={{ border: 0, padding: 0 }}>目錄沒記</span>}
           </div>
           {typeof m.context === "number" ? (
             <div className="x-dim" style={{ fontSize: "var(--fs-m11)", marginTop: 6 }}>
@@ -768,6 +849,140 @@ function Detail({ m, data, settings, pick, inline }: { m: ModelEntry; data: Mode
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** OpenRouter 圖片模型的定價：名單上的每一條照原樣列（輸出依解析度／品質分級、參考圖另計） */
+function OrPricing({ p }: { p: Record<string, unknown> }) {
+  const lines = orLines(p);
+  if (!lines.length) return <span className="nil">OpenRouter 沒有公布這個模型的定價；生了之後帳上記實際費用</span>;
+  return (
+    <>
+      <table className="ptab">
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={i}>
+              <td>{orLineLabel(l)}</td>
+              <td className="v">{orLineMoney(l)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="x-dim" style={{ fontSize: "var(--fs-m11)", marginTop: 4 }}>
+        {p.stale ? "這次沒查到，沿用上次查到的定價。" : ""}帳上記的是 OpenRouter 回報的實際費用。
+      </div>
+    </>
+  );
+}
+
+/** OpenRouter 影片模型的定價：每種解析度的每秒價，與一支 5 秒、最長一支約多少（名單算的，實際以帳單為準） */
+function OrVideoPricing({ m }: { m: ModelEntry }) {
+  const gm = m as unknown as GenModel;
+  const vp = vparams(gm);
+  const res = sortRes(vp.resolutions);
+  const longest = vp.durations.length ? Math.max(...vp.durations) : null;
+  const five = vp.durations.includes(5) ? 5 : vp.durations.find((d) => d > 5) ?? longest;
+  const audio = vp.audio === true ? true : vp.audio;
+  const at = (r: string | null, s: number | null, a: boolean | null = audio) => videoPrice(gm.pricing?.skus, { seconds: s, resolution: r, audio: a, firstFrame: false, frames: 0 });
+  const span = perSecondSpan(gm);
+  if (!span) {
+    const t = Object.entries((gm.pricing?.skus ?? {}) as Record<string, unknown>).find(([k]) => k.startsWith("video_tokens"));
+    return t ? (
+      <span className="nil">
+        按 token 計價（每 token <span className="code">${Number(t[1]).toFixed(7).replace(/0+$/, "")}</span>）：每秒用多少 token 名單上沒寫，送出前算不出；做過幾支之後，生成頁會拿過去的實際花費當參考。
+      </span>
+    ) : (
+      <span className="nil">OpenRouter 沒有公布這個模型的定價；生了之後帳上記實際費用</span>
+    );
+  }
+  const cell = (p: VideoPrice) => (p.kind === "exact" ? vUsd(p.usd) : p.kind === "range" ? `${vUsd(p.low)}–${vUsd(p.high)}` : "—");
+  const rows = (res.length ? res : [null]).map((r) => ({ r, per: at(r, 1), five: at(r, five), long: at(r, longest) }));
+  const apart = audioPricedApart(gm);
+  return (
+    <>
+      <table className="vd-ptab">
+        <thead>
+          <tr>
+            <th>解析度</th>
+            <th className="r">每秒</th>
+            <th className="r">{five ? `${five} 秒` : "一支"}</th>
+            <th className="r">{longest ? `最長 ${longest} 秒` : "最長"}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((x) => (
+            <tr key={x.r ?? "-"}>
+              <td>{x.r ?? "照模型預設"}</td>
+              <td className="r">{x.per.kind === "exact" ? perTxt(x.per.usd) : cell(x.per)}</td>
+              <td className="r">{cell(x.five)}</td>
+              <td className="r">{cell(x.long)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="x-dim" style={{ fontSize: "var(--fs-m11)", marginTop: 6 }}>
+        {apart ? `上表是有聲音的價；關掉聲音較便宜（每秒 ${perTxt(span.low)} 起）。` : vp.audio === true ? "有沒有聲音同價。" : ""}
+        {vp.frames.length ? "給首幀（圖生影片）時有的模型另有價，生成頁的預估會算進去。" : ""}
+        {gm.pricing?.stale ? "這次沒查到，沿用上次查到的定價。" : ""}
+        預估照名單；帳上記 OpenRouter 回報的實際費用（實測過比名單低的情形）。
+      </div>
+    </>
+  );
+}
+
+/** OpenRouter 影片模型收什麼（名單上寫的） */
+function OrVideoParams({ m }: { m: ModelEntry }) {
+  const vp = vparams(m as unknown as GenModel);
+  const frames = vp.frames.includes("first_frame") ? (vp.frames.includes("last_frame") ? "首幀、尾幀都收" : "只收首幀") : vp.frames.includes("last_frame") ? "只收尾幀" : "不收（只做文生影片）";
+  const rows: [string, string][] = [
+    ["秒數", vp.durations.length ? durTxt(vp) : "名單沒寫"],
+    ["解析度", vp.resolutions.length ? sortRes(vp.resolutions).join("、") : "名單沒寫"],
+    ["比例", vp.aspect_ratios.length ? orderRatios(vp.aspect_ratios).join("、") : "名單沒寫"],
+    ["首尾幀", frames],
+    ["聲音", vp.audio === true ? (vp.audio_fixed ? "有（一定有，不能關）" : "有（可以關掉）") : vp.audio === false ? "沒有聲音" : "名單沒標：做出來才知道"],
+  ];
+  const direct = m.provider !== "openrouter";
+  return (
+    <div className="sec">
+      <span className="k10">支援範圍 · {direct ? "照原廠文件" : "照 OpenRouter 名單"}</span>
+      <table className="ptab">
+        <tbody>
+          {rows.map(([k, v]) => (
+            <tr key={k}>
+              <td style={{ whiteSpace: "nowrap" }}>{k}</td>
+              <td className="v">{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** OpenRouter 圖片模型收的參數（名單上寫的） */
+function OrParams({ ip }: { ip: OrImageParams }) {
+  const refs = ip.max_references === 0 ? "不收（只能生成）" : ip.min_references > 0 ? `${ip.min_references}–${ip.max_references} 張（一定要給）` : `最多 ${ip.max_references} 張`;
+  const rows: [string, string][] = [
+    ["解析度", ip.resolutions.length ? ip.resolutions.join("、") : "不能選"],
+    ["比例", ip.aspect_ratios.length ? ip.aspect_ratios.filter((r) => r !== "auto").join("、") : "不能選"],
+    ...(ip.qualities.length ? ([["品質", ip.qualities.join("、")]] as [string, string][]) : []),
+    ["參考圖", refs],
+    ["一次張數", `最多 ${ip.max_n} 張`],
+  ];
+  return (
+    <div className="sec">
+      <span className="k10">參數 · 照 OpenRouter 名單</span>
+      <table className="ptab">
+        <tbody>
+          {rows.map(([k, v]) => (
+            <tr key={k}>
+              <td style={{ whiteSpace: "nowrap" }}>{k}</td>
+              <td className="v">{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import type { Slot, TierMap } from "@/api/types";
 import { SLOTS } from "@/api/types";
 import { GetKeyHint, KeyInput, KeyMetaLine, TestBox, type KeyInputHandle, type KeyMeta, type TestState } from "@/components/settings/KeyParts";
 import ToolsList, { claudeLoggedIn } from "@/components/settings/ToolsList";
-import { allModels, isModality, isRetired, MOD, MOD_ORDER, providerOfSlot, slotOf, TIER_NAMES, type Modality } from "@/lib/catalog";
+import { allModels, knownModalities, isRetired, MOD, MOD_ORDER, providerOfSlot, slotOf, TIER_NAMES, type Modality } from "@/lib/catalog";
 import { useTier } from "@/lib/rwd";
 import { loadModels, loadSettings, loadTools, saveKey, saveSettings, testKey, useSettings } from "@/store/settings";
 
@@ -83,7 +83,7 @@ export default function WelcomePage() {
 
   const list = useMemo(() => allModels(models), [models]);
   const L = slot ? settings?.providers[slot]?.label ?? slot : "";
-  const modsOf = (s: Slot): Modality[] => ((models?.providers?.[providerOfSlot(s, settings)]?.modalities as string[] | undefined) ?? []).filter(isModality);
+  const modsOf = (s: Slot): Modality[] => knownModalities(models?.providers?.[providerOfSlot(s, settings)]?.modalities as string[] | undefined);
   const countOf = (s: Slot, mod?: Modality) => list.filter((m) => slotOf(m.provider, models) === s && !isRetired(m) && m.status !== "discovered" && (!mod || m.modality === mod)).length;
 
   const skip = () => {

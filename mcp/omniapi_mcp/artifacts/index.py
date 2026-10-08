@@ -29,21 +29,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import modalities as M
 from ..utils.path_utils import find_existing_image_path
 
 logger = logging.getLogger(__name__)
 
-KIND_BY_TOOL = {
-    "generate_image": "image",
-    "edit_image": "image",
-    "generate_speech": "speech",
-    "generate_music": "music",
-    "edit_music": "music",
-    "compose_music": "music",
-    "music_utility": "music",
-    "music_lyrics": "lyrics",
-    "transcribe_audio": "transcript",
-}
+#: tool -> the kind of work it produces (from omniapi_mcp.modalities)
+KIND_BY_TOOL = M.KIND_BY_TOOL
 
 MIME = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
@@ -52,8 +44,9 @@ MIME = {
     ".txt": "text/plain; charset=utf-8", ".srt": "text/plain; charset=utf-8", ".vtt": "text/vtt; charset=utf-8",
     ".json": "application/json",
 }
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".opus", ".flac", ".aac", ".m4a", ".pcm", ".mp4"}
+IMAGE_EXTS = M.IMAGE_EXTS
+# Audio is not decided by the extension alone: an .mp4 is a music video when
+# a music tool wrote it (M.is_audio_file), and could be a video otherwise.
 
 _BLOB_ARGS = {"image_data", "mask_data", "audio_data", "additional_images"}
 _TRANSCRIPT_EXT = {"srt": ".srt", "vtt": ".vtt", "json": ".json", "verbose_json": ".json", "diarized_json": ".json"}
@@ -85,7 +78,14 @@ def public_row(row: dict[str, Any]) -> dict[str, Any]:
     out["hidden"] = bool(out.get("hidden"))
     out["exists"] = Path(out["file_path"]).is_file()
     out["file_url"] = f"/api/artifacts/{out['id']}/file"
-    out["thumb_url"] = f"/api/artifacts/{out['id']}/thumb" if out.get("kind") == "image" else None
+    media = M.MEDIA_OF.get(out.get("kind") or "")
+    out["thumb_url"] = f"/api/artifacts/{out['id']}/thumb" if media == "image" else None
+    if media == "video":
+        # a poster exists when ffmpeg took one at collection; else the page shows the video's first frame
+        meta = out.get("meta") if isinstance(out.get("meta"), dict) else {}
+        out["poster"] = bool(meta.get("poster"))
+        out["thumb_url"] = f"/api/artifacts/{out['id']}/thumb" if out["poster"] else None
+        out["has_audio"] = meta.get("has_audio")
     return out
 
 
@@ -128,6 +128,16 @@ def _cost(result: dict[str, Any]) -> Optional[float]:
     return _num(extract_call_meta(result).get("cost_usd"))
 
 
+def _track_extra(track: dict[str, Any], n: int, count: int) -> dict[str, Any]:
+    """Per-song extras for one of several songs from the same job: its own id,
+    title and length, and where it sits in the batch."""
+    out: dict[str, Any] = {"track": n, "track_count": count}
+    for k in ("audio_id", "title", "duration"):
+        if track.get(k) is not None:
+            out[k] = track[k]
+    return out
+
+
 def _files_in(result: dict[str, Any], base: Path) -> list[tuple[Path, dict[str, Any]]]:
     """Every output file a tool result points at, with per-file extras."""
     found: list[tuple[Path, dict[str, Any]]] = []
@@ -141,8 +151,15 @@ def _files_in(result: dict[str, Any], base: Path) -> list[tuple[Path, dict[str, 
         p = find_existing_image_path(base, image_id)
         if p:
             found.append((p, {"image_id": image_id}))
+    tracks = [t for t in result.get("tracks") or [] if isinstance(t, dict)] if isinstance(result.get("tracks"), list) else []
+    songs = [t for t in tracks if isinstance(t.get("audio_path"), str)]
     if isinstance(result.get("audio_path"), str):
-        found.append((Path(result["audio_path"]), {}))
+        first = songs[0] if songs and songs[0]["audio_path"] == result["audio_path"] else None
+        found.append((Path(result["audio_path"]), _track_extra(first, 1, len(songs)) if first and len(songs) > 1 else {}))
+    # the other songs of a job that returned several (Suno: two), one work each
+    for n, t in enumerate(songs, start=1):
+        if t["audio_path"] != result.get("audio_path"):
+            found.append((Path(t["audio_path"]), _track_extra(t, n, len(songs))))
     for name, p in (result.get("stems") or {}).items() if isinstance(result.get("stems"), dict) else []:
         if isinstance(p, str):
             found.append((Path(p), {"stem": name}))
@@ -207,11 +224,20 @@ async def _index_result(ctx: Any, call: Optional[CallInfo], result: Any) -> list
 
     cost = _cost(result)
     share = round(cost / len(files), 6) if cost is not None else None
+    # the last file takes the rounding remainder, so the shares add up to the call's cost exactly
+    last_share = round(cost - share * (len(files) - 1), 6) if cost is not None and share is not None else None
     meta_common = {k: result[k] for k in ("task_id", "audio_id", "operation", "voice_id", "output_format", "language") if result.get(k) is not None}
 
     rows = []
-    for path, extra in files:
+    batch_first: Optional[str] = None  # the first song's work: the others of the same job hang under it
+    for i, (path, extra) in enumerate(files):
         path = path.resolve()
+        extra = dict(extra)
+        own_title = extra.pop("title", None)
+        own_duration = extra.pop("duration", None)
+        row_parent = parent_id
+        if extra.get("track", 1) > 1 and row_parent is None:
+            row_parent = batch_first
         row_kind = "lyrics" if extra.get("lyrics") else kind
         width, height = _image_size(path) if path.suffix.lower() in IMAGE_EXTS else (None, None)
         row = await store.add_artifact(
@@ -219,7 +245,7 @@ async def _index_result(ctx: Any, call: Optional[CallInfo], result: Any) -> list
             tool=call.tool,
             model=result.get("model") or md.get("model") or args.get("model"),
             provider=result.get("provider") or md.get("provider"),
-            title=result.get("title") or args.get("title"),
+            title=own_title or result.get("title") or args.get("title"),
             prompt=prompt,
             params=params,
             file_path=str(path),
@@ -227,16 +253,18 @@ async def _index_result(ctx: Any, call: Optional[CallInfo], result: Any) -> list
             bytes=path.stat().st_size,
             width=width,
             height=height,
-            duration_s=_num(result.get("duration")) or _wav_seconds(path),
+            duration_s=_num(own_duration) or _num(result.get("duration")) or _wav_seconds(path),
             text=text if row_kind in ("transcript", "lyrics") else None,
-            cost_usd=share,
+            cost_usd=last_share if i == len(files) - 1 else share,
             source=call.source,
             call_id=call.call_id,
-            parent_id=parent_id,
+            parent_id=row_parent,
             meta={**meta_common, **extra, **(call.links or {})},
         )
         if row is None:
             continue
+        if extra.get("track") == 1:
+            batch_first = row["id"]
         rows.append(row)
         bus = getattr(ctx, "bus", None)
         if bus is not None:
@@ -264,7 +292,7 @@ def _name_ts(name: str, *, utc: bool) -> Optional[float]:
 def _scan(base: Path) -> list[dict[str, Any]]:
     """Blocking directory walk; run it in a thread."""
     found: list[dict[str, Any]] = []
-    images = base / "images"
+    images = base / M.BY_KIND["image"].folder
     if images.is_dir():
         for p in sorted(images.rglob("*")):
             if not p.is_file() or p.suffix.lower() not in IMAGE_EXTS:
@@ -293,7 +321,29 @@ def _scan(base: Path) -> list[dict[str, Any]]:
                 cost_usd=_num(cost_info.get("estimated_cost_usd")),
                 meta={"image_id": p.stem, "task_id": side.get("task_id")} if side else {"image_id": p.stem},
             ))
-    for folder, default_kind in (("audio", "speech"), ("music", "music"), ("transcripts", "transcript")):
+    # videos/ (1.4-M3): the file says its length, size and sound; the rest was in the job
+    for folder in (m.folder for m in M.GENERATION if m.media == "video"):
+        root = base / folder
+        if not root.is_dir():
+            continue
+        from ..video.media import read_mp4
+
+        for p in sorted(root.rglob("*")):
+            if not p.is_file() or not M.is_video_file(p, folder=folder):
+                continue
+            facts = read_mp4(p) or {}
+            found.append(dict(
+                kind="video",
+                tool="generate_video",
+                file_path=str(p.resolve()),
+                created_at=_name_ts(p.name, utc=True) or p.stat().st_mtime,
+                width=facts.get("width"),
+                height=facts.get("height"),
+                duration_s=facts.get("duration_s"),
+                meta={"has_audio": facts.get("has_audio"), "fps": facts.get("fps"), "backfilled": True},
+            ))
+    # every other kind's folder (audio/ speech, music/ music, transcripts/ transcripts)
+    for folder, default_kind in ((m.folder, m.kind) for m in M.GENERATION if m.media not in ("image", "video")):
         root = base / folder
         if not root.is_dir():
             continue
@@ -308,7 +358,7 @@ def _scan(base: Path) -> list[dict[str, Any]]:
                     text = p.read_text(encoding="utf-8", errors="replace")
                 except Exception:
                     text = None
-            elif ext not in AUDIO_EXTS:
+            elif not M.is_audio_file(p, folder=folder):  # an .mp4 counts only in an audio tool's folder
                 continue
             meta = {"stem": p.stem.split("_")[1]} if p.name.startswith("stem_") else None
             found.append(dict(

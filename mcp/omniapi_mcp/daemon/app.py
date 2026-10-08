@@ -32,7 +32,20 @@ from ..runtime import runtime
 logger = logging.getLogger(__name__)
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 7788
+#: the port when none is given: 7788, unless ``OMNIAPI_DEFAULT_PORT`` says otherwise (the
+#: desktop test build's ``omni.cmd`` sets it, so its command line never reaches the released
+#: app's service; nothing else sets it)
+DEFAULT_PORT_ENV = "OMNIAPI_DEFAULT_PORT"
+
+
+def _default_port(environ: Optional[dict[str, str]] = None) -> int:
+    raw = ((os.environ if environ is None else environ).get(DEFAULT_PORT_ENV) or "").strip()
+    if raw.isdigit() and 0 < int(raw) < 65536:
+        return int(raw)
+    return 7788
+
+
+DEFAULT_PORT = _default_port()
 
 
 def pid_file() -> Path:
@@ -718,15 +731,29 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
 
     @app.get("/api/artifacts/{artifact_id}/thumb")
     async def artifact_thumb(artifact_id: str, w: int = Query(480, ge=64, le=1600)):
-        """A small WebP of an image work (cached under the data home)."""
-        from fastapi.responses import FileResponse
+        """A small WebP of an image work (cached under the data home). A video
+        (1.4-M3): of its poster — one frame ffmpeg took when it was collected
+        (or takes now). Without ffmpeg there is none: **204 No Content** with
+        ``X-OmniAPI-Poster: none`` (not an error) — the page shows the video's
+        own first frame instead."""
+        from fastapi.responses import FileResponse, Response
+
+        from ..modalities import MEDIA_OF
 
         row = await _artifact_or_404(artifact_id)
-        if row["kind"] != "image":
-            raise HTTPException(400, "only images have thumbnails")
+        media = MEDIA_OF.get(row["kind"])
+        if media not in ("image", "video"):
+            raise HTTPException(400, "only images and videos have thumbnails")
         src = Path(row["file_path"])
         if not src.is_file():
             raise HTTPException(410, "the file is no longer on disk")
+        if media == "video":
+            from ..video.media import extract_poster
+
+            poster = data_home() / "cache" / "posters" / f"{artifact_id}.jpg"
+            if not poster.is_file() and not await asyncio.to_thread(extract_poster, src, poster):
+                return Response(status_code=204, headers={"X-OmniAPI-Poster": "none", "Cache-Control": "no-store"})
+            src = poster
         width = min((240, 480, 960, 1600), key=lambda s: abs(s - w))
         out = data_home() / "cache" / "thumbs" / f"{artifact_id}_{width}.webp"
         if not out.is_file() or out.stat().st_mtime < src.stat().st_mtime:
@@ -778,14 +805,14 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
         import aiofiles
 
         from ..artifacts import mime_for
-        from ..artifacts.index import AUDIO_EXTS, IMAGE_EXTS
+        from ..modalities import IMAGE_EXTS, UPLOAD_AUDIO_EXTS
 
         ext = Path(filename).suffix.lower()
         if not ext.isascii() or len(ext) > 16 or not all(ch.isalnum() or ch == "." for ch in ext):
             ext = ""  # only a plain extension ever reaches the disk; the name is display only
         if ext in IMAGE_EXTS:
             kind, cap = "image", UPLOAD_MAX_IMAGE
-        elif ext in AUDIO_EXTS - {".pcm"} or ext in (".webm", ".mpga", ".mpeg"):
+        elif ext in UPLOAD_AUDIO_EXTS:  # an .mp4 upload is a transcription input: its audio track is what counts
             kind, cap = "audio", UPLOAD_MAX_AUDIO
         elif purpose == "chat":
             kind, cap = "file", UPLOAD_MAX_FILE
@@ -934,12 +961,48 @@ def create_app(settings: Settings, *, host: str = DEFAULT_HOST, port: int = DEFA
 
     @app.post("/api/generations/{generation_id}/cancel")
     async def generation_cancel(generation_id: str) -> dict[str, Any]:
+        """Stop a generation. A video cannot be stopped at the provider: this is
+        "stop waiting" there (see ``/stop-waiting``)."""
         from ..generate import GenerationError
+        from ..video.jobs import VideoError
 
         try:
             return await generations().cancel(generation_id)
         except GenerationError as e:
             raise _chat_error(e)
+        except VideoError as e:
+            raise HTTPException(e.status, str(e))
+
+    def _videos():
+        v = getattr(ctx(), "videos", None)
+        if v is None:
+            raise HTTPException(503, "video jobs are not available")
+        return v
+
+    @app.post("/api/generations/{generation_id}/stop-waiting")
+    async def generation_stop_waiting(generation_id: str) -> dict[str, Any]:
+        """A video (1.4-M3): stop waiting. The provider has no cancel, so the video
+        is probably still made and billed; with ``video.keep_collecting`` (on by
+        default) it is still collected in the background (``status: detached``,
+        later ``done`` with ``video.late``), otherwise ``abandoned``."""
+        from ..video.jobs import VideoError
+
+        try:
+            return await _videos().stop_waiting(generation_id)
+        except VideoError as e:
+            raise HTTPException(e.status, str(e))
+
+    @app.post("/api/generations/{generation_id}/recheck")
+    async def generation_recheck(generation_id: str) -> dict[str, Any]:
+        """A video we stopped waiting on (``gave_up`` / ``abandoned``): ask the
+        provider once more by its job id — nothing is sent or billed again.
+        Collected if done; otherwise waited on again."""
+        from ..video.jobs import VideoError
+
+        try:
+            return await _videos().recheck(generation_id)
+        except VideoError as e:
+            raise HTTPException(e.status, str(e))
 
     @app.get("/api/events")
     async def events(limit: int = Query(100, le=500), since_seq: int = 0) -> list[dict[str, Any]]:

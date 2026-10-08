@@ -8,6 +8,7 @@ import { useRef, useSyncExternalStore } from "react";
 import { ApiError, api } from "@/api/client";
 import type { BusEvent, ClaudeMcpStatus, DefaultKind, DesktopAutostart, ModelsResponse, SettingsPatch, SettingsView, Slot, TestKeyResult, ToolsResponse } from "@/api/types";
 import { invalidateTextModels } from "@/components/chat/useModels";
+import { defLabel } from "@/lib/catalog";
 import { getBoardState, onBusEvent, onResync } from "@/store/board";
 
 export type LogSt = "ok" | "warn" | "pending" | "local" | "err";
@@ -353,7 +354,7 @@ function fieldName(f: string): string {
     return b === "api_key" ? `${label} 的 key` : b === "enabled" ? `${label} 的啟用` : label;
   }
   if (sec === "tiers") return `等級別名 ${a}`;
-  if (sec === "defaults") return `預設${({ chat: "聊天", dispatch: "派工", image: "生圖", speech: "語音", music: "音樂", transcript: "轉錄" } as Record<string, string>)[a] ?? a}`;
+  if (sec === "defaults") return `預設${defLabel(a)}`;
   return f;
 }
 

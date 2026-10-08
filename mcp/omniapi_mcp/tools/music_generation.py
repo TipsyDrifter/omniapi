@@ -82,6 +82,32 @@ _COMPOSE_REQUIRED: dict[str, tuple[str, ...]] = {
 }
 
 
+def _kie_credit_usd(model: Optional[str]) -> Optional[float]:
+    """USD per kie.ai credit, from the catalogue's ``pricing.credit_usd`` on a
+    kie model (every kie model carries the same figure). ``None`` lets the
+    provider fall back to its own default."""
+    try:
+        from ..catalog import catalog
+
+        for model_id in (model, "V6", "V6_MINI", "V6_WILD"):
+            entry = catalog.get(model_id, "kie") if model_id else None
+            value = (entry.pricing or {}).get("credit_usd") if entry else None
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+                return float(value)
+    except Exception as e:  # noqa: BLE001 - the catalogue is optional here
+        logger.debug("No kie credit price from the catalogue: %s", e)
+    return None
+
+
+def suno_all_tracks(settings: Any) -> bool:
+    """settings.json `music.suno_all_tracks` (env `MUSIC__SUNO_ALL_TRACKS`):
+    keep every song a Suno job returns (default) or only the first. Reads a
+    test double without the field as the default."""
+    music = getattr(settings, "music", None)
+    value = getattr(music, "suno_all_tracks", None) if music is not None else None
+    return True if value is None else bool(value)
+
+
 def _check_action(tool: str, action: str, table: dict[str, tuple[str, ...]]) -> None:
     """Reject an unknown action, naming the ones this tool accepts."""
     if action not in table:
@@ -155,15 +181,22 @@ class MusicGenerationTool:
         kie = getattr(self.settings.providers, "kie", None)
         if kie and kie.enabled and kie.api_key:
             try:
+                legacy_timeout = getattr(kie, "timeout", None)
+                request_timeout = getattr(kie, "request_timeout", None) or legacy_timeout or 60.0
+                poll_timeout = getattr(kie, "poll_timeout", None) or legacy_timeout or 900.0
                 self._register(
                     SunoProvider(
                         ProviderConfig(
                             api_key=kie.api_key,
                             base_url=kie.base_url,
-                            timeout=kie.timeout,
+                            timeout=request_timeout,
                             max_retries=kie.max_retries,
                             enabled=kie.enabled,
-                        )
+                        ),
+                        poll_timeout=poll_timeout,
+                        routes=getattr(kie, "suno_routes", None),
+                        credit_usd=_kie_credit_usd(getattr(kie, "default_model", None)),
+                        all_tracks=suno_all_tracks(self.settings),
                     )
                 )
             except Exception as e:
@@ -222,14 +255,17 @@ class MusicGenerationTool:
         head = (output_format or "mp3").split("_")[0].lower()
         return _FORMAT_EXT.get(head, "mp3")
 
-    async def _save(self, data: bytes, ext: str, prefix: str = "music") -> Path:
+    async def _save(self, data: bytes, ext: str, prefix: str = "music", *, name: Optional[str] = None) -> Path:
+        """Write one output file. ``name`` (without extension) replaces the
+        generated ``<prefix>_<UTC stamp>_<random>`` stem — used to file a
+        job's second song next to its first as ``<first stem>_2``."""
         now = datetime.now(timezone.utc)
         out_dir = Path(self.settings.storage.base_path) / "music" / now.strftime(
             "%Y-%m-%d"
         )
         out_dir.mkdir(parents=True, exist_ok=True)
-        fname = f"{prefix}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}.{ext}"
-        out_path = (out_dir / fname).resolve()
+        stem = name or f"{prefix}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        out_path = (out_dir / f"{stem}.{ext}").resolve()
         # Async write — music/video payloads reach tens of MB; a synchronous
         # write_bytes would stall the event loop and every in-flight job.
         async with aiofiles.open(out_path, "wb") as f:
@@ -237,9 +273,29 @@ class MusicGenerationTool:
         return out_path
 
     async def _audio_result(self, r: MusicResult) -> dict[str, Any]:
-        """Save a single-file audio/wav/mp4 result and return its path + metadata."""
+        """Save an audio/wav/mp4 result and return its path + metadata.
+
+        The top-level fields describe the first (or only) song. A job that
+        returned more than one song (Suno gives two) also gets ``tracks``: every
+        song in order, the first one repeated, each with its own file."""
         ext = self._ext_for(r.output_format)
         path = await self._save(r.audio_data or b"", ext, prefix="music")
+        out = self._first_track_fields(r, path)
+        if r.extra_tracks:
+            tracks = [{k: out[k] for k in ("audio_path", "audio_id", "title", "duration", "bytes")}]
+            for n, extra in enumerate(r.extra_tracks, start=2):
+                entry: dict[str, Any] = {k: extra.get(k) for k in ("audio_id", "title", "duration")}
+                if extra.get("audio_data"):
+                    p = await self._save(extra["audio_data"], ext, name=f"{path.stem}_{n}")
+                    entry = {"audio_path": str(p), **entry, "bytes": len(extra["audio_data"])}
+                else:
+                    entry["error"] = extra.get("error") or "not downloaded"
+                tracks.append(entry)
+            out["tracks"] = tracks
+            out["track_count"] = len(tracks)
+        return out
+
+    def _first_track_fields(self, r: MusicResult, path: Path) -> dict[str, Any]:
         return {
             "audio_path": str(path),
             "audio_url": f"file://{path}",
@@ -251,7 +307,8 @@ class MusicGenerationTool:
             "duration": r.metadata.get("duration"),
             "output_format": r.output_format,
             "bytes": len(r.audio_data or b""),
-            # only providers with a flat published price report these (Lyria); the rest stay absent
+            # only set when the cost is known: Lyria's flat price, or kie's
+            # creditsConsumed x credit_usd on the jobs route; otherwise absent
             **{k: r.metadata[k] for k in ("model", "cost_usd") if r.metadata.get(k) is not None},
             **({"lyrics": r.text} if r.text else {}),
         }
@@ -473,6 +530,8 @@ class MusicGenerationTool:
             "provider": r.metadata.get("provider"),
             "operation": r.metadata.get("operation"),
             "task_id": r.metadata.get("task_id"),
+            # only when kie's task detail reported creditsConsumed (jobs route)
+            **({"cost_usd": r.metadata["cost_usd"]} if r.metadata.get("cost_usd") is not None else {}),
         }
 
     async def get_timestamped_lyrics(

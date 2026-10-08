@@ -16,7 +16,9 @@ use tauri::{AppHandle, Manager,PhysicalPosition, PhysicalSize, WebviewUrl, Webvi
 use crate::winstate::{self, Area, Geometry};
 
 pub const LABEL: &str = "main";
-pub const TITLE: &str = "OmniAPI";
+pub fn title() -> &'static str {
+    crate::identity::title()
+}
 /// Smallest window: phone width (the site becomes responsive in 1.3-M3; until then it scrolls).
 pub const MIN_SIZE: (f64, f64) = (360.0, 480.0);
 /// The dashboard is laid out for 1440 px.
@@ -61,7 +63,7 @@ fn create(app: &AppHandle, o: &Open) -> tauri::Result<WebviewWindow> {
     let (w0, h0) = default_size(app);
     let port = o.port;
     let w = WebviewWindowBuilder::new(app, LABEL, url)
-        .title(TITLE)
+        .title(title())
         .inner_size(w0, h0)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         .additional_browser_args(BROWSER_ARGS)

@@ -7,6 +7,7 @@ import { useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { Artifact } from "@/api/types";
 import { dt, usd } from "@/lib/format";
 import { Glyph, claimAudio, msShort } from "@/components/make";
+import { mediaOf } from "@/lib/modalities";
 import { KIND_ZH, fileName, isBare, sourceZh, verbOf } from "./wall";
 
 /** 卡片底下說明列的高度：音檔卡、文字卡、日期籤要跟「圖＋說明列」等高 */
@@ -47,10 +48,47 @@ const openKeys = (fn: () => void) => (e: KeyboardEvent) => {
   }
 };
 
+/** 卡片依作品是什麼（media）挑；不認得的種類（mediaOf 會警告）用文字卡保底：標出種類名，點開看詳情 */
 export function WorkCard(p: CardProps) {
-  if (p.w.kind === "image") return <ImageCard {...p} />;
-  if (p.w.kind === "speech" || p.w.kind === "music") return <AudioCard {...p} />;
+  const media = mediaOf(p.w.kind);
+  if (media === "image") return <ImageCard {...p} />;
+  if (media === "audio") return <AudioCard {...p} />;
+  if (media === "video") return <VideoCard {...p} />;
   return <TextCard {...p} />;
+}
+
+/** 影片卡＝封面＋底下一條墨色「片條」（▶ 時長、聲／無聲），上緣打一排孔。
+   封面：有 poster 用縮圖端點；沒有（電腦上沒有 ffmpeg，縮圖端點回 204）就讓 <video preload="metadata"> 自己顯示第一格。
+   滑過不自動預覽（第 8 題）：點了開燈箱才播。 */
+function VideoCard({ w, width, h, fresh, onOpen }: CardProps) {
+  const poster = w.poster !== false && w.thumb_url ? `${w.thumb_url}?w=480` : null;
+  const len = w.duration_s ? msShort(w.duration_s) : "…";
+  const snd = w.has_audio === true ? "有聲" : w.has_audio === false ? "無聲" : "";
+  return (
+    <figure className="wk-cell wk-img wk-vcard" style={{ width }} data-id={w.id}>
+      <button type="button" className="wk-media" style={{ height: h }} onClick={() => onOpen(w.id)} aria-label={`看影片：${len}${snd ? `，${snd}` : ""}，${dt(w.created_at)}`}>
+        {fresh ? <NewMark /> : null}
+        {w.source && w.source !== "backfill" ? <span className="wk-src">{sourceZh(w.source)}</span> : null}
+        {w.exists === false ? (
+          <span className="wk-gone">檔案不在了</span>
+        ) : poster ? (
+          <img src={poster} width={w.width ?? undefined} height={w.height ?? undefined} loading="lazy" decoding="async" alt="" />
+        ) : (
+          <video className="wk-vfirst" src={`${w.file_url}#t=0.1`} preload="metadata" muted playsInline tabIndex={-1} aria-hidden="true" />
+        )}
+        <span className="wk-vbar" aria-hidden="true">
+          <span className="tri" />
+          <span>{len}</span>
+          {w.has_audio === true ? <span className="snd">聲</span> : w.has_audio === false ? <span className="snd no">無聲</span> : null}
+        </span>
+      </button>
+      <figcaption className="wk-cap">
+        <Glyph kind="video" size="sm" />
+        <span className="code wk-md">{w.model ?? "沒有記錄模型"}</span>
+        <span className="wk-c n">{w.cost_usd != null ? usd(w.cost_usd) : "未回報"}</span>
+      </figcaption>
+    </figure>
+  );
 }
 
 function NewMark() {

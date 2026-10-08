@@ -44,8 +44,8 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
     "ffmpeg": {
         "name": "ffmpeg",
-        "affects": "Gemini 的語音不能轉成 MP3（會存成 WAV）",
-        "features": ["speech.gemini_mp3"],
+        "affects": "Gemini 的語音不能轉成 MP3（會存成 WAV）；影片作品沒有封面圖（作品牆改用影片自己的第一格）",
+        "features": ["speech.gemini_mp3", "video.poster"],
         "install": [
             {"method": "download", "command": None, "note": "FFmpeg 官網列的 Windows 版來源是 gyan.dev 與 BtbN"},
             {"method": "winget", "command": "winget install Gyan.FFmpeg",

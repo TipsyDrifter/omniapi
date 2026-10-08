@@ -27,12 +27,14 @@
 |---|---|---|---|
 | `eleven_flash_v2_5` ⭐ElevenLabs 預設 | ElevenLabs | current | 超低延遲 ~75ms |
 | `eleven_flash_v2` | ElevenLabs | current | 超快，英文為主 |
-| `eleven_v3` | ElevenLabs | current | 最進階 / 最具表現力 |
+| `eleven_v4` | ElevenLabs | current | 最新一代、最具表現力（OmniAPI 目錄價 $0.08／1K 字元） |
+| `eleven_v4_turbo` | ElevenLabs | current | v4 的半價版（目錄價 $0.04／1K 字元） |
+| `eleven_v3` | ElevenLabs | current | 前一代最進階 / 最具表現力 |
 | `eleven_v3_conversational` | ElevenLabs | current | 表現力強的即時對話（~280ms） |
 | `eleven_multilingual_v2` | ElevenLabs | current | 最擬真、情緒豐富，長文旁白首選 |
 | `eleven_turbo_v2_5` | ElevenLabs | ⚠️ **deprecated** → `eleven_flash_v2_5` | 官方標「被 Flash 系列超越」；**未公布關閉日**，仍可叫 |
 | `gpt-4o-mini-tts` ⭐OpenAI 預設 | OpenAI | current | 吃 `instructions` 語氣控制 |
-| `tts-1` / `tts-1-hd` | OpenAI | current | 低延遲 / 高品質；吃 `speed` |
+| `tts-1` / `tts-1-hd` | OpenAI | ⚠️ **deprecated**，**2027-01-06 關閉** | 低延遲 / 高品質；吃 `speed` |
 | `gemini-3.8-flash-tts` ⭐Gemini 預設 | Google | current | 最具表現力的 Gemini TTS |
 | `gemini-3.8-flash-lite-tts` | Google | current | 便宜版 |
 | `gemini-3.1-flash-tts-preview` | Google | ⚠️ **deprecated** → `gemini-3.8-flash-tts` | Google 標 legacy preview；**未公布關閉日** |

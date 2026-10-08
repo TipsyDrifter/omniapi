@@ -21,6 +21,12 @@ What it checks, in the order a new user meets them:
    and sees the tools
 4. a chat round with the echo model
 5. a generation from the GUI's door lands on the works wall and its file is served
+   v1.4: OpenRouter's image models (the sandbox's stand-in roster) are in the model list and
+   the generate options with their maker and price lines, the estimate shows the listed price,
+   and one generates a work; the video models are listed with their price per second, the
+   estimate for Wan 3.0 480p 5 s is the listed $0.25 (charged nothing in the sandbox), a video
+   from the sandbox's stand-in vendor is collected (the sample MP4 the package carries), its
+   length is read from the file, /file answers a Range request, and it is on the works wall
 6. v1.2 chat: a message with an image (the echo model says it got one); one
    with a text file and a PDF made on the spot (the reply records both); "draw…"
    brings a proposal, accepting it puts a chat-sourced work on the wall;
@@ -39,7 +45,7 @@ import time
 
 import httpx
 
-EXPECTED_TOOLS = 19
+EXPECTED_TOOLS = 20  # 1.4-M3: generate_video
 
 
 def check(label: str, ok: bool, detail: object = "") -> None:
@@ -90,9 +96,64 @@ async def main(base: str) -> None:
         check("it is on the works wall", any(a["id"] == work["id"] for a in wall["items"]))
         f = await http.get(work["file_url"])
         check("and its file is served", f.status_code == 200 and f.content[:4] == b"\x89PNG", f.status_code)
+        await openrouter_images_v14(http)
+        await video_v14(http)
 
         await chat_v12(http)
     print("ALL PASS")
+
+
+#: the stand-in roster's models used below (copied from OpenRouter's real listing)
+OR_GROK = "x-ai/grok-imagine-image-2.0"
+OR_FLUX = "black-forest-labs/flux-3-image"
+WAN = "alibaba/wan-3.0"
+
+
+async def openrouter_images_v14(http: httpx.AsyncClient) -> None:
+    """v1.4: OpenRouter's image models from the sandbox's stand-in roster (no key, nothing spent)."""
+    models = (await http.get("/api/models", params={"modality": "image"})).json()["models"]["image"]
+    orm = {m["id"]: m for m in models if m["provider"] == "openrouter"}
+    check("the model list has OpenRouter's image models (stand-in roster)", {OR_GROK, OR_FLUX} <= set(orm), sorted(orm))
+    check("each names its maker and carries its listed prices", orm[OR_GROK].get("vendor_label") == "xAI"
+          and (orm[OR_GROK].get("pricing") or {}).get("unit") == "openrouter" and orm[OR_GROK]["pricing"].get("lines"), orm[OR_GROK])
+    rows = {m["id"]: m for m in (await http.get("/api/generate/options")).json()["kinds"]["image"]["models"]}
+    check("the generate page can pick them, with their parameters", rows.get(OR_GROK, {}).get("available")
+          and (rows.get(OR_FLUX) or {}).get("image_params"), rows.get(OR_GROK))
+    est = (await http.post("/api/generate/estimate", json={"kind": "image", "params": {"prompt": "x", "model": OR_GROK, "image_size": "1K", "quality": "low"}})).json()
+    check("the estimate shows the listed price (low 1K: $0.04) and charges nothing here",
+          est.get("basis") == "sandbox" and (est.get("listed") or {}).get("usd") == 0.04, est)
+    gen = (await http.post("/api/generations", json={"kind": "image", "params": {"prompt": "install check", "model": OR_GROK, "image_size": "1K", "quality": "low"}})).json()
+    t0 = time.time()
+    while gen.get("status") == "running" and time.time() - t0 < 60:
+        await asyncio.sleep(0.3)
+        gen = (await http.get(f"/api/generations/{gen['id']}")).json()
+    check("an OpenRouter image model makes a work", gen.get("status") == "done" and gen.get("artifacts")
+          and gen["artifacts"][0].get("model") == OR_GROK, gen)
+
+
+async def video_v14(http: httpx.AsyncClient) -> None:
+    """v1.4: a video job end to end in the sandbox (no vendor, nothing spent)."""
+    opts = (await http.get("/api/generate/options")).json()["kinds"].get("video") or {}
+    check("the generate options have a video kind with models", bool(opts.get("models")) and "limits" in opts, list(opts))
+    vids = (await http.get("/api/models", params={"modality": "video"})).json()["models"].get("video", [])
+    check("the model list has a video section (Wan 3.0 among them)", any(m["id"] == WAN for m in vids), [m["id"] for m in vids][:10])
+    est = (await http.post("/api/generate/estimate", json={"kind": "video", "params": {"model": WAN, "resolution": "480p", "duration": 5}})).json()
+    check("the video estimate: Wan 3.0 480p 5 s lists $0.25 (nothing charged in the sandbox)",
+          est.get("basis") == "sandbox" and (est.get("listed") or {}).get("usd") == 0.25, est)
+    gen = (await http.post("/api/generations", json={"kind": "video", "params": {"prompt": "install check", "resolution": "480p"}})).json()
+    check("a video starts and its job id is stored at once", gen.get("status") == "running" and (gen.get("video") or {}).get("remote_id"), gen)
+    t0 = time.time()
+    while gen.get("status") == "running" and time.time() - t0 < 90:
+        await asyncio.sleep(0.5)
+        gen = (await http.get(f"/api/generations/{gen['id']}")).json()
+    check("the video is collected onto the works wall", gen.get("status") == "done" and gen.get("artifacts"), gen)
+    work = gen["artifacts"][0]
+    check("its length and size are read from the file (the bundled sample: 2 s, 256x144)",
+          (work.get("duration_s"), work.get("width"), work.get("height")) == (2.0, 256, 144), work)
+    r = await http.get(work["file_url"], headers={"Range": "bytes=0-15"})
+    check("its file is served in ranges (the player can seek)", r.status_code == 206 and r.content[4:8] == b"ftyp", r.status_code)
+    wall = (await http.get("/api/artifacts", params={"kind": "video", "limit": 10})).json()
+    check("it is on the works wall under videos", any(a["id"] == work["id"] for a in wall["items"]), [a["id"] for a in wall["items"]])
 
 
 #: a made-up key: long enough for the format check, never valid anywhere (the sandbox is offline anyway)

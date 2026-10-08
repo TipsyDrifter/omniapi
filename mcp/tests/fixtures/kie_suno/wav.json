@@ -1,0 +1,54 @@
+{
+ "request": {
+  "model": "ai-music-api/convert-to-wav-format",
+  "input": {
+   "task_id": "task1",
+   "audio_id": "song-1"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task7",
+   "model": "ai-music-api/convert-to-wav-format",
+   "state": "waiting",
+   "param": "{\"input\": \"{\\\"musicId\\\": \\\"song-1\\\", \\\"musicIndex\\\": 0, \\\"sourceTaskId\\\": \\\"task1\\\", \\\"task_id\\\": \\\"task1\\\", \\\"operationType\\\": \\\"suno-wav-generate\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/convert-to-wav-format\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277371871,
+   "creditsConsumed": 0.4,
+   "operationType": "ai-music-api/convert-to-wav-format",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"musicId\\\": \\\"song-1\\\", \\\"musicIndex\\\": 0, \\\"sourceTaskId\\\": \\\"task1\\\", \\\"task_id\\\": \\\"task1\\\", \\\"operationType\\\": \\\"suno-wav-generate\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/convert-to-wav-format\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task7",
+   "model": "ai-music-api/convert-to-wav-format",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"musicId\\\": \\\"song-1\\\", \\\"musicIndex\\\": 0, \\\"sourceTaskId\\\": \\\"task1\\\", \\\"task_id\\\": \\\"task1\\\", \\\"operationType\\\": \\\"suno-wav-generate\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/convert-to-wav-format\"}",
+   "resultJson": "{\"resultUrls\": [\"https://files.kie.test/r/task8.wav\"]}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 316,
+   "completeTime": 1791277688866,
+   "createTime": 1791277371871,
+   "creditsConsumed": 0.4,
+   "operationType": "ai-music-api/convert-to-wav-format",
+   "response": {
+    "resultUrls": [
+     "https://files.kie.test/r/task8.wav"
+    ]
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"musicId\\\": \\\"song-1\\\", \\\"musicIndex\\\": 0, \\\"sourceTaskId\\\": \\\"task1\\\", \\\"task_id\\\": \\\"task1\\\", \\\"operationType\\\": \\\"suno-wav-generate\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/convert-to-wav-format\"}"
+  }
+ },
+ "polls": 25
+}

@@ -15,6 +15,14 @@
 #   -ShellConfig <f>   ship this file as shell.config.json instead of config\shell.installed.json
 #                      (tests only, e.g. the update experiment bakes in a test port)
 #   -Jobs <n>          parallel rustc (default 4; this machine idles near 88% commit charge)
+#   -TestIdentity      build the TEST app instead of the released one: identifier com.kosa.omniapi.test,
+#                      product / exe / install folder / uninstall entry OmniAPI-Test, logon value
+#                      OmniAPI-Test, default port 7939 (7788 refused), data home ~\.omniapi-test
+#                      (~\.omniapi refused), no new-version check (cargo feature test-identity,
+#                      src/identity.rs), config\shell.test.json and config\omni.test.cmd shipped.
+#                      Its own stage (default %TEMP%\omniapi-proto\m6-test) and cargo target folder.
+#                      It shares nothing with an installed OmniAPI, so it can be installed and run on
+#                      a machine where the released app runs. Never for a release.
 #
 # The exe is built with source paths remapped to neutral names (neutral-paths.ps1) and then
 # searched for this machine's folders (check-embedded-paths.ps1); any hit fails the build.
@@ -30,12 +38,20 @@ param(
     [string]$Version = '',
     [string]$ShellConfig = '',
     [int]$Jobs = 4,
-    [switch]$SkipMemoryCheck
+    [switch]$SkipMemoryCheck,
+    [switch]$TestIdentity
 )
 $ErrorActionPreference = 'Stop'
+if ($TestIdentity -and -not $PSBoundParameters.ContainsKey('Stage')) { $Stage = Join-Path $env:TEMP 'omniapi-proto\m6-test' }
+# The two identities (the released values are what tauri.conf.json says; the test ones go in the overlay)
+$Ident = if ($TestIdentity) {
+    [ordered]@{ Identifier = 'com.kosa.omniapi.test'; Product = 'OmniAPI-Test'; Binary = 'OmniAPI-Test'; Config = 'config\shell.test.json'; Cmd = 'config\omni.test.cmd'; Features = 'test-identity'; Target = 'cargo-target-desktop-test' }
+} else {
+    [ordered]@{ Identifier = 'com.kosa.omniapi'; Product = 'OmniAPI'; Binary = 'OmniAPI'; Config = 'config\shell.installed.json'; Cmd = 'config\omni.cmd'; Features = ''; Target = 'cargo-target-desktop' }
+}
 $DesktopDir = Split-Path -Parent $PSScriptRoot
 $RepoDir = Split-Path -Parent $DesktopDir
-$TargetDir = Join-Path $env:TEMP 'omniapi-proto\cargo-target-desktop'
+$TargetDir = Join-Path $env:TEMP ('omniapi-proto\' + $Ident.Target)
 $Payload = Join-Path $Stage 'payload'
 $Py = Join-Path $Payload 'python'
 $Build = Join-Path $Stage 'build'
@@ -58,7 +74,7 @@ function Run([string]$what, [scriptblock]$block) {
 }
 
 $total = [Diagnostics.Stopwatch]::StartNew()
-Log "==== package.ps1  stage=$Stage  repo=$RepoDir"
+Log "==== package.ps1  stage=$Stage  repo=$RepoDir  identity=$($Ident.Identifier) ($($Ident.Binary).exe)"
 
 # ---------------------------------------------------------------- uv, isolated from the user's config
 $Uv = Join-Path $env:USERPROFILE '.local\bin\uv.exe'
@@ -201,7 +217,7 @@ if (-not (Get-ChildItem (Join-Path $Payload 'gui\assets') -Filter 'index-*.js' -
 Log "gui: $(MB (Bytes (Join-Path $Payload 'gui'))), $(Files (Join-Path $Payload 'gui')) files"
 
 # ---------------------------------------------------------------- 3. omni.cmd + payload summary
-Copy-Item (Join-Path $DesktopDir 'config\omni.cmd') (Join-Path $Payload 'omni.cmd') -Force
+Copy-Item (Join-Path $DesktopDir $Ident.Cmd) (Join-Path $Payload 'omni.cmd') -Force
 Log "payload total: $(MB (Bytes $Payload)), $(Files $Payload) files"
 if ($NoInstaller) { Log ("done (no installer) in {0:N0}s" -f $total.Elapsed.TotalSeconds); return }
 
@@ -210,7 +226,7 @@ $m = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
 $pct = [math]::Round(100.0 * $m.CommittedBytes / $m.CommitLimit, 1)
 Log "commit charge $pct%"
 if ($pct -ge 90 -and -not $SkipMemoryCheck) { throw "commit charge >= 90%; not building (wait, or lower -Jobs)" }
-$cfgFile = if ($ShellConfig) { (Resolve-Path $ShellConfig).Path } else { Join-Path $DesktopDir 'config\shell.installed.json' }
+$cfgFile = if ($ShellConfig) { (Resolve-Path $ShellConfig).Path } else { Join-Path $DesktopDir $Ident.Config }
 $overlay = [ordered]@{
     bundle = [ordered]@{
         resources = [ordered]@{
@@ -225,6 +241,11 @@ $overlay = [ordered]@{
     }
 }
 if ($Version) { $overlay['version'] = $Version }
+if ($TestIdentity) {
+    $overlay['identifier'] = $Ident.Identifier
+    $overlay['productName'] = $Ident.Product
+    $overlay['mainBinaryName'] = $Ident.Binary
+}
 $overlayFile = Join-Path $Stage 'tauri.package.json'
 [IO.File]::WriteAllText($overlayFile, ($overlay | ConvertTo-Json -Depth 6))
 
@@ -236,21 +257,29 @@ $dirs = Set-NeutralPathFlags (Join-Path $DesktopDir 'src-tauri') { param($m) Log
 $cli = Join-Path $DesktopDir 'node_modules\@tauri-apps\cli\tauri.js'
 if (-not (Test-Path $cli)) { Push-Location $DesktopDir; try { Run 'npm ci (desktop)' { npm ci --no-audit --no-fund } } finally { Pop-Location } }
 Push-Location $DesktopDir
-try { Run 'tauri build (exe + NSIS lzma)' { & node $cli build --bundles nsis --config $overlayFile } } finally { Pop-Location }
+$featureArgs = if ($Ident.Features) { @('--features', $Ident.Features) } else { @() }
+try { Run "tauri build (exe + NSIS lzma) $($featureArgs -join ' ')" { & node $cli build --bundles nsis --config $overlayFile @featureArgs } } finally { Pop-Location }
 
 # ---------------------------------------------------------------- 5. the shipped exe names no folder of this machine
-$exe = Join-Path $TargetDir 'release\OmniAPI.exe'
+$exe = Join-Path $TargetDir ('release\' + $Ident.Binary + '.exe')
 $check = & (Join-Path $PSScriptRoot 'check-embedded-paths.ps1') -Path $exe -Extra @($dirs.BuildDir, $dirs.TargetDir)
 $checkExit = $LASTEXITCODE
 $check | ForEach-Object { Log "  $_" }
 if ($checkExit) { throw "the exe contains build-machine paths (check-embedded-paths.ps1 exit $checkExit); not shipping it" }
 
 $nsisDir = Join-Path $TargetDir 'release\bundle\nsis'
-$setup = Get-ChildItem $nsisDir -Filter "*_${AppVersion}_x64-setup.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
+$setup = Get-ChildItem $nsisDir -Filter ("{0}_{1}_x64-setup.exe" -f $Ident.Product, $AppVersion) | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $setup) { throw "no installer for $AppVersion in $nsisDir" }
 $outDir = Join-Path $Stage 'installers'
 New-Item -ItemType Directory -Force $outDir | Out-Null
-$dest = Join-Path $outDir ("OmniAPI_{0}_x64-setup.exe" -f $AppVersion)   # ASCII name (GitHub drops non-ASCII)
+$dest = Join-Path $outDir ("{0}_{1}_x64-setup.exe" -f $Ident.Product, $AppVersion)   # ASCII name (GitHub drops non-ASCII)
+
+# ---------------------------------------------------------------- 6. identity: the exe, the NSIS script and the shipped files are the one asked for
+$nsi = Join-Path $TargetDir 'release\nsis\x64\installer.nsi'
+$idCheck = & (Join-Path $PSScriptRoot 'check-identity.ps1') -Exe $exe -Nsi $nsi -ShellConfig $cfgFile -OmniCmd (Join-Path $Payload 'omni.cmd') -Identity $(if ($TestIdentity) { 'test' } else { 'released' })
+$idExit = $LASTEXITCODE
+$idCheck | ForEach-Object { Log "  $_" }
+if ($idExit) { throw "identity check failed (check-identity.ps1 exit $idExit); not shipping it" }
 Copy-Item $setup.FullName $dest -Force
 $hash = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower()
 Log ("installer {0}  {1} ({2:N0} bytes)  sha256 {3}" -f $dest, (MB (Get-Item $dest).Length), (Get-Item $dest).Length, $hash)

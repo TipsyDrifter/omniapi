@@ -1,0 +1,63 @@
+{
+ "request": {
+  "model": "ai-music-api/upload-and-extend-audio",
+  "input": {
+   "upload_url": "https://files.kie.test/r/song-1.mp3",
+   "instrumental": true,
+   "model": "V6_MINI"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task10",
+   "model": "ai-music-api/upload-and-extend-audio",
+   "state": "generating",
+   "param": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\"}\", \"model\": \"ai-music-api/upload-and-extend-audio\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277879327,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/upload-and-extend-audio",
+   "status": "PENDING",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\"}\", \"model\": \"ai-music-api/upload-and-extend-audio\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task10",
+   "model": "ai-music-api/upload-and-extend-audio",
+   "state": "fail",
+   "param": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\"}\", \"model\": \"ai-music-api/upload-and-extend-audio\"}",
+   "resultJson": "{\"code\": 400, \"msg\": \"Audio generation failed, please try again later.\", \"task_id\": \"task10\"}",
+   "failCode": "400",
+   "failMsg": "Audio generation failed, please try again later.",
+   "costTime": 30,
+   "completeTime": 1791277909529,
+   "createTime": 1791277879327,
+   "creditsConsumed": 0.0,
+   "operationType": "ai-music-api/upload-and-extend-audio",
+   "status": "GENERATE_AUDIO_FAILED",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "errorMessage": "Audio generation failed, please try again later.",
+   "errorCode": 400,
+   "response": {
+    "msg": "Audio generation failed, please try again later.",
+    "code": 400,
+    "task_id": "task10"
+   },
+   "successFlag": 3,
+   "paramJson": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\"}\", \"model\": \"ai-music-api/upload-and-extend-audio\"}"
+  }
+ },
+ "polls": 6
+}

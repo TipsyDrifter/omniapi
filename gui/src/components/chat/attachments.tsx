@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from
 import { ApiError, api } from "@/api/client";
 import type { Artifact, AttachKind, ChatAttachment, ChatAttachmentRef, FileInfo, UploadLimits } from "@/api/types";
 import { ImagePicker, TextWorkPicker, artName, fmtBytes, useFileDrop, uploadErrText } from "@/components/make";
+import { WORK_KINDS, WORK_KIND_INFO, isWorkKind, type Media } from "@/lib/modalities";
 import type { OutgoingAttachment } from "@/store/chat";
 import { Facts, FileDoc, extOf, factsOf, howRead, isUnknown, unreadableNote, type ModelCaps } from "./files";
 
@@ -101,7 +102,8 @@ function fromExisting(a: ChatAttachment): AttachItem {
 }
 
 /** 作品的種類 → 當附件時是什麼（同後端 _WORK_ATTACH_KIND） */
-const WORK_KIND: Record<string, AttachKind> = { image: "image", speech: "audio", music: "audio", transcript: "file", lyrics: "file" };
+const ATTACH_OF_MEDIA: Record<Media, AttachKind | null> = { image: "image", audio: "audio", text: "file", video: null };
+const WORK_KIND: Record<string, AttachKind | null> = Object.fromEntries(WORK_KINDS.map((k) => [k, ATTACH_OF_MEDIA[WORK_KIND_INFO[k].media]]));
 
 export function useAttachments({ caps, initial }: { caps: ModelCaps; initial?: ChatAttachment[] | null }) {
   const [items, setItems] = useState<AttachItem[]>(() => (initial ?? []).map(fromExisting));
@@ -217,7 +219,13 @@ export function useAttachments({ caps, initial }: { caps: ModelCaps; initial?: C
   const pickArtifact = (a: Artifact) => {
     const had = itemsRef.current.find((x) => x.att?.ref.artifact_id === a.id);
     if (had) return remove(had.key);
-    const kind = WORK_KIND[a.kind] ?? "file";
+    const known = WORK_KIND[a.kind];
+    if (known === null) {
+      // 1.4-M3：影片作品——這一版的聊天模型都不收影片（後端也會拒收並說明）
+      setNote("影片不能當聊天的附件：這一版的聊天模型都不收影片。");
+      return;
+    }
+    const kind = known ?? "file";
     if (kind === "image" && blind) {
       setNote(`${BLIND}，圖沒有附上。`);
       return;
@@ -240,7 +248,7 @@ export function useAttachments({ caps, initial }: { caps: ModelCaps; initial?: C
       return;
     }
     // 文字作品（逐字稿、歌詞）：清單裡的文字可能是截短的預覽，字數向單筆要
-    const typeName = a.kind === "lyrics" ? "歌詞" : a.kind === "transcript" ? "逐字稿" : "文字";
+    const typeName = isWorkKind(a.kind) && WORK_KIND_INFO[a.kind].media === "text" ? WORK_KIND_INFO[a.kind].zh : "文字";
     const info: FileInfo = { type: a.kind, type_name: typeName, readable: true, chars: (a.text ?? "").length };
     const view: ChatAttachment = { kind, artifact_id: a.id, name, file_url: a.file_url, thumb_url: null, exists: true, mime: a.mime, bytes: a.bytes, info, download_url: `${a.file_url}?download=true` };
     push({ key, status: "ready", kind, name, preview: null, bytes: a.bytes, info, att: { ref: { artifact_id: a.id }, view } });

@@ -26,7 +26,17 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
 ENV_VAR = "OMNIAPI_DESKTOP_EXE"
-RUN_VALUE = "OmniAPI"  # same as cli.DESKTOP_RUN_VALUE and the shell's autostart::RUN_VALUE
+#: the registry value's name: "OmniAPI" (same as cli.DESKTOP_RUN_VALUE and the shell's
+#: autostart::RUN_VALUE). The desktop test build's shell config sets OMNIAPI_DESKTOP_RUN_VALUE
+#: to its own name ("OmniAPI-Test"), so its settings page never touches the released app's entry.
+RUN_VALUE = "OmniAPI"
+RUN_VALUE_ENV = "OMNIAPI_DESKTOP_RUN_VALUE"
+
+
+def run_value(environ: Optional[dict[str, str]] = None) -> str:
+    env = os.environ if environ is None else environ
+    v = (env.get(RUN_VALUE_ENV) or "").strip()
+    return v or RUN_VALUE
 ARG = "--background"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
@@ -163,9 +173,10 @@ def status(reg: Optional[Registry] = None, exe: Optional[str] = None, legacy: Op
         reg = _default_registry()
     if not exe or reg is None:
         return {"available": False, "enabled": False, "legacy": None, "other": None}
-    command = reg.get(RUN_KEY, RUN_VALUE)
+    name = run_value()
+    command = reg.get(RUN_KEY, name)
     command = command if isinstance(command, str) and command else None
-    enabled = bool(command) and _approved(reg.get(APPROVED_KEY, RUN_VALUE))
+    enabled = bool(command) and _approved(reg.get(APPROVED_KEY, name))
     other = command if command and command.strip().lower() != command_for(exe).lower() else None
     return {
         "available": True,
@@ -185,11 +196,12 @@ def set_enabled(on: bool, reg: Optional[Registry] = None, exe: Optional[str] = N
         reg = _default_registry()
     if not exe or reg is None:
         raise AutostartUnavailable("this service was not started by the OmniAPI desktop app")
+    name = run_value()
     if on:
-        reg.set_string(RUN_KEY, RUN_VALUE, command_for(exe))
+        reg.set_string(RUN_KEY, name, command_for(exe))
         # the plugin also marks it enabled for Task Manager, but only when that key exists
         if reg.key_exists(APPROVED_KEY):
-            reg.set_binary(APPROVED_KEY, RUN_VALUE, APPROVED_ON)
+            reg.set_binary(APPROVED_KEY, name, APPROVED_ON)
     else:
-        reg.delete(RUN_KEY, RUN_VALUE)
+        reg.delete(RUN_KEY, name)
     return status(reg, exe, legacy, use_env=False)

@@ -143,6 +143,10 @@ export const api = {
   generations: (opts: { limit?: number; status?: string; kind?: string } = {}) => req<Generation[]>(`/api/generations${qs({ limit: opts.limit ?? 30, status: opts.status, kind: opts.kind })}`),
   generation: (id: string) => req<Generation>(`/api/generations/${encodeURIComponent(id)}`),
   cancelGeneration: (id: string) => req<Generation>(`/api/generations/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  /** 1.4-M3：影片「不等了」（供應商沒有取消：錢照樣可能收；預設背景照樣收回來） */
+  stopWaitingGeneration: (id: string) => req<Generation>(`/api/generations/${encodeURIComponent(id)}/stop-waiting`, { method: "POST" }),
+  /** 1.4-M3：影片「再去問一次」（等太久或不收了的那支；不重送、不多收） */
+  recheckGeneration: (id: string) => req<Generation>(`/api/generations/${encodeURIComponent(id)}/recheck`, { method: "POST" }),
   /** 上傳：請求本文就是檔案內容（不是 multipart）。圖 50 MB、音檔 25 MB（413）；型別不收 415 */
   upload: (file: File) =>
     req<Upload>(`/api/uploads${qs({ filename: file.name })}`, { method: "POST", headers: { "content-type": file.type || "application/octet-stream" }, body: file }),

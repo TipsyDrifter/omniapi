@@ -60,6 +60,10 @@ async def main() -> None:
             music = await call("generate_music", {"prompt": "lofi piano", "title": "E2E 示範曲"})
             text = await call("transcribe_audio", {"audio_path": speech["audio_path"]})
             check("speech, music and transcript came back", bool(speech.get("audio_path") and music.get("audio_path") and text.get("text")))
+            suno = await call("generate_music", {"prompt": "lofi piano", "model": "V6"})
+            tracks = suno.get("tracks") or []
+            check("a Suno job answers with both songs", suno.get("track_count") == 2 and len(tracks) == 2
+                  and tracks[0]["audio_path"] == suno["audio_path"] and tracks[1]["audio_path"] != suno["audio_path"], suno)
             refused = await call("music_lyrics", {"action": "generate", "prompt": "x"})
             check("tools without a stand-in are still refused offline", refused.get("status") == "refused", refused)
 
@@ -74,9 +78,13 @@ async def main() -> None:
 
     listing = httpx.get(BASE + "/api/artifacts", timeout=10).json()
     delta = {k: listing["counts"].get(k, 0) - before.get(k, 0) for k in ("image", "speech", "music", "transcript")}
-    check("every work reached the index", delta == {"image": 3, "speech": 1, "music": 1, "transcript": 1}, delta)
+    check("every work reached the index", delta == {"image": 3, "speech": 1, "music": 3, "transcript": 1}, delta)
     created = [e for e in events if e.get("type") == "artifact.created"]
-    check("the WebSocket announced each one", len(created) == 6, [e.get("type") for e in events])
+    check("the WebSocket announced each one", len(created) == 8, [e.get("type") for e in events])
+    rows = {a["file_path"]: a for a in listing["items"] if a["kind"] == "music"}
+    one, two = (rows.get(str(t["audio_path"])) for t in tracks)
+    check("both Suno songs are works, the second under the first", bool(one and two) and two["parent_id"] == one["id"]
+          and one["call_id"] == two["call_id"] and two["meta"]["track"] == 2, (one, two))
 
     by_kind: dict = {}
     for a in listing["items"]:

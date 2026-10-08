@@ -1,11 +1,17 @@
 /* 生成頁共用的小元件：模態章、切換鈕、模型清單、播放器、送出列（含預估費用）、拖放上傳、從作品挑 */
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ApiError, api } from "@/api/client";
 import type { Artifact, Estimate, GenModel, GenOptions, GenRequest } from "@/api/types";
 import { dt } from "@/lib/format";
 import { onSendKey, sendHint, sendKeyName, useSendKey } from "@/lib/sendKey";
 import { Field } from "@/components/dispatch";
+import { ModelFilterBar, RankBadge, VendorHead, useModelFilter, type CapFilter } from "@/components/ModelFilterBar";
+import { WORK_KIND_INFO, isWorkKind, kindsOfMedia, warnUnknown } from "@/lib/modalities";
 import { GLYPH, baseName, firstLine, msShort, priceText, type Built } from "./draft";
+
+/** 能當轉錄音檔的作品（語音、音樂）；文字作品（逐字稿、歌詞） */
+const AUDIO_KINDS = kindsOfMedia("audio");
+const TEXT_KINDS = kindsOfMedia("text");
 
 /** 四種表單共用的外部狀態（送出由生成頁統一處理） */
 export interface FormProps {
@@ -20,6 +26,7 @@ export const errMsg = (e: unknown): string => (e instanceof ApiError || e instan
 
 /* ---------------- 模態章：方形楷字章，只用墨的填法區分 ---------------- */
 export function Glyph({ kind, size }: { kind: string; size?: "sm" | "lg" }) {
+  if (!(kind in GLYPH)) warnUnknown("作品種類", kind); // 保底：章上畫「·」
   return (
     <span className={`mk-wg k-${kind}${size ? " " + size : ""}`} aria-hidden="true">
       {GLYPH[kind] ?? "·"}
@@ -75,12 +82,17 @@ export function useNow(active: boolean): number {
 export const sendKeys = onSendKey;
 
 /* ---------------- 模型清單（同新對話頁 dp-mrow 的語彙；反灰＝斜紋＋原因） ---------------- */
-const rank = (m: GenModel) => (m.status === "current" ? 0 : m.status === "deprecated" ? 1 : 2);
+const statusRank = (m: GenModel) => (m.status === "current" ? 0 : m.status === "deprecated" ? 1 : 2);
+const byStatus = (a: GenModel, b: GenModel) => statusRank(a) - statusRank(b);
+const isUsable = (m: GenModel) => m.available;
 
-export function ModelList({ models, sel, onSel, loading, error }: { models: GenModel[]; sel: string | null; onSel: (id: string) => void; loading: boolean; error: string | null }) {
-  const [more, setMore] = useState(false);
-  const rest = models.filter((m) => m.status === "discovered");
-  const rows = useMemo(() => (more ? models : models.filter((m) => m.status !== "discovered")).slice().sort((a, b) => rank(a) - rank(b)), [models, more]);
+/** 模型清單一多（經 OpenRouter 的圖片模型有幾十個）才出篩選列；同語音的聲音清單 */
+const FILTER_AT = 12;
+
+/** 生成頁的模型清單：篩選列同新對話頁（components/ModelFilterBar），預設熱門序；caps＝這一種表單的能力 chips */
+export function ModelList({ models, sel, onSel, loading, error, caps }: { models: GenModel[]; sel: string | null; onSel: (id: string) => void; loading: boolean; error: string | null; caps?: CapFilter<GenModel>[] }) {
+  const f = useModelFilter(models, { caps, usable: isUsable, keep: sel, baseOrder: byStatus });
+  const rows = f.shown;
   const listRef = useRef<HTMLDivElement>(null);
   // 進頁時把選中的那列捲進可視範圍
   useEffect(() => {
@@ -97,42 +109,42 @@ export function ModelList({ models, sel, onSel, loading, error }: { models: GenM
           <b>讀不到模型清單</b>：{error}
         </div>
       ) : null}
+      {models.length > FILTER_AT || f.discovered ? <ModelFilterBar f={f} placeholder="搜尋模型 id、名稱、原廠" /> : null}
       <div className="mk-mlist" role="listbox" aria-label="模型清單" ref={listRef}>
         {loading && !error ? <div className="dp-empty">讀取模型清單…</div> : null}
-        {rows.map((m) => {
+        {models.length && !rows.length ? <div className="dp-empty">{f.q.trim() ? `沒有符合「${f.q.trim()}」的模型。` : "沒有符合的模型；試著拿掉一個篩選。"}</div> : null}
+        {rows.map((m, i) => {
           const p = priceText(m);
+          const head = f.head(rows, i);
           return (
-            <button key={m.id} type="button" role="option" className="mk-mrow" aria-selected={m.id === sel} disabled={!m.available} onClick={() => onSel(m.id)} title={m.note ?? m.name ?? m.id}>
-              <span className="code">{m.id}</span>
-              {m.status === "deprecated" ? (
-                <span className="dp-tag" title={m.replacement ? `官方建議改用 ${m.replacement}` : undefined}>
-                  {m.shutdown ? `${m.shutdown} 關閉` : "即將關閉"}
+            <Fragment key={m.id}>
+              {head ? <VendorHead label={head.label} count={head.count} /> : null}
+              <button type="button" role="option" className="mk-mrow" aria-selected={m.id === sel} disabled={!m.available} onClick={() => onSel(m.id)} title={m.note ?? m.name ?? m.id} data-model={m.id}>
+                <span className="mf-id">
+                  <span className="code">{m.id}</span>
+                  <RankBadge m={m} />
                 </span>
-              ) : m.status === "discovered" ? (
-                <span className="dp-tag">未整理</span>
-              ) : (
-                <span />
-              )}
-              <span className={p ? "mk-price n" : "mk-price none"}>{p ?? "未定價"}</span>
-              <span className="mk-prov">
-                {m.provider}
-                {m.name ? ` · ${m.name}` : ""}
-              </span>
-              {!m.available ? <span className="mk-why">{whyNode(m)}</span> : null}
-            </button>
+                {m.status === "deprecated" ? (
+                  <span className="dp-tag" title={m.replacement ? `官方建議改用 ${m.replacement}` : undefined}>
+                    {m.shutdown ? `${m.shutdown} 關閉` : "即將關閉"}
+                  </span>
+                ) : m.status === "discovered" ? (
+                  <span className="dp-tag">未整理</span>
+                ) : (
+                  <span />
+                )}
+                <span className={p ? "mk-price n" : "mk-price none"}>{p ?? "未定價"}</span>
+                <span className="mk-prov">
+                  {m.provider}
+                  {m.vendor_label ? ` · 原廠 ${m.vendor_label}` : ""}
+                  {m.name ? ` · ${m.name}` : ""}
+                </span>
+                {!m.available ? <span className="mk-why">{whyNode(m)}</span> : null}
+              </button>
+            </Fragment>
           );
         })}
       </div>
-      {rest.length ? (
-        <div className="mk-mmore">
-          <span className="dp-note">
-            另有 <span className="n">{rest.length}</span> 個偵測到但還沒整理的模型
-          </span>
-          <button type="button" className="mk-mini" onClick={() => setMore(!more)}>
-            {more ? "收起" : "全部列出"}
-          </button>
-        </div>
-      ) : null}
     </Field>
   );
 }
@@ -145,15 +157,19 @@ function whyNode(m: GenModel): ReactNode {
         缺 <u className="code">{u.env ?? "API key"}</u>，這個模型送不出去
       </>
     );
+  if (u?.reason === "not_implemented" && m.provider === "openrouter") {
+    const f = m.image_params?.output_formats ?? [];
+    return f.length && f.every((x) => x === "svg") ? "只出 SVG 向量圖，作品牆這一版還不收" : "OpenRouter 上現在沒有供應商提供它";
+  }
   if (u?.reason === "not_implemented") return "這一版還沒接上";
   if (u?.reason === "offline") return "離線模式不呼叫供應商";
   return u?.reason ?? "現在不能用";
 }
 
 /* ---------------- 播放器：播放鈕＋時間尺＋長度（不畫假波形） ---------------- */
-let playingNow: HTMLAudioElement | null = null;
-/** 全站同一時間只播一段：要播之前先叫這個（生成頁、作品牆的卡片與燈箱共用） */
-export function claimAudio(a: HTMLAudioElement): void {
+let playingNow: HTMLMediaElement | null = null;
+/** 全站同一時間只播一段：要播之前先叫這個（生成頁、作品牆的卡片與燈箱共用；影片也算） */
+export function claimAudio(a: HTMLMediaElement): void {
   if (playingNow && playingNow !== a) playingNow.pause();
   playingNow = a;
 }
@@ -248,6 +264,9 @@ export function useEstimate(body: GenRequest): { est: Estimate | null; err: stri
 }
 
 const pu = (v: unknown) => (typeof v === "number" ? `$${+v.toFixed(4)}` : "$—");
+/** 參考圖另計的那半句（OpenRouter） */
+const refText = (e: Estimate): string =>
+  e.refs ? (e.refs_unpriced ? `，${e.refs} 張參考圖另依用量計` : e.ref_usd ? `，含 ${e.refs} 張參考圖 ${pu(e.ref_usd)}` : "") : "";
 
 /** 依 basis 寫一句依據（M3 派工說明的對照表） */
 export function basisText(e: Estimate): string {
@@ -270,8 +289,21 @@ export function basisText(e: Estimate): string {
       return "用點數計價，每首扣幾點沒有公開；生完記實際費用";
     case "needs_length":
       return `每分鐘 ${pu(e.unit_price)}；填了長度（或選了音檔）才算得出來`;
-    case "sandbox":
-      return "離線沙盒：不呼叫供應商，不花錢";
+    case "sandbox": {
+      const l = e.listed;
+      const real = l ? (l.usd != null ? pu(l.usd) : l.low != null && l.high != null ? `${pu(l.low)}–${pu(l.high)}` : null) : null;
+      return `離線沙盒：不呼叫供應商，不花錢${real ? `（真的送出照名單約 ${real}）` : ""}`;
+    }
+    case "variant":
+      return `OpenRouter 名單：每張 ${pu(e.unit_price)}${e.variant ? `（${String(e.variant).replace("_", " ")}）` : ""} × ${e.n ?? 1}${refText(e)}；帳上記實際費用`;
+    case "range":
+      return `OpenRouter 名單上這組設定可能是 ${pu(e.low)}–${pu(e.high)}（對不到確切的分級）${refText(e)}；帳上記實際費用`;
+    case "per_megapixel":
+      return `每百萬像素 ${pu(e.mp_price)}，以約 ${e.megapixels ?? 1} 百萬像素估${refText(e)}；實際依輸出尺寸計`;
+    case "per_token":
+      return "OpenRouter 依 token 計價，送出前算不出；帳上記實際費用";
+    case "no_price":
+      return "OpenRouter 沒有公布這個模型的定價；帳上記實際費用";
     default:
       return "按 token 計價，還沒有可參考的紀錄；送出後記實際費用";
   }
@@ -311,8 +343,13 @@ export function SubmitBar({ kind, recap, built, busy, error, onSend }: { kind: s
           </span>
           {est && est.usd != null ? (
             <span className="mk-estbig">
-              <small>$</small>
+              <small>{est.approx ? "約 $" : "$"}</small>
               {est.usd.toFixed(4)}
+            </span>
+          ) : est && est.low != null && est.high != null && est.basis === "range" ? (
+            <span className="mk-estbig">
+              <small>$</small>
+              {+est.low.toFixed(4)}–{+est.high.toFixed(4)}
             </span>
           ) : (
             <span className="mk-estna">{est ? "估不出" : err ? "—" : "…"}</span>
@@ -452,7 +489,7 @@ export function ImagePicker({ selected, onPick }: { selected: string | readonly 
 }
 
 export function AudioPicker({ selected, onPick }: { selected: string | null; onPick: (a: Artifact) => void }) {
-  const { items, err, hasMore, more } = useArtifacts(["speech", "music"]);
+  const { items, err, hasMore, more } = useArtifacts(AUDIO_KINDS);
   if (err) return <div className="warn">讀不到作品：{err}</div>;
   if (!items) return <div className="dp-empty">讀取作品…</div>;
   if (!items.length) return <div className="dp-empty">作品庫裡還沒有語音或音樂。</div>;
@@ -479,7 +516,7 @@ export function AudioPicker({ selected, onPick }: { selected: string | null; onP
 
 /** 1.2-M5：作品牆的文字作品（歌詞、逐字稿），聊天可以當附件；selected 可以是多個 */
 export function TextWorkPicker({ selected, onPick }: { selected: readonly string[]; onPick: (a: Artifact) => void }) {
-  const { items, err, hasMore, more } = useArtifacts(["transcript", "lyrics"], 12);
+  const { items, err, hasMore, more } = useArtifacts(TEXT_KINDS, 12);
   if (err) return <div className="warn">讀不到作品：{err}</div>;
   if (!items) return <div className="dp-empty">讀取作品…</div>;
   if (!items.length) return <div className="dp-empty">作品庫裡還沒有逐字稿或歌詞。</div>;
@@ -490,7 +527,7 @@ export function TextWorkPicker({ selected, onPick }: { selected: readonly string
           <button key={a.id} type="button" className="mk-arow" aria-pressed={selected.includes(a.id)} onClick={() => onPick(a)} title={firstLine(a.text) || undefined}>
             <Glyph kind={a.kind} size="sm" />
             <span className="code">{a.title || firstLine(a.text) || artName(a)}</span>
-            <span className="n">{a.kind === "lyrics" ? "歌詞" : "逐字稿"}</span>
+            <span className="n">{isWorkKind(a.kind) ? WORK_KIND_INFO[a.kind].zh : String(a.kind)}</span>
             <span className="n">{dt(a.created_at)}</span>
           </button>
         ))}

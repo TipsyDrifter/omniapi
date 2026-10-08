@@ -1,0 +1,23 @@
+{
+  "comment": "Test build only (package.ps1 -TestIdentity ships this next to OmniAPI-Test.exe as shell.config.json). Shares nothing with the released app: port 7939 (the test shell refuses 7788), data home %USERPROFILE%\\.omniapi-test (it refuses .omniapi), works under that data home (never Documents\\OmniAPI), the logon switch on the settings page writes Run\\OmniAPI-Test, the settings page's 'connect Claude Code' writes a stand-in claude.json in the data home (never ~/.claude.json), no new-version check, and the service runs offline with fake providers. Installer tests replace this file with their own config (temp data home, test port).",
+  "port": 7939,
+  "service": {
+    "program": "{exe_dir}\\python\\pythonw.exe",
+    "args": ["-I", "-m", "omniapi_mcp.cli", "serve", "--foreground", "--port", "{port}", "--log-file", "{log_dir}\\daemon.log"],
+    "cwd": "{data_home}",
+    "env": {
+      "OMNIAPI_HOME": "{default_home}",
+      "STORAGE__BASE_PATH": "{default_home}\\works",
+      "OMNIAPI_DEV": "1",
+      "OMNIAPI_OFFLINE": "1",
+      "OMNIAPI_GUI_DIST": "{exe_dir}\\gui",
+      "OMNIAPI_DESKTOP_EXE": "{exe}",
+      "OMNIAPI_DESKTOP_RUN_VALUE": "OmniAPI-Test",
+      "OMNIAPI_CLAUDE_CONFIG": "{default_home}\\claude.json"
+    },
+    "create_dirs": ["OMNIAPI_HOME"]
+  },
+  "update_check": {
+    "enabled": false
+  }
+}

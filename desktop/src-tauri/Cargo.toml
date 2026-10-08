@@ -2,7 +2,7 @@
 name = "omniapi-desktop"
 # Same as the project version (scripts/build_release.py checks it with tauri.conf.json):
 # this one becomes the exe's file version, tauri.conf.json's the installer's.
-version = "1.3.0"
+version = "1.4.0"
 description = "OmniAPI desktop shell: tray icon, dashboard window, and the local service's life"
 authors = ["Kosa"]
 edition = "2021"
@@ -15,6 +15,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # Compile the development default (config/shell.dev.json, the checkout's own mcp/.venv) into a
 # release build too. Debug builds always have it; the shipped exe must not (see src/config.rs).
 dev-default = []
+# The test build (package.ps1 -TestIdentity): logon value, default port and data home that the
+# released app never uses, and no development default (src/identity.rs). The installer's
+# identifier, product and exe names come from package.ps1's overlay config.
+test-identity = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

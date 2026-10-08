@@ -140,13 +140,37 @@ class KieSettings(BaseModel):
         "", description="kie.ai API key (leave empty until you have one)"
     )
     base_url: str = Field("https://api.kie.ai", description="kie.ai API base URL")
-    timeout: float = Field(
-        300.0, description="Request/polling ceiling in seconds (Suno is async)"
+    request_timeout: float = Field(
+        60.0, gt=0, description="Per-request HTTP timeout in seconds (create, poll, download)"
+    )
+    poll_timeout: float = Field(
+        900.0,
+        gt=0,
+        description=(
+            "How long to keep polling one kie.ai task, in seconds. kie's task-detail "
+            "page advises stopping after 10-15 minutes."
+        ),
+    )
+    timeout: float | None = Field(
+        None,
+        description=(
+            "Deprecated (before 1.4 one value was both the HTTP timeout and the polling "
+            "ceiling). Still read: when set and poll_timeout is not, it becomes the "
+            "polling ceiling, and it caps request_timeout."
+        ),
     )
     max_retries: int = Field(3, description="Maximum number of retries")
     enabled: bool = Field(False, description="Enable Suno via kie.ai")
     default_model: str = Field(
         "V6", description="Default Suno model (V6, V6_MINI, V6_WILD)"
+    )
+    suno_routes: str = Field(
+        "",
+        description=(
+            "Which Suno operations use kie.ai's unified jobs endpoints: '' (built-in "
+            "table), 'jobs' (all that can), 'legacy' (none), or a comma list such as "
+            "'generate,lyrics'"
+        ),
     )
 
     @field_validator("base_url")
@@ -155,6 +179,19 @@ class KieSettings(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("Base URL must start with http:// or https://")
         return v.rstrip("/")
+
+    @model_validator(mode="after")
+    def _legacy_timeout(self):
+        """Keep ``PROVIDERS__KIE__TIMEOUT`` meaningful. A non-positive or absent
+        value is ignored rather than refusing to start."""
+        t = self.timeout
+        if t is None or t <= 0:
+            return self
+        if "poll_timeout" not in self.model_fields_set:
+            self.poll_timeout = float(t)
+        if "request_timeout" not in self.model_fields_set:
+            self.request_timeout = min(self.request_timeout, float(t))
+        return self
 
 
 class AnthropicSettings(BaseModel):
@@ -449,6 +486,37 @@ class DefaultModelsSettings(BaseModel):
     speech: str | None = Field(None, description="Text-to-speech model")
     music: str | None = Field(None, description="Music model")
     transcript: str | None = Field(None, description="Transcription model (gpt-transcribe when unset)")
+    video: str | None = Field(None, description="Video model (an OpenRouter video model id, or gemini-omni-1.1-flash with the Google key; alibaba/wan-3.0 when unset)")
+
+
+class VideoSettings(BaseModel):
+    """Video jobs (1.4-M3). Env: ``VIDEO__MCP_MAX_USD`` etc.; settings.json ``video``."""
+
+    mcp_max_usd: float = Field(
+        1.0, gt=0, le=1000,
+        description="MCP / CLI: a video whose estimate is above this (USD) is not sent unless the call passes max_cost_usd",
+    )
+    mcp_unlimited: bool = Field(False, description="MCP / CLI: no per-video limit at all (mcp_max_usd is then ignored)")
+    max_wait_minutes: float = Field(
+        20.0, ge=0.05, le=1440,
+        description="How long we wait on one video before calling it 'waited too long' (its job id is kept: it can be asked about again)",
+    )
+    keep_collecting: bool = Field(
+        True,
+        description="After 'stop waiting': keep asking in the background and collect the video (and its real cost) when it is done",
+    )
+
+
+class MusicSettings(BaseModel):
+    """Music jobs. Env: ``MUSIC__SUNO_ALL_TRACKS``; settings.json ``music``."""
+
+    suno_all_tracks: bool = Field(
+        True,
+        description=(
+            "Suno answers every generate / extend / cover / add-vocals ... job with two songs: "
+            "keep both (each its own file and work, the cost split between them) or only the first"
+        ),
+    )
 
 
 class ServerSettings(BaseModel):
@@ -492,6 +560,10 @@ class Settings(BaseSettings):
     server: ServerSettings = Field(default_factory=ServerSettings)
     # 1.3-M2: user-writable layer (settings.json) lands here too
     defaults: DefaultModelsSettings = Field(default_factory=DefaultModelsSettings)
+    # 1.4-M3: the per-video MCP limit and how long a video is waited on
+    video: VideoSettings = Field(default_factory=VideoSettings)
+    # whether a Suno job keeps both of its songs
+    music: MusicSettings = Field(default_factory=MusicSettings)
     tiers: dict[str, str] = Field(
         default_factory=dict, description="Tier alias overrides on top of catalog.json (cheap/standard/strong)"
     )

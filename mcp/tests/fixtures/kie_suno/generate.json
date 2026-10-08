@@ -1,0 +1,88 @@
+{
+ "request": {
+  "model": "ai-music-api/generate",
+  "input": {
+   "prompt": "A short calm lo-fi piano loop",
+   "model": "V6_MINI",
+   "custom_mode": false,
+   "instrumental": true
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task1",
+   "model": "ai-music-api/generate",
+   "state": "generating",
+   "param": "{\"input\": \"{\\\"instrumental\\\": true, \\\"custom_mode\\\": false, \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/generate\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277229550,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/generate",
+   "status": "PENDING",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"instrumental\\\": true, \\\"custom_mode\\\": false, \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/generate\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task1",
+   "model": "ai-music-api/generate",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"instrumental\\\": true, \\\"custom_mode\\\": false, \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/generate\"}",
+   "resultJson": "{\"code\": 200, \"data\": [{\"audio_url\": \"https://files.kie.test/r/song-1.mp3\", \"createTime\": 1791277266815, \"duration\": 183.12, \"id\": \"song-1\", \"image_url\": \"https://img.suno.test/image_song-1.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"[Instrumental]\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-1.mp3\", \"tags\": \"Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty...\", \"title\": \"Paper Rain Loop\"}, {\"audio_url\": \"https://files.kie.test/r/song-2.mp3\", \"createTime\": 1791277266815, \"duration\": 199.2, \"id\": \"song-2\", \"image_url\": \"https://img.suno.test/image_song-2.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"[Instrumental]\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-2.mp3\", \"tags\": \"Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty...\", \"title\": \"Paper Rain Loop\"}], \"msg\": \"success\", \"task_id\": \"task1\"}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 36,
+   "completeTime": 1791277266815,
+   "createTime": 1791277229550,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/generate",
+   "status": "SUCCESS",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "response": {
+    "msg": "success",
+    "code": 200,
+    "data": [
+     {
+      "duration": 183.12,
+      "stream_audio_url": "https://stream.kie.test/stream/song-1.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277266815,
+      "image_url": "https://img.suno.test/image_song-1.jpeg",
+      "audio_url": "https://files.kie.test/r/song-1.mp3",
+      "id": "song-1",
+      "title": "Paper Rain Loop",
+      "prompt": "[Instrumental]",
+      "tags": "Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty..."
+     },
+     {
+      "duration": 199.2,
+      "stream_audio_url": "https://stream.kie.test/stream/song-2.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277266815,
+      "image_url": "https://img.suno.test/image_song-2.jpeg",
+      "audio_url": "https://files.kie.test/r/song-2.mp3",
+      "id": "song-2",
+      "title": "Paper Rain Loop",
+      "prompt": "[Instrumental]",
+      "tags": "Lo-fi piano instrumental, 72 BPM with soft swung keys, dusty..."
+     }
+    ],
+    "task_id": "task1"
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"instrumental\\\": true, \\\"custom_mode\\\": false, \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/generate\"}"
+  }
+ },
+ "polls": 6
+}

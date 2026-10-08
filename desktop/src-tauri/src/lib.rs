@@ -13,6 +13,7 @@
 mod autostart;
 mod config;
 mod http;
+mod identity;
 mod log;
 mod proc;
 mod service;
@@ -334,7 +335,7 @@ pub fn run() {
                 // no usable config: the default data home's logs (OMNIAPI_HOME if the shell has one)
                 Err(_) => match &ctx.env_home {
                     Some(h) => PathBuf::from(h).join("logs"),
-                    None => PathBuf::from(format!("{}\\.omniapi\\logs", ctx.user_profile)),
+                    None => PathBuf::from(identity::default_home(&ctx.user_profile)).join("logs"),
                 },
             };
             let log = Arc::new(Logger::open(&log_dir));
@@ -355,7 +356,7 @@ pub fn run() {
             let (menu, items) = tray::build_menu(&handle, al_on, hint, None)?;
             TrayIconBuilder::with_id(tray::TRAY_ID)
                 .icon(tray::icon(tray::Look::Starting))
-                .tooltip("OmniAPI")
+                .tooltip(identity::title())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, ev| match ev.id.0.as_str() {

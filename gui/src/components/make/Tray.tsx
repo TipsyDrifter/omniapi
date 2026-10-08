@@ -4,7 +4,9 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Artifact, Generation } from "@/api/types";
 import { dt, usd } from "@/lib/format";
+import { mediaOf } from "@/lib/modalities";
 import { cancelGeneration, dismissGeneration, isRunning, setDraft, startGeneration, useMake } from "@/store/make";
+import { VideoOutCard } from "./VideoTray";
 import { KIND_META, draftFromGeneration, firstLine, mmss, retryRequest } from "./draft";
 import { AudioPlayer, Glyph, artName, errMsg, useNow } from "./bits";
 
@@ -35,7 +37,7 @@ export function Tray({ ids }: { ids: string[] }) {
           最近 <span className="n">{gens.length}</span> 件
         </span>
       </div>
-      {gens.map((g) => (g ? <OutCard key={g.id} g={g} now={now} /> : null))}
+      {gens.map((g) => (g ? g.kind === "video" ? <VideoOutCard key={g.id} g={g} now={now} /> : <OutCard key={g.id} g={g} now={now} /> : null))}
     </aside>
   );
 }
@@ -203,9 +205,10 @@ function OutCard({ g, now }: { g: Generation; now: number }) {
   }
 
   const arts = g.artifacts ?? [];
-  const imgs = arts.filter((a) => a.kind === "image");
-  const auds = arts.filter((a) => a.kind === "speech" || a.kind === "music");
-  const texts = arts.filter((a) => a.kind === "transcript" || a.kind === "lyrics");
+  // 依作品是什麼分三格；不認得的種類（mediaOf 會警告）放進文字那一格保底，不再整件消失
+  const imgs = arts.filter((a) => mediaOf(a.kind) === "image");
+  const auds = arts.filter((a) => mediaOf(a.kind) === "audio");
+  const texts = arts.filter((a) => { const m = mediaOf(a.kind); return m === "text" || m === null; });
   return (
     <article className="mk-oi done">
       {imgs.length ? (

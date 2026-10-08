@@ -8,6 +8,7 @@ synthesis, and music generation.
 import argparse
 import asyncio
 import json
+import math
 import logging
 import sys
 import time
@@ -22,6 +23,7 @@ from pydantic import Field, ValidationError
 from . import __version__
 from .catalog import catalog
 from .config.settings import Settings
+from .modalities import CATALOG_MODALITIES
 from .prompts.template_manager import template_manager
 from .recorder import make_recorded
 from .resources.model_registry import model_registry
@@ -293,10 +295,12 @@ def get_server_context(ctx) -> ServerContext:
     description=(
         "Fetch the result of a long-running generation that returned a ticket "
         "(a response with status='running' and a task_id). Long jobs — Suno "
-        "music, high-quality / 4K images — come back as a ticket so the tool "
-        "call stays under the client's ~60s timeout; the work keeps running in "
-        "the background. Call this with that task_id to fetch the finished "
-        "result; if it's still 'running', wait ~20-30s and call again."
+        "music, high-quality / 4K images, videos — come back as a ticket so the "
+        "tool call stays under the client's ~60s timeout; the work keeps running "
+        "in the background. Call this with that task_id to fetch the finished "
+        "result; if it's still 'running', wait ~20-30s (a video: a minute or "
+        "two) and call again. A video's ticket ('video_…', or its generation id) "
+        "still works after the OmniAPI service restarts."
     ),
 )
 async def get_job_result(
@@ -307,10 +311,21 @@ async def get_job_result(
     """Fetch a previously started job's result (call-now / fetch-later)."""
     server_ctx = get_server_context(mcp.get_context())
     try:
+        videos = getattr(server_ctx, "videos", None)
+        if videos is not None:
+            gid = task_id[len("video_"):] if task_id.startswith("video_") else task_id
+            if task_id.startswith("video_") or (len(gid) == 16 and await _is_video_job(server_ctx, gid)):
+                # a video ticket is the job's row in the database, not an in-memory task: it outlives a restart
+                return await videos.result(gid)
         return await server_ctx.jobs.get(task_id)
     except Exception as e:
         logger.error(f"get_job_result failed: {e}", exc_info=True)
         raise
+
+
+async def _is_video_job(server_ctx: Any, gid: str) -> bool:
+    row = await server_ctx.store.generation(gid)
+    return bool(row and row.get("kind") == "video")
 
 
 # Tool definitions
@@ -653,6 +668,7 @@ async def server_info() -> dict[str, Any]:
                 "text_completion": True,
                 "speech_synthesis": True,
                 "music_generation": True,
+                "video_generation": True,
                 "async_jobs": True,
                 "caching": server_ctx.cache_manager.enabled,
                 "storage": True,
@@ -704,7 +720,11 @@ async def generate_image(
         default=None,
         description=(
             "AI model to use for image generation. Available models depend on "
-            "configured providers. If not specified, uses the configured default model."
+            "configured providers. OpenRouter's image models go by their "
+            "OpenRouter id (e.g. 'black-forest-labs/flux-3-image', "
+            "'x-ai/grok-imagine-image-2.0'); their request shape is in "
+            "list_available_models (image_params). If not specified, uses the "
+            "configured default model."
         ),
     ),
     quality: Optional[str] = Field(
@@ -749,15 +769,18 @@ async def generate_image(
     image_size: Optional[str] = Field(
         default=None,
         description=(
-            "Gemini (Nano Banana) only: output resolution '512'/'1K'/'2K'/'4K' "
-            "(UPPERCASE K; default 2K). Ignored by OpenAI (use size)."
+            "Gemini (Nano Banana): output resolution '512'/'1K'/'2K'/'4K' "
+            "(UPPERCASE K; default 2K). OpenRouter models: the resolution tier, "
+            "one of the model's image_params.resolutions ('768', '1.5K' too). "
+            "Ignored by OpenAI (use size)."
         ),
     ),
     aspect_ratio: Optional[str] = Field(
         default=None,
         description=(
-            "Gemini (Nano Banana) only: explicit aspect ratio (e.g. '16:9', "
-            "'9:16', '21:9', '2:3', '4:5') — reaches ratios the WxH size cannot. "
+            "Gemini (Nano Banana) and OpenRouter models: explicit aspect ratio "
+            "(e.g. '16:9', '9:16', '21:9', '2:3', '4:5') — reaches ratios the "
+            "WxH size cannot; OpenRouter models take their image_params.aspect_ratios. "
             "Ignored by OpenAI."
         ),
     ),
@@ -771,8 +794,8 @@ async def generate_image(
     seed: Optional[int] = Field(
         default=None,
         description=(
-            "Legacy (Imagen, retired 2026): accepted for backward compatibility "
-            "and ignored by every current model."
+            "OpenRouter models whose image_params.seed is true: a seed for "
+            "repeatable output. Ignored by every other model."
         ),
     ),
     safety_filter_level: Optional[str] = Field(
@@ -1053,8 +1076,8 @@ async def complete_text(
         ge=0.0,
         le=2.0,
         description=(
-            "Sampling temperature (0-2). ⚠️ GPT-5.x reasoning models reject it "
-            "(HTTP 400), so it is dropped automatically for them — use "
+            "Sampling temperature (0-2). ⚠️ GPT-5.x reasoning models and Claude "
+            "4.7+ reject it (HTTP 400), so it is dropped automatically for them — use "
             "reasoning_effort / verbosity instead. Honoured by DeepSeek "
             "non-thinking mode and OpenAI *-chat-latest models."
         ),
@@ -1063,7 +1086,8 @@ async def complete_text(
         default=None,
         description=(
             "Reasoning depth. OpenAI GPT-5.x: none/low/medium/high/xhigh "
-            "(default medium). DeepSeek: high/max. Replaces temperature as the "
+            "(default medium). DeepSeek: high/max. Claude: low/medium/high/xhigh/max "
+            "(adaptive thinking on 4.6+, a thinking budget on older). Replaces temperature as the "
             "main style knob for reasoning models."
         ),
     ),
@@ -1399,10 +1423,14 @@ async def generate_speech(
     title="Generate Music",
     description=(
         "Generate music from a text description. Two backends, chosen by "
-        "'model': ElevenLabs Music (music_v1 / music_v2 / music_v2_5, "
+        "'model': ElevenLabs Music (music_v2_5 / music_v2 / music_v1, "
         "synchronous) reuses PROVIDERS__ELEVENLABS__API_KEY; Suno via kie.ai "
         "(V6 / V6_MINI / V6_WILD, supports vocals and custom mode) needs "
-        "PROVIDERS__KIE__API_KEY. Saves an audio file and returns its path. "
+        "PROVIDERS__KIE__API_KEY. Saves an audio file and returns its path "
+        "(audio_path, audio_id, title, duration...). A Suno job makes two "
+        "songs: both are saved, the top-level fields describe the first, and "
+        "'tracks' lists every song with its own audio_path and audio_id "
+        "(use either audio_id with edit_music / music_utility). "
         "To transform an existing track use edit_music; for lyrics use "
         "music_lyrics; for WAV/MP4 rendering use music_utility."
     ),
@@ -1419,7 +1447,7 @@ async def generate_music(
     model: Optional[str] = Field(
         default=None,
         description=(
-            "Model/backend. ElevenLabs: music_v1 (default), music_v2, "
+            "Model/backend. ElevenLabs: music_v2_5 (default), music_v2, music_v1 (deprecated), "
             "music_v2_5 (highest quality). Suno (via kie.ai): V6 (default), "
             "V6_MINI (fast/lightweight), V6_WILD (experimental). The older Suno "
             "ids V4, V4_5, V4_5PLUS, V4_5ALL, V5 and V5_5 are discontinued "
@@ -1482,7 +1510,9 @@ async def generate_music(
 
     Saves the audio under storage/music/<date>/ and returns the file path plus
     metadata. ElevenLabs is synchronous; Suno is polled to completion internally,
-    so a single call blocks until the track is ready (or times out).
+    so a single call blocks until the track is ready (or times out). A Suno job
+    returns two songs: both are saved (the second as <first file>_2) and listed
+    in ``tracks``; ``track_count`` says how many.
     """
     ctx = mcp.get_context()
     server_ctx = get_server_context(ctx)
@@ -1531,7 +1561,9 @@ async def generate_music(
         "- separate_vocals: split a generated track into stems. Needs task_id "
         "and audio_id from that generation, plus separation_type.\n"
         "upload_url must be a publicly reachable audio URL of at most 8 "
-        "minutes. Saves the result(s) and returns the file path(s)."
+        "minutes. Saves the result(s) and returns the file path(s); like "
+        "generate_music, the actions that make songs return two of them, "
+        "listed in 'tracks'."
     ),
 )
 async def edit_music(
@@ -1787,7 +1819,7 @@ async def music_utility(
     description=(
         "ElevenLabs composition-plan workflow — section-level control over a "
         "song (requires PROVIDERS__ELEVENLABS__API_KEY, paid plan). Models: "
-        "music_v1 (default), music_v2, music_v2_5.\n"
+        "music_v2_5 (default), music_v2, music_v1 (deprecated).\n"
         "- create_plan: turn a prompt into an editable composition plan "
         "(sections, styles, lyrics, durations) and return it as JSON. Needs "
         "prompt; optional music_length_ms and source_composition_plan (pass an "
@@ -1829,7 +1861,7 @@ async def compose_music(
     ),
     model: Optional[str] = Field(
         default=None,
-        description="music_v1 (default), music_v2, or music_v2_5.",
+        description="music_v2_5 (default), music_v2, or music_v1 (deprecated).",
     ),
     instrumental: bool = Field(
         default=False,
@@ -1914,7 +1946,10 @@ async def edit_image(
             "gpt-image-1.5 / gpt-image-1-mini (input_fidelity), gpt-image-1 "
             "(shuts down 2026-10-23). Google: gemini-3.1-flash-image "
             "(nano-banana-2), gemini-3-pro-image (nano-banana-pro) — reference "
-            "images via additional_images, no mask. If omitted, uses the "
+            "images via additional_images, no mask. OpenRouter: any image model "
+            "whose image_params.max_references > 0, by its OpenRouter id (e.g. "
+            "'black-forest-labs/flux-3-image'); the source and additional_images "
+            "go as its reference images, no mask. If omitted, uses the "
             "configured default image model (IMAGES__DEFAULT_MODEL, gpt-image-2)."
         ),
     ),
@@ -1960,6 +1995,21 @@ async def edit_image(
     user: Optional[str] = Field(
         default=None,
         description="OpenAI only: stable end-user identifier for abuse monitoring.",
+    ),
+    image_size: Optional[str] = Field(
+        default=None,
+        description=(
+            "OpenRouter models only: output resolution tier ('512', '768', '1K', "
+            "'1.5K', '2K', '4K') — whichever the model lists "
+            "(list_available_models: image_params.resolutions). Ignored by OpenAI and Gemini."
+        ),
+    ),
+    aspect_ratio: Optional[str] = Field(
+        default=None,
+        description=(
+            "OpenRouter models only: output aspect ratio (e.g. '16:9'), from the "
+            "model's image_params.aspect_ratios. Ignored by OpenAI and Gemini."
+        ),
     ),
 ) -> dict[str, Any]:
     """
@@ -2018,6 +2068,8 @@ async def edit_image(
                 input_fidelity=input_fidelity,
                 additional_images=validated_extra_images,
                 user=user,
+                image_size=image_size,
+                aspect_ratio=aspect_ratio,
             ),
         )
     except Exception as e:
@@ -2026,12 +2078,146 @@ async def edit_image(
 
 
 @mcp.tool(
+    title="Generate Video",
+    description=(
+        "Generate a short video from a text prompt, optionally starting from a first frame "
+        "(and ending on a last frame, for models that take one). Video models go through "
+        "OpenRouter, and Google's Gemini Omni ('gemini-omni-1.1-flash') directly with the Google key "
+        "(its project needs a paid Gemini API tier). list_available_models with modality='video' shows "
+        "each model's video_params: durations, resolutions, aspect_ratios, frames, audio — and its pricing. "
+        "A video costs real money the moment it is sent (from about $0.05 to several dollars) "
+        "and cannot be cancelled at the provider. A video whose estimate is above the per-video "
+        "limit (default $1; settings: video.mcp_max_usd), or whose price cannot be computed up "
+        "front (per-token models), is NOT sent: the answer says the estimate and the limit; call "
+        "again with max_cost_usd to allow it. Takes minutes: the call returns a ticket "
+        "(task_id 'video_…') after ~45 s — fetch the result with get_job_result; the ticket "
+        "survives a service restart."
+    ),
+)
+async def generate_video(
+    prompt: str = Field(..., min_length=1, max_length=4000,
+                        description="What happens in the video: subject, motion, camera, light, sound."),
+    model: Optional[str] = Field(
+        default=None,
+        description="A video model id: an OpenRouter one (e.g. 'alibaba/wan-3.0', 'x-ai/grok-imagine-video', "
+                    "'kwaivgi/kling-v3.0-std') or 'gemini-omni-1.1-flash' (Google, direct; always makes sound; "
+                    "a last frame needs a first frame). Default: the configured default video model.",
+    ),
+    duration: Optional[int] = Field(
+        default=None, ge=1, le=60,
+        description="Seconds, one of the model's video_params.durations. Default: 5 when the model takes it, "
+                    "else the length it takes closest to 5.",
+    ),
+    resolution: Optional[str] = Field(
+        default=None, description="One of the model's video_params.resolutions (e.g. '480p', '720p', '1080p', '4K'). "
+                                  "Default: the model's own default (the estimate is then a range).",
+    ),
+    aspect_ratio: Optional[str] = Field(
+        default=None, description="One of the model's video_params.aspect_ratios (e.g. '16:9', '9:16', '1:1').",
+    ),
+    generate_audio: Optional[bool] = Field(
+        default=None, description="Make sound with the video (models whose video_params.audio is not false; "
+                                  "on by default for models that make sound). Some models price sound separately.",
+    ),
+    seed: Optional[int] = Field(default=None, description="For models whose video_params.seed is true."),
+    first_frame: Optional[str] = Field(
+        default=None,
+        description="The video's first frame: an image work's id (from the works list), a local image path "
+                    "(the server reads it: STDIO shares the client's filesystem) or a data URL. "
+                    "For models whose video_params.frames has 'first_frame'.",
+    ),
+    last_frame: Optional[str] = Field(
+        default=None,
+        description="The video's last frame, the same three ways. Only models whose video_params.frames has 'last_frame'.",
+    ),
+    max_cost_usd: Optional[float] = Field(
+        default=None, gt=0, le=1000,
+        description="Allow this video up to this many US dollars (estimated). Needed when the estimate is above the "
+                    "per-video limit, or when the model's price cannot be computed up front (it is then the caller's "
+                    "acknowledgement; the real cost is recorded afterwards).",
+    ),
+) -> dict[str, Any]:
+    """Send a video, wait up to ~45 s, then hand back the result or a ticket.
+
+    Returns (completed): status, generation_id, artifact_id, file_path, video_url (file://),
+    duration_s, width, height, has_audio (read from the file), cost_usd (what the provider
+    billed), estimate, waited_s. A ticket: status='running', task_id='video_<id>'.
+    Not sent: status='refused' with estimate_usd / limit_usd and how to allow it."""
+    from .artifacts import current_call
+    from .core.job_manager import wait_to_finish
+    from .video.jobs import VideoError, mcp_limit
+
+    server_ctx = get_server_context(mcp.get_context())
+    videos = getattr(server_ctx, "videos", None)
+    if videos is None:
+        return {"error": "video generation is not available in this process", "status": "failed"}
+    args = {k: v for k, v in (("prompt", prompt), ("model", model), ("duration", duration), ("resolution", resolution),
+                              ("aspect_ratio", aspect_ratio), ("generate_audio", generate_audio), ("seed", seed),
+                              ("first_frame", first_frame), ("last_frame", last_frame)) if v is not None}
+    call = current_call.get()
+    try:
+        entry, req, _warnings = videos.check(args, first=bool(first_frame), last=bool(last_frame))
+        est = await videos.estimate(req, first=bool(first_frame), frames=int(bool(first_frame)) + int(bool(last_frame)))
+        refusal = _video_limit(est, max_cost_usd, mcp_limit(server_ctx.settings), req)
+        if refusal:
+            return refusal
+        row = await videos.start(args, source=(call.source if call else "mcp"), links=(call.links if call else None) or None,
+                                 call_id=call.call_id if call else None)
+    except VideoError as e:
+        return {"error": str(e), "status": "failed", **e.detail}
+    if row["status"] == "error":
+        return {"error": row.get("error"), "status": "failed", "error_kind": row.get("error_kind"),
+                "generation_id": row["id"], "charged": (row.get("video") or {}).get("charged")}
+    timeout = None if wait_to_finish.get() else server_ctx.jobs.soft_timeout
+    row = await videos.wait(row["id"], timeout)
+    return await videos.result(row["id"])
+
+
+def _video_limit(est: dict[str, Any], allowed: Optional[float], limit: Optional[float], req: Any) -> Optional[dict[str, Any]]:
+    """Why a video is not sent from MCP (or ``None``): over the per-video
+    limit, or not computable up front without the caller's ``max_cost_usd``.
+    The sandbox checks its listed price (what a real daemon would charge)."""
+    priced = est.get("listed") if est.get("basis") == "sandbox" and isinstance(est.get("listed"), dict) else est
+    usd, low, high = priced.get("usd"), priced.get("low"), priced.get("high")
+    top = usd if usd is not None else high
+    cap = allowed if allowed is not None else limit
+    what = f"{req.model}, {req.duration} s{', ' + req.resolution if req.resolution else ''}"
+    if top is None:
+        if allowed is not None:
+            return None  # the caller named an amount for a price nobody can compute up front
+        why = {"per_token": "it is priced per token and how many tokens a second takes is not published",
+               "unknown_sku": "its listed pricing has a form this version does not read",
+               "no_price": "OpenRouter lists no price for it"}.get(priced.get("basis") or "", "its price cannot be computed up front")
+        return {"status": "refused", "reason": "price_unknown", "estimate_usd": None, "limit_usd": cap,
+                "error": f"Not sent: the cost of this video ({what}) is not known up front — {why}.",
+                "message": (f"Not sent: the cost of this video ({what}) is not known up front — {why}. To send it anyway, "
+                            "call generate_video again with max_cost_usd set to the most you accept (the real cost is "
+                            "recorded afterwards), or pick a model priced per second."),
+                "estimate": est}
+    if cap is not None and top > cap + 1e-9:
+        amount = f"about ${usd:.4g}" if usd is not None else f"about ${low:.4g}–${high:.4g}"
+        need = math.ceil(top * 100 - 1e-6) / 100  # to the cent, rounded up
+        hint = (f"call generate_video again with max_cost_usd={need:g} (or more)" if allowed is None
+                else f"raise max_cost_usd to at least {need:g}")
+        return {"status": "refused", "reason": "over_limit", "estimate_usd": usd, "estimate_low": low, "estimate_high": high,
+                "limit_usd": cap,
+                "error": f"Not sent: this video ({what}) is estimated at {amount}, above the limit of ${cap:g}.",
+                "message": (f"Not sent: this video ({what}) is estimated at {amount}, above the per-video limit of ${cap:g}. "
+                            f"To send it, {hint}; or choose a shorter duration / lower resolution."),
+                "estimate": est}
+    return None
+
+
+@mcp.tool(
     title="List Available Models",
     description=(
-        "List every model OmniAPI can call, across all modalities (text, image, "
-        "transcription, speech, music), with provider, online status, pricing, "
+        "List every model OmniAPI can call, across all modalities "
+        f"({', '.join(CATALOG_MODALITIES)}), with provider, online status, pricing, "
         "deprecation/shutdown info and the tier aliases (cheap/standard/strong). "
         "Rosters are live: providers are asked what is online at startup. "
+        "A model on an Artificial Analysis leaderboard of its modality also carries "
+        "'rank' (its best rank there, lower is more popular; a snapshot shipped with "
+        "the release), 'popularity' and 'rank_badge'. "
         "Filter with modality='text' etc."
     ),
 )
@@ -2039,8 +2225,8 @@ async def list_available_models(
     modality: Optional[str] = Field(
         default=None,
         description=(
-            "Restrict to one modality: text | image | transcription | speech | "
-            "music. Omit for everything."
+            f"Restrict to one modality: {' | '.join(CATALOG_MODALITIES)}. "
+            "Omit for everything."
         ),
     ),
     include_retired: bool = Field(

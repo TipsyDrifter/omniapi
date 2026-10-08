@@ -10,16 +10,28 @@
 # config right after installing (Protect-Install), so even a shell started without the variable
 # (e.g. relaunched by an installer) stays on 7829.
 
+# 1.4: OMNIAPI_M6_IDENTITY = test (default) | released picks which build is tested. The TEST build
+# (package.ps1 -TestIdentity: OmniAPI-Test.exe, its own identifier, uninstall entry, logon value,
+# install folder) shares nothing with an installed OmniAPI, so it can be tested while the released
+# app runs on this machine. The released identity is refused while any OmniAPI.exe runs.
+# Every test config also points the works folder (STORAGE__BASE_PATH), the logon value
+# (OMNIAPI_DESKTOP_RUN_VALUE) and the Claude config (OMNIAPI_CLAUDE_CONFIG) into the test folder:
+# an installed service otherwise puts works in Documents\OmniAPI.
+#
 # OMNIAPI_M6_DIR / OMNIAPI_M6_PORT move the test folder and port (e.g. a release check next to an
-# earlier run); the folder must stay under %TEMP%, the port in 7800-7899 and never 7788.
+# earlier run); the folder must stay under %TEMP%, the port in 7800-7949 and never 7788.
 $Script:M6 = if ($env:OMNIAPI_M6_DIR) { $env:OMNIAPI_M6_DIR } else { Join-Path $env:TEMP 'omniapi-proto\m6' }
 $Script:TestPort = if ($env:OMNIAPI_M6_PORT) { [int]$env:OMNIAPI_M6_PORT } else { 7829 }
 $Script:OwnerPort = 7788
-if ($TestPort -eq $OwnerPort -or $TestPort -lt 7800 -or $TestPort -gt 7899) { throw "test port $TestPort is not allowed (7800-7899, never 7788)" }
+if ($TestPort -eq $OwnerPort -or $TestPort -lt 7800 -or $TestPort -gt 7949) { throw "test port $TestPort is not allowed (7800-7949, never 7788)" }
+$Script:Identity = if ($env:OMNIAPI_M6_IDENTITY) { $env:OMNIAPI_M6_IDENTITY } else { 'test' }
+if ($Identity -notin 'test', 'released') { throw "OMNIAPI_M6_IDENTITY must be test or released" }
+$Script:AppName = if ($Identity -eq 'test') { 'OmniAPI-Test' } else { 'OmniAPI' }
+$Script:ExeName = "$AppName.exe"
 if (-not ([IO.Path]::GetFullPath($M6)).StartsWith([IO.Path]::GetFullPath($env:TEMP), [StringComparison]::OrdinalIgnoreCase)) { throw "test folder $M6 is not under %TEMP%" }
 $Script:DesktopDir = Split-Path -Parent $PSScriptRoot
 $Script:RepoDir = Split-Path -Parent $DesktopDir
-$Script:UninstKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OmniAPI'
+$Script:UninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
 $Script:RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $Script:SystemPath = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\Wbem;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
 New-Item -ItemType Directory -Force $M6 | Out-Null
@@ -50,7 +62,8 @@ function New-Home([string]$Name) {
 
 # Test config: program/gui from the exe's own folder ({exe_dir}), port 7829, the given home.
 function New-TestConfig([string]$Name, [string]$HomeDir, [hashtable]$ExtraEnv = @{}, [hashtable]$Update = $null) {
-    $envMap = [ordered]@{ OMNIAPI_HOME = $HomeDir; OMNIAPI_DEV = '1'; OMNIAPI_OFFLINE = '1'; OMNIAPI_GUI_DIST = '{exe_dir}\gui' }
+    $envMap = [ordered]@{ OMNIAPI_HOME = $HomeDir; OMNIAPI_DEV = '1'; OMNIAPI_OFFLINE = '1'; OMNIAPI_GUI_DIST = '{exe_dir}\gui'
+        STORAGE__BASE_PATH = (Join-Path $HomeDir 'works'); OMNIAPI_DESKTOP_RUN_VALUE = $AppName; OMNIAPI_CLAUDE_CONFIG = (Join-Path $HomeDir 'claude.json') }
     foreach ($k in $ExtraEnv.Keys) { $envMap[$k] = $ExtraEnv[$k] }
     $u = if ($Update) { $Update } else { @{ enabled = $false } }
     $cfg = [ordered]@{
@@ -80,10 +93,13 @@ function Assert-TestConfig {
     $e = $c.service.env
     if (-not $e.OMNIAPI_HOME -or -not ([string]$e.OMNIAPI_HOME).StartsWith($env:TEMP, [StringComparison]::OrdinalIgnoreCase)) { throw "test config has no OMNIAPI_HOME under %TEMP%; refusing" }
     if ($e.OMNIAPI_DEV -ne '1' -or $e.OMNIAPI_OFFLINE -ne '1') { throw "test config must set OMNIAPI_DEV=1 and OMNIAPI_OFFLINE=1; refusing" }
+    if (-not $e.STORAGE__BASE_PATH -or -not ([string]$e.STORAGE__BASE_PATH).StartsWith($env:TEMP, [StringComparison]::OrdinalIgnoreCase)) { throw "test config has no works folder (STORAGE__BASE_PATH) under %TEMP%; refusing (it would be Documents\OmniAPI)" }
+    if ($e.OMNIAPI_DESKTOP_RUN_VALUE -ne $AppName) { throw "test config must name the logon value $AppName; refusing" }
 }
 
-function Get-ShellProcs { @(Get-CimInstance Win32_Process -Filter "Name='OmniAPI.exe' OR Name='omniapi-desktop.exe'" -Property ProcessId, ExecutablePath, CommandLine) }
+function Get-ShellProcs { @(Get-CimInstance Win32_Process -Filter "Name='$ExeName' OR Name='omniapi-desktop.exe'" -Property ProcessId, ExecutablePath, CommandLine) }
 function Assert-NoForeignShell {
+    if ($Identity -eq 'released' -and @(Get-CimInstance Win32_Process -Filter "Name='OmniAPI.exe'").Count) { throw "the released app runs on this machine; only the test build (OMNIAPI_M6_IDENTITY=test) may be tested here. Refusing." }
     $foreign = @(Get-ShellProcs | Where-Object { -not ([string]$_.ExecutablePath).StartsWith($M6, [StringComparison]::OrdinalIgnoreCase) })
     if ($foreign.Count) { throw "an OmniAPI shell runs outside the test folders ($($foreign[0].ExecutablePath)); a test launch would be handed to it. Refusing." }
 }
@@ -103,6 +119,7 @@ function Start-TestShell([string]$Exe, [string[]]$ShellArgs = @('--background'),
     Assert-TestConfig
     Assert-NoForeignShell
     if (-not ([string]$Exe).StartsWith($M6, [StringComparison]::OrdinalIgnoreCase)) { throw "not a test install: $Exe" }
+    if ([IO.Path]::GetFileName($Exe) -ne $ExeName) { throw "not the $Identity build's exe ($ExeName): $Exe" }
     $saved = $env:PATH
     try {
         if ($CleanPath) { $env:PATH = $SystemPath }
@@ -149,7 +166,7 @@ function Install-Setup([string]$Setup, [string]$Dir) {
 function Uninstall-Dir([string]$Dir) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $u = Start-Process (Join-Path $Dir 'uninstall.exe') -ArgumentList '/S' -PassThru -Wait
-    [void](Wait-Until { -not (Test-Path -LiteralPath (Join-Path $Dir 'OmniAPI.exe')) } 60)
+    [void](Wait-Until { -not (Test-Path -LiteralPath (Join-Path $Dir $ExeName)) } 60)
     [void](Wait-Until { -not (Test-Path -LiteralPath $Dir) } 15)
     "exit {0} in {1:N1}s" -f $u.ExitCode, $sw.Elapsed.TotalSeconds
 }

@@ -46,7 +46,9 @@
 | `vocal_gender` | Suno custom | `m` / `f` |
 | `negative_tags` | Suno | 排除的曲風，如 `'heavy metal, distortion'` |
 
-回傳：`audio_path`、`audio_url`、`provider`、`model`、`title`、`duration`、`bytes`，**Suno 另回 `audio_id`（+`audio_ids`）供串接**。存 `storage/music/<date>/`。
+回傳：`audio_path`、`audio_url`、`provider`、`model`、`title`、`duration`、`bytes`，**Suno 另回 `audio_id` 供串接**。存 `storage/music/<date>/`。
+
+**Suno 一次給兩首**（generate／extend／cover／upload_extend／add_instrumental／add_vocals 都是）：兩首都存、都進作品庫。頂層欄位＝第一首（跟以前一樣）；`tracks` 列出每一首 `{audio_path, audio_id, title, duration, bytes}`（第一首也在裡面），`track_count` 是首數；第二首檔名是第一首加 `_2`。要延長／轉 WAV／做 MV 哪一首，就帶那一首的 `audio_id`（`task_id` 兩首共用）。某一首下載失敗時，那一筆只有 `audio_id`＋`error`，不影響另一首。費用是整次生成的總額，作品庫裡兩首平分。`settings.json` 設 `"music": {"suno_all_tracks": false}` 可改回只收第一首。
 
 ## 2️⃣ `edit_music(action)` — Suno 音訊變形
 
@@ -107,7 +109,7 @@ generate_music ──► audio_id + task_id
 
 ## 7️⃣ 定價
 
-- **Suno via kie.ai**：credits 制，每 credit 約 **$0.005 USD**；每首扣多少 credits kie.ai 未公開（精確單價登入 kie.ai pricing 頁看）。比官方省 30–70%，watermark-free 商用授權。
+- **Suno via kie.ai**：credits 制，每 credit 約 **$0.005 USD**。實測（V6_MINI）每次工作扣：生成／延長／翻唱／加伴奏／加人聲 12（一次兩首，約 $0.06）、寫詞 0.4、轉 WAV 0.4、音樂影片 2；kie.ai 自己沒公布單價。比官方省 30–70%，watermark-free 商用授權。
 - **ElevenLabs Music**：**$0.15/分鐘**（API），需 Starter 以上付費方案。
 
 ## 8️⃣ 雷區（實測血淚）

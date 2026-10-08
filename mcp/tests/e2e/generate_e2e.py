@@ -54,8 +54,13 @@ async def main() -> None:
         check("the daemon is an offline dev sandbox", st["offline"] and st["dev"], st)
 
         opts = (await http.get("/api/generate/options")).json()
-        check("options list the four kinds", set(opts["kinds"]) == {"image", "speech", "music", "transcript"}, list(opts["kinds"]))
-        check("every model is usable in the sandbox", all(m["available"] for k in opts["kinds"].values() for m in k["models"]))
+        check("options list the five kinds", set(opts["kinds"]) == {"image", "speech", "music", "transcript", "video"}, list(opts["kinds"]))
+        # 1.4-M3: a closed video model (Sora) stays on the list unusable (1.4-M5: Gemini Omni is connected, direct)
+        closed = {(k, m["id"]) for k, v in opts["kinds"].items() for m in v["models"]
+                  if k == "video" and (m.get("unavailable") or {}).get("reason") in ("retired", "not_implemented")}
+        check("every model is usable in the sandbox (but a closed video model)",
+              all(m["available"] for k, v in opts["kinds"].items() for m in v["models"] if (k, m["id"]) not in closed)
+              and closed == {("video", "openai/sora-2-pro")}, closed)
         check("speech options carry voices for three providers", set(opts["kinds"]["speech"]["voices"]) == {"openai", "google", "elevenlabs"})
         check("openai lists 13 voices", len(opts["kinds"]["speech"]["voices"]["openai"]["voices"]) == 13)
 
@@ -119,6 +124,15 @@ async def main() -> None:
         check("the status counts the live job", (await http.get("/api/status")).json()["live_generations"] >= 1)
         music = await finished(music["id"])
         check("the music job finished", music["status"] == "done" and music["artifacts"][0]["kind"] == "music", music)
+        # a Suno job makes two songs: both land as works, the second hangs under the first
+        songs = music["artifacts"]
+        check("a Suno job keeps both songs", len(songs) == 2 and all(a["kind"] == "music" for a in songs), [a.get("file_path") for a in songs])
+        check("the second song is linked to the first", songs[1]["parent_id"] == songs[0]["id"], songs[1].get("parent_id"))
+        detail = (await http.get(f"/api/artifacts/{songs[0]['id']}")).json()
+        check("the first song lists the second as made with it", [c["id"] for c in detail.get("children") or []] == [songs[1]["id"]], detail.get("children"))
+        wall = (await http.get("/api/artifacts", params={"kind": "music", "limit": 10})).json()
+        wall_ids = {a["id"] for a in wall.get("items") or wall.get("artifacts") or []}
+        check("both songs are on the works wall", {a["id"] for a in songs} <= wall_ids, sorted(wall_ids))
 
         doomed = await start({"kind": "music", "params": {"prompt": "to be cancelled"}})
         cancelled = (await http.post(f"/api/generations/{doomed['id']}/cancel")).json()
@@ -132,7 +146,7 @@ async def main() -> None:
             check(label, r.status_code == code, f"{r.status_code} {r.text[:200]}")
 
         await refused("a path argument is refused", {"kind": "image", "params": {"prompt": "x", "image_path": "C:/Windows/win.ini"}}, 400)
-        await refused("an unknown kind is refused", {"kind": "video", "params": {"prompt": "x"}}, 400)
+        await refused("an unknown kind is refused", {"kind": "hologram", "params": {"prompt": "x"}}, 400)
         await refused("an empty prompt is refused before a job exists", {"kind": "image", "params": {"prompt": ""}}, 400)
         await refused("a transcript without audio is refused", {"kind": "transcript", "params": {}}, 400)
         await refused("an image cannot be the audio source", {"kind": "transcript", "params": {}, "sources": {"audio": {"artifact_id": first["id"]}}}, 400)

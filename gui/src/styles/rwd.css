@@ -478,7 +478,7 @@ html.sheet-lock { overflow: hidden; }
   /* ---- 生成：一欄；送出列貼在分頁列上方；出件口排在表單之後 ---- */
   .mk { padding-top: 14px; }
   .mk .sechead.mk-head { flex-wrap: wrap; padding-bottom: 0; border-bottom: 0; margin-bottom: 14px; }
-  .mk-tabs { margin: 0; width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .mk-tabs { margin: 0; width: 100%; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
   .mk-tabs button { grid-template-columns: 1fr; grid-template-rows: auto auto; justify-items: center; row-gap: 4px; padding: 8px 4px 7px; }
   .mk-tabs button[aria-selected="true"] { padding: 7.5px 3.5px 6.5px; box-shadow: 2px 2px 0 var(--ink); }
   .mk-tabs button .mk-wg { grid-row: auto; }

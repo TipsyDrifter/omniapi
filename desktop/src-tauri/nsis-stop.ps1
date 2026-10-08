@@ -21,8 +21,8 @@ $me = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
 $spare = @([int]$PID, [int]$me.ParentProcessId)
 function Ours { @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, ExecutablePath, Name | Where-Object { (Under $_.ExecutablePath) -and ($spare -notcontains [int]$_.ProcessId) -and ($_.Name -notlike 'uninstall*') }) }
 
-# 1. the shell
-foreach ($p in (Ours | Where-Object { $_.Name -ieq 'OmniAPI.exe' })) {
+# 1. the shell: OmniAPI.exe, or OmniAPI-Test.exe in the test build (only from this folder either way)
+foreach ($p in (Ours | Where-Object { $_.Name -match '^OmniAPI(-Test)?\.exe$' })) {
     Say "stop shell pid $($p.ProcessId)"
     Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
 }

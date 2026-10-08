@@ -166,6 +166,20 @@ overlay config (`<stage>\tauri.package.json`: `python\`, `gui\`, `omni.cmd`, NSI
 the log in `package.log`. `-SkipPython` / `-SkipGui` reuse the staged parts, `-NoInstaller` stops
 before cargo. First run about 14 minutes, then about 9–12.
 
+**The test build** (`package.ps1 -TestIdentity`, stage `%TEMP%\omniapi-proto\m6-test`, its own cargo target
+folder): `OmniAPI-Test_<version>_x64-setup.exe` installs `OmniAPI-Test.exe` with nothing in common with the
+released app — Tauri identifier `com.kosa.omniapi.test` (single-instance mutex, `%APPDATA%` / WebView2 folders),
+product, exe, install folder, Start menu entry and uninstall key `OmniAPI-Test` (the installer's "stop the
+running app" looks for `OmniAPI-Test.exe` only), logon value `Run\OmniAPI-Test`, default port 7939 (a config
+naming 7788 is refused), default data home `%USERPROFILE%\.omniapi-test` (`.omniapi` is refused), no
+new-version check; it ships `config\shell.test.json` (offline, works under its data home, a stand-in Claude
+config, `OMNIAPI_DESKTOP_RUN_VALUE=OmniAPI-Test`) and `config\omni.test.cmd` (the same defaults for the command
+line; `omni autostart install/remove` refused). The differences live in `src-tauri/src/identity.rs` (cargo
+feature `test-identity`) and the overlay config; the released values are unchanged. After every build
+`scripts/check-identity.ps1` reads the exe's bytes, Tauri's generated `installer.nsi` and the shipped config and
+`omni.cmd`, and the build fails unless they are the identity asked for. Use the test build to test installers
+on a machine where the released app runs; `m6-install-test.ps1` defaults to it.
+
 Installed (per user, no admin, `%LOCALAPPDATA%\OmniAPI` by default): `OmniAPI.exe`, `shell.config.json`,
 `nsis-stop.ps1`, `uninstall.exe`, `python\`, `gui\`, and `omni.cmd` — the command line for people who
 want it (`"<install>\omni.cmd" status`, `works`, `chat`…; not on PATH). It runs
@@ -222,8 +236,9 @@ Order (from a clean checkout of the tagged commit; nothing here pushes anything 
 5. `cd mcp && uv run python ../scripts/build_release.py --desktop-installer <stage>\installers\OmniAPI_<version>_x64-setup.exe`
    → `dist/` with the five files (it checks the installer's file name carries the same version).
 6. Install check: unzip `dist/omniapi-v<version>.zip` to a temp folder, `uv sync` there, start an offline
-   sandbox on another port and run `scripts/verify_install.py`; install the setup.exe into a temp folder with
-   `desktop/scripts/m6-install-test.ps1` (it never touches 7788).
+   sandbox on another port and run `scripts/verify_install.py`; build the same commit with `-TestIdentity` and
+   install that one into a temp folder with `desktop/scripts/m6-install-test.ps1` (it never touches 7788; the
+   released installer is never run on a machine where the released app is installed).
 7. `bash scripts/mirror-publish.sh --tag v<version> --dry-run` — the four safety nets must pass.
 8. `bash scripts/mirror-publish.sh --tag v<version> --release --notes scripts/release-notes/v<version>.md`
    pushes the public mirror and creates its Release with the five files.
@@ -240,7 +255,7 @@ and check that the service on 7788 kept its pid.
 | `scripts/autostart-test.ps1` | logon entry on/off, `omni autostart status`, the old-launcher warning (faked APPDATA); restores the registry |
 | `scripts/screens-test.ps1` | screenshots of the starting page and the dashboard |
 | `scripts/install-test.ps1` | (shell-only installer) silent install to a temp folder, run, update over a running copy, uninstall, clean up |
-| `scripts/m6-install-test.ps1` | (the real installer; port **7829**, or `OMNIAPI_M6_PORT` 7800–7899; folder `%TEMP%\omniapi-proto\m6`, or `OMNIAPI_M6_DIR` under `%TEMP%`; guard in `m6-common.ps1`, which also overwrites each test install's `shell.config.json` with the test config) install, first / second start with PATH = Windows folders only, layout, `omni.cmd`, settings across a restart, the e2e scripts, update over the running copy and back, Defender, uninstall while running, a path with a space and CJK characters |
+| `scripts/m6-install-test.ps1` | (the real installer, by default the test build: `OMNIAPI_M6_IDENTITY=test`; `released` is refused while any `OmniAPI.exe` runs; port **7829**, or `OMNIAPI_M6_PORT` 7800–7949; folder `%TEMP%\omniapi-proto\m6`, or `OMNIAPI_M6_DIR` under `%TEMP%`; guard in `m6-common.ps1`, which also overwrites each test install's `shell.config.json` with the test config) install, first / second start with PATH = Windows folders only, layout, `omni.cmd`, settings across a restart, the e2e scripts, update over the running copy and back, Defender, uninstall while running, a path with a space and CJK characters |
 | `scripts/m6-update-check-test.ps1` | the daily new-version check against a local stand-in for the release API |
 
 The lifecycle scripts run the service from the main checkout's `mcp/.venv` (found through git, or

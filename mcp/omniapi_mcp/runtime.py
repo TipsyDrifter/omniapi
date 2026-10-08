@@ -70,6 +70,8 @@ class ServerContext:
     runs: RunManager
     chat: Optional[ChatManager] = None  # optional so older test doubles still construct
     generations: Optional[GenerationManager] = None
+    #: 1.4-M3: video jobs (sent, waited on across restarts, collected)
+    videos: Optional[Any] = None
     started_at: float = field(default_factory=time.time)
     pid: int = field(default_factory=os.getpid)
     mode: str = "stdio"  # "stdio" | "daemon"
@@ -102,6 +104,7 @@ class Runtime:
             cache_manager=cache_manager,
             settings=settings,
             openai_client=image_generation_tool.get_openai_provider(),
+            generation_tool=image_generation_tool,
         )
         return {
             "image_generation_tool": image_generation_tool,
@@ -121,6 +124,9 @@ class Runtime:
         if moved:
             logger.info("Installed layout: works folder defaults to %s", moved)
         catalog.set_tier_overrides(getattr(settings, "tiers", None))
+        catalog.set_direct_providers(settings)  # 1.4-M2: which OpenRouter image models are duplicates
+        for problem in catalog.problems:  # found at import, before logging was set up: say it again here
+            logger.error("catalog.json: %s", problem)
         if offline():
             # a sandbox never writes into the owner's real works folder: its stand-in
             # output goes under the sandbox's own data home (OMNIAPI_HOME)
@@ -145,7 +151,7 @@ class Runtime:
             cache_manager=cache_manager,
             **tools,
             chat=ChatManager(store, bus, tools["text_tool"]),
-            jobs=JobManager(),
+            jobs=JobManager(soft_timeout=_dev_soft_timeout()),
             resource_manager=ImageResourceManager(
                 storage_manager=storage_manager, settings=settings.storage
             ),
@@ -169,11 +175,23 @@ class Runtime:
 
         ctx.jobs.on_late_result = _index_late
 
-        # GUI generation jobs (v1.1): whatever was still generating died with the last process
+        # GUI generation jobs (v1.1): whatever was still generating died with the last process —
+        # except a video the vendor took (1.4-M3): that one is waited on again, below
         ctx.generations = GenerationManager(store, bus)
         stale = await store.interrupt_running_generations()
         if stale:
             logger.info("Generation jobs left running by the previous process marked interrupted: %s", stale)
+        from .video.jobs import VideoJobs
+
+        ctx.videos = VideoJobs(store, bus, lambda: ctx.settings)
+        ctx.generations.videos = ctx.videos
+        try:
+            resumed = await ctx.videos.resume()
+            if resumed:
+                logger.info("Video jobs picked up again after the restart: %s", resumed)
+        except Exception as e:  # pragma: no cover - a video that cannot be resumed now is retried by the sweeper
+            logger.warning("Video jobs could not be resumed at startup: %s", e)
+        ctx.videos.start_sweeper()
         # chat proposals (1.2-M4) start generation jobs; those left generating settle now
         try:
             await ctx.chat.attach(ctx.generations, ctx)
@@ -253,6 +271,7 @@ class Runtime:
             ctx.runs.settings = settings
             ctx.runs.registry.settings = settings
             catalog.set_tier_overrides(settings.tiers)
+            catalog.set_direct_providers(settings)
             self._retired.extend(retired)
             logger.info("Settings applied without restart (providers changed: %s)", ", ".join(changed) or "none")
             return changed
@@ -364,6 +383,12 @@ class Runtime:
                 await ctx.generations.close()
         except Exception:
             pass
+        try:
+            # video watchers stop; their rows stay waiting and the next start picks them up
+            if ctx.videos is not None:
+                await ctx.videos.close()
+        except Exception:
+            pass
         await asyncio.gather(
             ctx.cache_manager.close(),
             ctx.storage_manager.close(),
@@ -380,6 +405,22 @@ class Runtime:
         self._owner = None
         self._sessions = 0
         logger.info("Runtime shutdown complete")
+
+
+def _dev_soft_timeout() -> float:
+    """How long a tool call waits before it hands back a ticket: 45 s, or
+    ``OMNIAPI_JOB_SOFT_TIMEOUT`` in a development daemon (to try tickets —
+    e.g. a video's — without waiting 45 s)."""
+    from .devmode import dev_enabled
+
+    if dev_enabled():
+        try:
+            v = float(os.environ.get("OMNIAPI_JOB_SOFT_TIMEOUT", "") or 0)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return 45.0
 
 
 def _changed_providers(old: Settings, new: Settings) -> list[str]:

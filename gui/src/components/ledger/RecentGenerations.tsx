@@ -8,7 +8,8 @@ import { dt, usd } from "@/lib/format";
 import { useBoard } from "@/store/board";
 import { GEN_TOOLS, TOOL_ZH } from "@/components/works/wall";
 
-const STATUS_ZH: Record<string, string> = { ok: "完成", error: "失敗", running: "進行中", cancelled: "中止" };
+/** unsettled＝影片送出了但沒收回來（不等了、接不回）：供應商多半照樣收費，實際多少不知道 */
+const STATUS_ZH: Record<string, string> = { ok: "完成", error: "失敗", running: "進行中", cancelled: "中止", unsettled: "費用不明" };
 
 export default function RecentGenerations() {
   const costs = useBoard((s) => s.costs);
@@ -35,7 +36,7 @@ export default function RecentGenerations() {
         <h3>最近的生成</h3>
         <span className="src">calls · 最近 {rows?.length ?? 20} 筆</span>
       </div>
-      <div className="def">生圖、語音、音樂、轉錄的每一次呼叫；有作品的那列點了會跳到作品牆</div>
+      <div className="def">生圖、語音、音樂、轉錄、影片的每一次呼叫；有作品的那列點了會跳到作品牆。影片送出了卻沒收回來的，記「費用不明」（供應商多半照樣收費，看 OpenRouter 的帳單）</div>
       {err ? (
         <div className="warn">
           <b>讀不到呼叫紀錄</b>：{err}
@@ -53,7 +54,7 @@ export default function RecentGenerations() {
                 <span className="n rg-t">{dt(c.ts)}</span>
                 <span className="rg-tool">{TOOL_ZH[c.tool] ?? c.tool}</span>
                 <span className="code rg-m">{c.model ?? "—"}</span>
-                <span className="n rg-c">{c.cost_usd != null ? usd(c.cost_usd) : <span className="nil">未回報</span>}</span>
+                <span className="n rg-c">{c.cost_usd != null ? usd(c.cost_usd) : <span className="nil">{c.status === "unsettled" ? "費用不明" : c.status === "running" ? "還在等" : "未回報"}</span>}</span>
                 <span className={`rg-s${c.status === "ok" ? "" : " bad"}`}>{STATUS_ZH[c.status] ?? c.status}</span>
                 <span className="rg-go">{ids.length ? (ids.length > 1 ? `共 ${ids.length} 件 →` : "作品 →") : "沒有作品"}</span>
               </>
@@ -65,7 +66,7 @@ export default function RecentGenerations() {
                     {body}
                   </Link>
                 ) : (
-                  <div className="rg-row off" title={c.error ?? "這筆呼叫沒有留下作品"}>
+                  <div className={`rg-row off${c.status === "unsettled" ? " unsettled" : ""}`} title={c.status === "unsettled" ? "送出了但沒收回來：供應商多半照樣收費，實際多少不知道" : c.error ?? "這筆呼叫沒有留下作品"}>
                     {body}
                   </div>
                 )}

@@ -26,6 +26,7 @@ class ImageEditingTool:
         cache_manager: CacheManager,
         settings: Settings,
         openai_client=None,
+        generation_tool=None,
     ):
         """
         Args:
@@ -33,10 +34,13 @@ class ImageEditingTool:
             cache_manager: CacheManager instance.
             settings: Settings instance (must have .providers, .images, etc.).
             openai_client: Optional OpenAI client manager.
+            generation_tool: the ``ImageGenerationTool`` whose provider registry
+                routes every other model (OpenRouter's, 1.4-M2).
         """
         self.settings = settings
         self.storage_manager = storage_manager
         self.cache_manager = cache_manager
+        self._generation_tool = generation_tool
         # Edits route by model: gpt-image-* → OpenAI, Nano Banana → Gemini.
         # No hard validation here: like the other capability tools, an
         # unconfigured provider degrades gracefully (stays None and edit()
@@ -89,11 +93,29 @@ class ImageEditingTool:
             return None
 
     def _provider_for(self, model: str):
-        """Pick the provider that owns ``model`` (None if unavailable)."""
+        """Pick the provider that owns ``model`` (None if unavailable).
+
+        The two direct vendors keep their own edit clients (behaviour unchanged);
+        any other model goes to whichever provider the image registry routes it
+        to — OpenRouter's image models, by their ``vendor/model`` id. Only a
+        model nobody claims falls back to OpenAI, as before."""
         canonical = GeminiProvider.ALIASES.get(model, model)
         if canonical in GeminiProvider.SUPPORTED_MODELS:
             return self._gemini_provider
+        if model in OpenAIProvider.SUPPORTED_MODELS:
+            return self._provider
+        routed = self._routed(model)
+        if routed is not None:
+            return routed
+        if "/" in model:
+            return None  # a vendor/model id is never OpenAI's: say "no provider" instead of misrouting it
         return self._provider
+
+    def _routed(self, model: str):
+        tool = self._generation_tool
+        if tool is None:
+            return None
+        return tool.provider_registry.get_provider_for_model(model)
 
     async def close(self) -> None:
         for p in (self._provider, self._gemini_provider):
@@ -153,17 +175,24 @@ class ImageEditingTool:
         input_fidelity: Optional[str] = None,
         additional_images: Optional[list[str]] = None,
         user: Optional[str] = None,
+        image_size: Optional[str] = None,
+        aspect_ratio: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Edit an existing image with text instructions."""
+        """Edit an existing image with text instructions. ``image_size`` and
+        ``aspect_ratio`` reach the models that take them (OpenRouter's); the
+        direct vendors ignore them, as before."""
 
         # Apply defaults from settings
         model = model or self.settings.images.default_model
+        if self._generation_tool is not None:
+            await self._generation_tool.ensure_providers_registered()
         provider = self._provider_for(model)
         if provider is None:
             raise RuntimeError(
                 f"No provider is configured for editing with '{model}'. Set "
-                "PROVIDERS__OPENAI__API_KEY for gpt-image-* or "
-                "PROVIDERS__GEMINI__API_KEY for Nano Banana models."
+                "PROVIDERS__OPENAI__API_KEY for gpt-image-*, "
+                "PROVIDERS__GEMINI__API_KEY for Nano Banana models or "
+                "PROVIDERS__OPENROUTER__API_KEY for OpenRouter's image models (vendor/model ids)."
             )
         quality = quality or self.settings.images.default_quality
         size = size or self.settings.images.default_size
@@ -216,6 +245,9 @@ class ImageEditingTool:
             "input_fidelity": input_fidelity,
             "additional_images": additional_images,
         }
+        # only when set: the cache keys of the direct vendors' edits stay what they were
+        extras = {k: v for k, v in (("image_size", image_size), ("aspect_ratio", aspect_ratio)) if v}
+        cache_params.update(extras)
 
         cached_result = await self.cache_manager.get_image_edit(**cache_params)
         if cached_result:
@@ -238,15 +270,24 @@ class ImageEditingTool:
                 input_fidelity=input_fidelity,
                 additional_images=additional_images,
                 user=user,
+                **extras,
             )
 
             # Provider returns a normalized ImageResponse (raw image bytes).
             image_bytes = response.image_data
+            # the format it came back in, when the provider says (OpenRouter's models pick their own)
+            output_format = (response.metadata or {}).get("file_format") or output_format
 
-            # Estimate cost (quality/size-aware for gpt-image-2)
-            cost_info = provider.estimate_cost(
-                model, prompt, 1, quality=quality, size=size
-            )
+            # What it cost: the provider's own report when it gives one (OpenRouter's
+            # usage.cost), else the estimate (quality/size-aware for gpt-image-2)
+            actual = (response.metadata or {}).get("cost_usd")
+            if isinstance(actual, (int, float)):
+                cost_info = {"provider": getattr(provider, "name", None), "model": model,
+                             "estimated_cost_usd": float(actual), "currency": "USD", "actual": True}
+            else:
+                cost_info = provider.estimate_cost(
+                    model, prompt, 1, quality=quality, size=size
+                )
 
             # Prepare metadata
             metadata = {
@@ -262,6 +303,7 @@ class ImageEditingTool:
                     "compression": compression,
                     "background": background,
                     "input_fidelity": input_fidelity,
+                    **extras,
                 },
                 "cost_info": cost_info,
                 "provider_metadata": response.metadata,
@@ -284,6 +326,7 @@ class ImageEditingTool:
                 "operation": "edit",
                 "metadata": {
                     "model": model,
+                    **({"provider": "openrouter", **extras} if (response.metadata or {}).get("provider") == "openrouter" else {}),
                     "size": size,
                     "quality": quality,
                     "output_format": output_format,

@@ -32,6 +32,13 @@
 .mk-wg.k-music { background: radial-gradient(var(--ink-45) 1px, transparent 1.3px) 0 0 / 4px 4px, var(--paper); }
 .mk-wg.k-lyrics { border: 3.5px double var(--ink); }
 .mk-wg.k-transcript { border-style: dashed; }
+/* 1.4-M3：影片章「影」＝上下粗墨框（片條）；照 prototypes/video-design/video.css */
+.mk-wg.k-video { border-width: 4px 1.5px; padding-top: 1px; }
+.mk-wg.k-video.sm { border-width: 3px 1.5px; font-size: 11px; }
+.mk-wg.k-video.lg { border-width: 6px 2px; }
+/* 影片的保底呈現（正式的影片卡、播放器在下一個里程碑）：瀏覽器自己的播放器、整寬 */
+.mk-vid, .wk-vid { display: block; width: 100%; max-width: 100%; background: var(--ink); }
+.wk-vid { height: 100%; object-fit: contain; }
 .mk-wg.sm { width: 19px; height: 19px; font-size: 12px; }
 .mk-wg.lg { width: 34px; height: 34px; font-size: var(--fs-lead); border-width: 2px; }
 
@@ -155,6 +162,13 @@
 .mk-pick button:disabled { border: 1.5px dashed var(--ink-45); background: repeating-linear-gradient(135deg, var(--ink-25) 0 1px, transparent 1px 7px); cursor: not-allowed; }
 .mk-pick button:disabled img { display: none; }
 .mk-more { margin-top: 8px; }
+/* 其他參考圖（收多張參考圖的模型）：來源圖底下一排小格，語彙同來源格 */
+.mk-refs { margin-top: 12px; border-top: 1px dashed var(--ink-25); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.mk-refs-hd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.mk-refs-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-ref { position: relative; margin: 0; width: 72px; height: 72px; border: 2px solid var(--ink); background: var(--paper-deep); }
+.mk-ref img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mk-ref button { position: absolute; top: -10px; right: -10px; padding: 0 6px; line-height: 1.4; background: var(--paper); }
 
 /* 從作品挑歌詞（歌詞框下方一排） */
 .mk-pickfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--ink-25); font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-70); }

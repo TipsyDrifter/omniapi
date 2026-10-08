@@ -1,0 +1,55 @@
+{
+ "request": {
+  "model": "ai-music-api/create-music-video",
+  "input": {
+   "task_id": "task1",
+   "audio_id": "song-1",
+   "author": "OmniAPI probe"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task9",
+   "model": "ai-music-api/create-music-video",
+   "state": "waiting",
+   "param": "{\"input\": \"{\\\"author\\\": \\\"OmniAPI probe\\\", \\\"task_id\\\": \\\"task1\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/create-music-video\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277708255,
+   "creditsConsumed": 2.0,
+   "operationType": "ai-music-api/create-music-video",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"author\\\": \\\"OmniAPI probe\\\", \\\"task_id\\\": \\\"task1\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/create-music-video\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task9",
+   "model": "ai-music-api/create-music-video",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"author\\\": \\\"OmniAPI probe\\\", \\\"task_id\\\": \\\"task1\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/create-music-video\"}",
+   "resultJson": "{\"resultUrls\": [\"https://files.kie.test/r/task9.mp4\"]}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 73,
+   "completeTime": 1791277781174,
+   "createTime": 1791277708255,
+   "creditsConsumed": 2.0,
+   "operationType": "ai-music-api/create-music-video",
+   "response": {
+    "resultUrls": [
+     "https://files.kie.test/r/task9.mp4"
+    ]
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"author\\\": \\\"OmniAPI probe\\\", \\\"task_id\\\": \\\"task1\\\", \\\"audio_id\\\": \\\"song-1\\\"}\", \"model\": \"ai-music-api/create-music-video\"}"
+  }
+ },
+ "polls": 9
+}

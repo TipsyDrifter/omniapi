@@ -43,6 +43,15 @@ GPT_IMAGE_TOKEN_PRICING: dict[str, dict[str, Any]] = {
         "image_output_per_1m_tokens": 32.0,
         "tokens_per_image": 1750,
     },
+    # gpt-image-1-mini: text input $2.00, image output $8.00 per 1M tokens
+    # (OpenAI pricing page, 2026-10-05; image input is $2.50); the
+    # per-image token count is gpt-image-1's (same request shape). Without an
+    # entry here its calls were booked at $0.
+    "gpt-image-1-mini": {
+        "text_input_per_1m_tokens": 2.0,
+        "image_output_per_1m_tokens": 8.0,
+        "tokens_per_image": 1750,
+    },
     "gpt-image-2": {
         "text_input_per_1m_tokens": 5.0,
         "image_output_per_1m_tokens": 30.0,
@@ -64,7 +73,7 @@ GPT_IMAGE_TOKEN_PRICING: dict[str, dict[str, Any]] = {
 # Models sharing gpt-image-2's flexible-size / 4K request shape.
 GPT_IMAGE_2_FAMILY = {"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"}
 # Deprecated ids still accepted (OpenAI shutdown dates) — warn on use.
-GPT_IMAGE_DEPRECATED = {"gpt-image-1": "2026-10-23"}
+GPT_IMAGE_DEPRECATED = {"gpt-image-1": "2026-10-23", "gpt-image-1.5": "2026-12-01", "gpt-image-1-mini": "2026-12-01"}
 
 
 def _parse_pixels(size: str) -> int | None:

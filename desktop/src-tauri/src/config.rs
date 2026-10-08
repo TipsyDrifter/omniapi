@@ -31,9 +31,10 @@ pub const ENV_VAR: &str = "OMNIAPI_SHELL_CONFIG";
 pub const FILE_NAME: &str = "shell.config.json";
 /// The development default, only in builds made for development: a release exe must not carry
 /// the build machine's checkout path (`{repo}`) nor fall back to a service that is not there.
-#[cfg(any(debug_assertions, feature = "dev-default"))]
+/// The test build (`test-identity`) never has one: the development default manages port 7788.
+#[cfg(all(any(debug_assertions, feature = "dev-default"), not(feature = "test-identity")))]
 pub const BUILT_IN: Option<&str> = Some(include_str!("../../config/shell.dev.json"));
-#[cfg(not(any(debug_assertions, feature = "dev-default")))]
+#[cfg(not(all(any(debug_assertions, feature = "dev-default"), not(feature = "test-identity"))))]
 pub const BUILT_IN: Option<&str> = None;
 /// Start of the error when no config file is found (shown as is, no "設定檔有問題" in front).
 pub const MISSING: &str = "找不到設定檔";
@@ -43,6 +44,9 @@ const DEV_DEFAULT: &str = include_str!("../../config/shell.dev.json");
 /// here only so the tests can check it.
 #[cfg(test)]
 const INSTALLED_DEFAULT: &str = include_str!("../../config/shell.installed.json");
+/// What `package.ps1 -TestIdentity` ships instead (tests only here, too).
+#[cfg(test)]
+const TEST_INSTALLED: &str = include_str!("../../config/shell.test.json");
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,7 +87,7 @@ pub const UPDATE_URL: &str = "https://api.github.com/repos/TipsyDrifter/omniapi/
 
 impl Default for UpdateCheck {
     fn default() -> Self {
-        UpdateCheck { enabled: true, url: UPDATE_URL.into(), interval_hours: 24, retry_hours: 6, delay_secs: 60 }
+        UpdateCheck { enabled: crate::identity::UPDATE_CHECK_DEFAULT, url: UPDATE_URL.into(), interval_hours: 24, retry_hours: 6, delay_secs: 60 }
     }
 }
 
@@ -169,7 +173,7 @@ pub struct ServiceSpec {
 }
 
 fn default_port() -> u16 {
-    7788
+    crate::identity::DEFAULT_PORT
 }
 fn yes() -> bool {
     true
@@ -301,6 +305,9 @@ pub fn parse(text: &str, ctx: &Context) -> Result<ShellConfig, String> {
         ("run_id", ctx.run_id.to_string()),
         ("exe_dir", ctx.exe_dir.clone()),
         ("exe", ctx.exe.clone()),
+        // %USERPROFILE%\.omniapi (released build) or \.omniapi-test (test build): lets a config
+        // name its build's own default data home, e.g. "OMNIAPI_HOME": "{default_home}"
+        ("default_home", crate::identity::default_home(&ctx.user_profile)),
     ];
     if let Some(repo) = &ctx.repo {
         vars.push(("repo", repo.clone()));
@@ -315,7 +322,9 @@ pub fn parse(text: &str, ctx: &Context) -> Result<ShellConfig, String> {
         .cloned()
         .filter(|v| !v.trim().is_empty())
         .or_else(|| ctx.env_home.clone())
-        .unwrap_or_else(|| format!("{}\\.omniapi", ctx.user_profile.trim_end_matches('\\')));
+        .unwrap_or_else(|| crate::identity::default_home(&ctx.user_profile));
+    // a test build refuses the released app's port and data folder (no-op in the released build)
+    crate::identity::check_separate(raw.port, &data_home, &ctx.user_profile)?;
     vars.push(("data_home", data_home.clone()));
     let log_dir = expand(raw.log_dir.as_deref().unwrap_or("{data_home}\\logs"), &vars, "log_dir")?;
     vars.push(("log_dir", log_dir.clone()));
@@ -404,11 +413,39 @@ mod tests {
     #[test]
     fn minimal_config_gets_the_defaults() {
         let c = parse(MINIMAL, &ctx()).unwrap();
-        assert_eq!(c.port, 7788);
+        assert_eq!(c.port, crate::identity::DEFAULT_PORT);
         assert_eq!(c.watch, Watch::default());
         assert!(c.service.enabled);
+        let home = format!(r"C:\Users\u\{}", crate::identity::HOME_DIR);
+        assert_eq!(c.data_home, PathBuf::from(&home));
+        assert_eq!(c.log_dir, PathBuf::from(&home).join("logs"));
+    }
+
+    #[cfg(not(feature = "test-identity"))]
+    #[test]
+    fn released_build_defaults_are_unchanged() {
+        let c = parse(MINIMAL, &ctx()).unwrap();
+        assert_eq!(c.port, 7788);
         assert_eq!(c.data_home, PathBuf::from(r"C:\Users\u\.omniapi"));
-        assert_eq!(c.log_dir, PathBuf::from(r"C:\Users\u\.omniapi\logs"));
+        assert!(c.update_check.enabled);
+        let t = r#"{ "service": { "program": "p.exe", "cwd": "{default_home}" } }"#;
+        assert_eq!(parse(t, &ctx()).unwrap().service.cwd, r"C:\Users\u\.omniapi");
+    }
+
+    #[cfg(feature = "test-identity")]
+    #[test]
+    fn test_build_refuses_the_released_port_and_home() {
+        let c = parse(MINIMAL, &ctx()).unwrap();
+        assert_eq!((c.port, c.data_home.clone()), (7939, PathBuf::from(r"C:\Users\u\.omniapi-test")));
+        assert!(!c.update_check.enabled, "no new-version check by default");
+        let p = r#"{ "port": 7788, "service": { "program": "p.exe", "cwd": "." } }"#;
+        assert!(parse(p, &ctx()).unwrap_err().contains("7788"));
+        let h = r#"{ "service": { "program": "p.exe", "cwd": ".", "env": { "OMNIAPI_HOME": "C:\\Users\\u\\.omniapi" } } }"#;
+        assert!(parse(h, &ctx()).is_err());
+        let mut x = ctx();
+        x.env_home = Some(r"C:\Users\u\.omniapi\".into());
+        assert!(parse(MINIMAL, &x).is_err(), "the shell's own OMNIAPI_HOME pointing at the released home is refused too");
+        assert_eq!(BUILT_IN, None, "no development default (it manages 7788)");
     }
 
     #[test]
@@ -470,6 +507,7 @@ mod tests {
         assert!(parse(t, &ctx()).is_err());
     }
 
+    #[cfg(not(feature = "test-identity"))]
     #[test]
     fn dev_default_runs_the_checkouts_venv() {
         let c = parse(DEV_DEFAULT, &ctx()).unwrap();
@@ -490,6 +528,7 @@ mod tests {
         assert_eq!(real.exe, std::env::current_exe().unwrap().display().to_string());
     }
 
+    #[cfg(not(feature = "test-identity"))]
     #[test]
     fn installed_default_runs_python_from_the_install_folder() {
         // 1.3-M6 ships Python in <install>\python; the service must not run inside the install folder
@@ -506,19 +545,33 @@ mod tests {
     }
 
     #[test]
+    fn test_installed_config_is_separate_from_the_released_one() {
+        // package.ps1 -TestIdentity ships config/shell.test.json next to OmniAPI-Test.exe
+        let c = parse(TEST_INSTALLED, &ctx()).unwrap();
+        assert_eq!(c.port, 7939);
+        assert_eq!(c.data_home, PathBuf::from(crate::identity::default_home(r"C:\Users\u")));
+        assert_eq!(c.service.env["OMNIAPI_HOME"], crate::identity::default_home(r"C:\Users\u"));
+        assert!(!c.update_check.enabled);
+        assert!(c.service.env["STORAGE__BASE_PATH"].ends_with(r"\works"), "works never go to Documents\\OmniAPI");
+        assert_eq!(c.service.env["OMNIAPI_DESKTOP_RUN_VALUE"], "OmniAPI-Test");
+        assert_eq!(c.service.env["OMNIAPI_DEV"], "1");
+        assert_eq!(c.service.env["OMNIAPI_OFFLINE"], "1");
+    }
+
+    #[test]
     fn update_check_defaults_and_overrides() {
         let c = parse(MINIMAL, &ctx()).unwrap();
         assert_eq!(c.update_check, UpdateCheck::default());
-        assert_eq!((c.update_check.interval_hours, c.update_check.enabled), (24, true));
+        assert_eq!((c.update_check.interval_hours, c.update_check.enabled), (24, crate::identity::UPDATE_CHECK_DEFAULT));
         let t = r#"{ "service": { "program": "p.exe", "cwd": "." }, "update_check": { "enabled": false, "url": "http://127.0.0.1:{port}/x" } }"#;
         let c = parse(t, &ctx()).unwrap();
         assert!(!c.update_check.enabled);
-        assert_eq!(c.update_check.url, "http://127.0.0.1:7788/x");
+        assert_eq!(c.update_check.url, format!("http://127.0.0.1:{}/x", crate::identity::DEFAULT_PORT));
         let bad = r#"{ "service": { "program": "p.exe", "cwd": "." }, "update_check": { "enable": false } }"#;
         assert!(parse(bad, &ctx()).is_err());
     }
 
-    #[cfg(any(debug_assertions, feature = "dev-default"))]
+    #[cfg(all(any(debug_assertions, feature = "dev-default"), not(feature = "test-identity")))]
     #[test]
     fn built_in_repo_is_this_checkout() {
         let repo = PathBuf::from(build_repo().expect("a development build knows its checkout"));
@@ -533,6 +586,7 @@ mod tests {
         assert_eq!(build_repo(), None);
     }
 
+    #[cfg(not(feature = "test-identity"))]
     #[test]
     fn repo_placeholder_without_a_checkout_is_an_error() {
         let mut x = ctx();

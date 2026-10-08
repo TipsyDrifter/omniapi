@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { DefaultKind, DesktopUpdate, ModelEntry, ModelsResponse, SettingsProvider, SettingsView, Slot } from "@/api/types";
+import type { DefaultKind, DesktopUpdate, ModelEntry, ModelsResponse, SettingsPatch, SettingsProvider, SettingsView, Slot, VideoSettings } from "@/api/types";
+import { loadOptions } from "@/store/make";
 import { SLOTS } from "@/api/types";
 import { GetKeyHint, KeyInput, KeyMetaLine, TestBox, type KeyInputHandle, type KeyMeta, type TestState } from "@/components/settings/KeyParts";
 import { ModelChooser, ModelLine } from "@/components/settings/ModelBits";
 import ToolsList from "@/components/settings/ToolsList";
-import { allModels, callable, daysLeft, hhmm, indexById, isModality, isSunset, MOD, reasonText, resolveTier, slotOf, slotUsable, TIER_NAMES, usableOf, type Modality } from "@/lib/catalog";
+import { allModels, callable, daysLeft, DEF_LABEL, defLabel, hhmm, indexById, isSunset, knownModalities, MOD, reasonText, resolveTier, slotOf, slotUsable, TIER_NAMES, usableOf, type Modality } from "@/lib/catalog";
+import { GEN_KINDS, GEN_KIND_INFO } from "@/lib/modalities";
 import { useTouch } from "@/lib/rwd";
 import { useSendKey } from "@/lib/sendKey";
 import { THEMES, useTheme } from "@/themes";
@@ -41,14 +43,17 @@ const SECS: [string, string][] = [
   ["s-svc", "服務資訊"],
 ];
 const TIER_NOTE: Record<string, string> = { cheap: "便宜、快。聊天與派工的內建預設", standard: "一般工作", strong: "難的、要想很久的" };
-const DEFS: [DefaultKind, string, Modality, boolean, string][] = [
-  ["chat", "聊天", "text", true, "新聊天一開始用的"],
-  ["dispatch", "派工", "text", true, "派工沒指定模型時"],
-  ["image", "生圖", "image", false, "生成頁、MCP 的生圖"],
-  ["speech", "語音", "speech", false, "文字轉語音"],
-  ["music", "音樂", "music", false, "生成頁、MCP 的音樂"],
-  ["transcript", "轉錄", "transcription", false, "語音轉文字"],
-];
+/** 預設模型的每一列：用哪個模態的模型、能不能選等級別名、一句說明（每一種 DefaultKind 都要有，少了編譯不過） */
+const DEF_ROWS: Record<DefaultKind, [Modality, boolean, string]> = {
+  chat: ["text", true, "新聊天一開始用的"],
+  dispatch: ["text", true, "派工沒指定模型時"],
+  image: [GEN_KIND_INFO.image.modality, false, "生成頁、MCP 的生圖"],
+  speech: [GEN_KIND_INFO.speech.modality, false, "文字轉語音"],
+  music: [GEN_KIND_INFO.music.modality, false, "生成頁、MCP 的音樂"],
+  transcript: [GEN_KIND_INFO.transcript.modality, false, "語音轉文字"],
+  video: [GEN_KIND_INFO.video.modality, false, "生成頁、MCP 的影片"],
+};
+const DEFS: [DefaultKind, string, Modality, boolean, string][] = (["chat", "dispatch", ...GEN_KINDS] as DefaultKind[]).map((k) => [k, DEF_LABEL[k], ...DEF_ROWS[k]]);
 
 /* ---------------- 共用小件 ---------------- */
 export function Segs({ s }: { s: Seg[] | undefined }) {
@@ -399,7 +404,7 @@ function KeysSection(props: { settings: SettingsView; edit: Slot | null; setEdit
           key={slot}
           slot={slot}
           p={settings.providers[slot]}
-          mods={((models?.providers?.[settings.providers[slot].provider]?.modalities as string[] | undefined) ?? []).filter(isModality)}
+          mods={knownModalities(models?.providers?.[settings.providers[slot].provider]?.modalities as string[] | undefined)}
           editing={edit === slot}
           focused={focusSlot === slot}
           onEdit={() => setEdit(slot)}
@@ -806,7 +811,7 @@ function ModelWarn({ value, ctx, target, p }: { value: string | null; ctx: strin
   return <>{out}</>;
 }
 
-const targetLabel = (target: string) => (target.startsWith("d:") ? `預設${({ chat: "聊天", dispatch: "派工", image: "生圖", speech: "語音", music: "音樂", transcript: "轉錄" } as Record<string, string>)[target.slice(2)]}` : target);
+const targetLabel = (target: string) => (target.startsWith("d:") ? `預設${defLabel(target.slice(2))}` : target);
 function choose(target: string, v: string, settings: SettingsView) {
   if (target.startsWith("d:")) {
     const k = target.slice(2) as DefaultKind;
@@ -973,10 +978,146 @@ function DefsSection(p: PickProps) {
               />
             ) : null}
             <ModelWarn value={d.model} ctx={`${zh}預設`} target={target} p={p} />
+            {k === "video" ? (
+              <div className="tr-warn">
+                <div className="warn">
+                  影片按秒計費、一支幾毛到幾塊美金。這裡選的模型也是 <b>Claude Code 叫 generate_video 沒指定模型時</b>用的；MCP 送出前沒有確認單，只靠這裡的預設與下面的單支上限。
+                </div>
+              </div>
+            ) : null}
           </div>
         );
       })}
+      {settings.video ? <VideoSettings v={settings.video} /> : null}
     </section>
+  );
+}
+
+/* ---------------- 影片的三個設定（settings.json 的 video 一節） ---------------- */
+function VideoSettings({ v }: { v: NonNullable<SettingsView["video"]> }) {
+  const saved = useSettings((s) => s.saved);
+  const unlimited = v.mcp_unlimited.value === true;
+  const max = Number(v.mcp_max_usd.value);
+  const wait = Number(v.max_wait_minutes.value);
+  const keep = v.keep_collecting.value === true;
+  const [maxIn, setMaxIn] = useState(String(max));
+  const [waitIn, setWaitIn] = useState(String(wait));
+  useEffect(() => setMaxIn(String(max)), [max]);
+  useEffect(() => setWaitIn(String(wait)), [wait]);
+  const save = async (patch: NonNullable<SettingsPatch["video"]>, what: Seg[], target: string) => {
+    const ok = await saveSettings({ video: patch }, { what, target, sub: ["之後送出的影片照新的設定；已經在等的不受影響"] });
+    if (ok) void loadOptions(true);
+  };
+  const maxNum = Number(maxIn);
+  const maxOk = Number.isFinite(maxNum) && maxNum > 0 && maxNum <= 1000;
+  const waitNum = Number(waitIn);
+  const waitOk = Number.isFinite(waitNum) && waitNum >= 1 && waitNum <= 240;
+  const reset = (k: keyof VideoSettings, zh: string) =>
+    v[k].source === "settings" ? (
+      <button type="button" className="btn soft" onClick={() => void save({ [k]: null }, [`${zh} 還原成內建`], `v:${k}`)}>
+        還原內建
+      </button>
+    ) : null;
+  const stamp = (k: string) => (saved[`v:${k}`] ? <span className="done-stamp solid">已存・已生效 {clock(saved[`v:${k}`])}</span> : null);
+  return (
+    <div className="vd-set" id="s-video">
+      <div className="sx-sub">
+        <b>影片</b>
+        <small>Claude Code（MCP）送影片的上限、我們這邊等多久、不等了之後要不要繼續收</small>
+      </div>
+      <div className="tr" id="tr-v-mcp">
+        <div className="tr-lab">
+          <b className="zh">MCP 單支上限</b>
+          <small>Claude Code 叫 generate_video 時，預估超過就不送</small>
+        </div>
+        <div className="tr-model">
+          {unlimited ? (
+            <span className="code">
+              <b>不限</b>
+            </span>
+          ) : (
+            <>
+              <label className="x-dim" htmlFor="vd-mcp-max">
+                每支最多 $
+              </label>
+              <input id="vd-mcp-max" className="dp-in" inputMode="decimal" value={maxIn} onChange={(e) => setMaxIn(e.target.value)} aria-invalid={!maxOk} />
+              <button type="button" className="btn" disabled={!maxOk || maxNum === max} onClick={() => void save({ mcp_max_usd: maxNum }, [`MCP 單支上限 → $${maxNum}`], "v:mcp_max_usd")}>
+                存
+              </button>
+            </>
+          )}
+          <div className="x-dim">
+            {unlimited
+              ? "不限：MCP 送影片不看金額（按 token 計價、算不出金額的也照送）。"
+              : "超過就不送出，回一句預估與上限；算不出金額的（按 token 計價）要 Claude Code 自己帶上限才送。生成頁有確認單，不受這個上限影響。"}
+          </div>
+        </div>
+        <div className="tr-src">
+          <SrcStamp s={v.mcp_unlimited.source === "settings" ? "settings" : v.mcp_max_usd.source} />
+          {stamp("mcp_max_usd") ?? stamp("mcp_unlimited")}
+        </div>
+        <div className="tr-acts">
+          <div className="sseg" role="group" aria-label="MCP 單支上限">
+            <button type="button" aria-pressed={!unlimited} onClick={() => unlimited && void save({ mcp_unlimited: false }, ["MCP 單支上限 → 有上限"], "v:mcp_unlimited")}>
+              有上限
+            </button>
+            <button type="button" aria-pressed={unlimited} onClick={() => !unlimited && void save({ mcp_unlimited: true }, ["MCP 單支上限 → 不限"], "v:mcp_unlimited")}>
+              不限
+            </button>
+          </div>
+          {reset("mcp_max_usd", "MCP 單支上限")}
+        </div>
+      </div>
+      <div className="tr" id="tr-v-wait">
+        <div className="tr-lab">
+          <b className="zh">最長等待</b>
+          <small>我們這邊等多久就先停下來</small>
+        </div>
+        <div className="tr-model">
+          <label className="x-dim" htmlFor="vd-max-wait">
+            最多等幾分鐘
+          </label>
+          <input id="vd-max-wait" className="dp-in" inputMode="numeric" value={waitIn} onChange={(e) => setWaitIn(e.target.value)} aria-invalid={!waitOk} />
+          <button type="button" className="btn" disabled={!waitOk || waitNum === wait} onClick={() => void save({ max_wait_minutes: waitNum }, [`最長等待 → ${waitNum} 分鐘`], "v:max_wait_minutes")}>
+            存
+          </button>
+          <div className="x-dim">超過就標「等太久」，留著供應商那邊的編號；之後按「再去問一次」拿得到就收進作品牆，不會重送、不會多收。</div>
+        </div>
+        <div className="tr-src">
+          <SrcStamp s={v.max_wait_minutes.source} />
+          {stamp("max_wait_minutes")}
+        </div>
+        <div className="tr-acts">{reset("max_wait_minutes", "最長等待")}</div>
+      </div>
+      <div className="tr" id="tr-v-keep">
+        <div className="tr-lab">
+          <b className="zh">不等了之後</b>
+          <small>按了「不等了」，背景要不要繼續收</small>
+        </div>
+        <div className="tr-model">
+          <div className="x-dim">
+            {keep
+              ? "繼續收：畫面上不再等，背景照樣問；做好照樣收進作品牆，費用記實際的。"
+              : "不收：不再問也不下載；做好的影片不會收進作品牆，費用頁記「費用不明」（之後還能按「再去問一次」）。"}
+          </div>
+        </div>
+        <div className="tr-src">
+          <SrcStamp s={v.keep_collecting.source} />
+          {stamp("keep_collecting")}
+        </div>
+        <div className="tr-acts">
+          <div className="sseg" role="group" aria-label="不等了之後">
+            <button type="button" aria-pressed={keep} onClick={() => !keep && void save({ keep_collecting: true }, ["不等了之後 → 繼續收"], "v:keep_collecting")}>
+              繼續收
+            </button>
+            <button type="button" aria-pressed={!keep} onClick={() => keep && void save({ keep_collecting: false }, ["不等了之後 → 不收"], "v:keep_collecting")}>
+              不收
+            </button>
+          </div>
+          {reset("keep_collecting", "不等了之後")}
+        </div>
+      </div>
+    </div>
   );
 }
 

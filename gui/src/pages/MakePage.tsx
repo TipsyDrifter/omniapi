@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { GenKind, GenRequest } from "@/api/types";
 import { clearCarry, injectDemoFailures, loadGenerations, loadOptions, selectTrayIds, startGeneration, useMake } from "@/store/make";
-import { Glyph, ImageForm, KINDS, KIND_META, MusicForm, SpeechForm, TranscriptForm, Tray, isGenKind, lastKind, rememberKind } from "@/components/make";
+import { Glyph, ImageForm, KINDS, KIND_META, MusicForm, SpeechForm, TranscriptForm, Tray, VideoForm, isGenKind, lastKind, rememberKind, type FormProps } from "@/components/make";
 import { ApiError } from "@/api/client";
 
 /* 生成 `/make/:kind`（1.1-M3，D32–D35）：不開 Claude Code 也能生圖、改圖、生語音、作曲、轉錄。
@@ -14,11 +14,15 @@ export default function MakePage() {
   return <Make kind={kind} />;
 }
 
+/** 每一種模態的表單（加了模態沒加表單＝編譯不過） */
+const FORMS: Record<GenKind, (p: FormProps) => ReactElement> = { image: ImageForm, speech: SpeechForm, music: MusicForm, transcript: TranscriptForm, video: VideoForm };
+
 const SUBS: Record<GenKind, string> = {
   image: "送出後留在這頁，成品從右邊出件；放一張來源圖就變成改圖",
   speech: "念好從右邊出件，當場可播",
   music: "要等 1～3 分鐘；送出後可以離開，回來還在",
   transcript: "放一段音檔，逐字稿從右邊出件",
+  video: "一支要等 1～5 分鐘、幾毛到幾塊美金；送出前會再確認一次費用",
 };
 
 function Make({ kind }: { kind: GenKind }) {
@@ -39,8 +43,8 @@ function Make({ kind }: { kind: GenKind }) {
   const demo = params.get("demo");
   const demoOk = import.meta.env.DEV || opts?.sandbox === true;
   useEffect(() => {
-    if (demo === "fail" && demoOk) injectDemoFailures();
-  }, [demo, demoOk]);
+    if (demo === "fail" && demoOk) injectDemoFailures(kind === "video" ? "video" : "other");
+  }, [demo, demoOk, kind]);
 
   const [busy, setBusy] = useState<GenKind | null>(null);
   const [errors, setErrors] = useState<Partial<Record<GenKind, string>>>({});
@@ -60,6 +64,7 @@ function Make({ kind }: { kind: GenKind }) {
   }
 
   const formProps = { opts, optsError, busy: busy === kind, error: errors[kind] ?? null, onSend: (r: GenRequest) => void send(r) };
+  const Form = FORMS[kind];
   const open = trayIds.length > 0;
 
   return (
@@ -84,7 +89,7 @@ function Make({ kind }: { kind: GenKind }) {
       </div>
       {opts?.sandbox ? (
         <div className="warn mk-sandbox">
-          <b>離線沙盒</b>：不呼叫供應商、不花錢，做出來的是示範檔（圖是色塊、聲音是嗶聲）。
+          <b>離線沙盒</b>：不呼叫供應商、不花錢，做出來的是示範檔（圖是色塊、聲音是嗶聲、影片是一支 2 秒的示範片）。
         </div>
       ) : opts?.offline ? (
         <div className="warn mk-sandbox">
@@ -98,7 +103,8 @@ function Make({ kind }: { kind: GenKind }) {
             <span>
               <b>從作品牆帶入：</b>
               {carry.what}
-              <span className="code">{carry.id}</span>
+              {/* 影片相關的新畫面不顯示內部編號；圖片、音檔的這一行照舊 */}
+              {carry.kind === "video" ? null : <span className="code">{carry.id}</span>}
               <span className="mk-carry-why">還沒送出——看一眼預估費用再按。</span>
             </span>
             {carry.note ? <span className="mk-carry-note">{carry.note}</span> : null}
@@ -117,7 +123,7 @@ function Make({ kind }: { kind: GenKind }) {
       <div className={`mk-grid${open ? " with-tray" : ""}`} data-kind={kind}>
         {/* .mk-form：寬版 display:contents（兩欄照舊是 grid 的直接子項）；窄的時候併成一欄、送出列排最後（rwd.css） */}
         <div className="mk-form">
-          {kind === "image" ? <ImageForm {...formProps} /> : kind === "speech" ? <SpeechForm {...formProps} /> : kind === "music" ? <MusicForm {...formProps} /> : <TranscriptForm {...formProps} />}
+          <Form {...formProps} />
         </div>
         {open ? <Tray ids={trayIds} /> : null}
       </div>

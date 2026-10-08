@@ -1,0 +1,88 @@
+{
+ "request": {
+  "model": "ai-music-api/upload-and-cover-audio",
+  "input": {
+   "upload_url": "https://files.kie.test/r/song-1.mp3",
+   "prompt": "A short calm lo-fi piano loop",
+   "instrumental": true,
+   "model": "V6_MINI"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task3",
+   "model": "ai-music-api/upload-and-cover-audio",
+   "state": "generating",
+   "param": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/upload-and-cover-audio\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791277801328,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/upload-and-cover-audio",
+   "status": "PENDING",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/upload-and-cover-audio\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task3",
+   "model": "ai-music-api/upload-and-cover-audio",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/upload-and-cover-audio\"}",
+   "resultJson": "{\"code\": 200, \"data\": [{\"audio_url\": \"https://files.kie.test/r/song-7.mp3\", \"createTime\": 1791277864400, \"duration\": 194.76, \"id\": \"song-7\", \"image_url\": \"https://img.suno.test/image_song-7.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-7.mp3\", \"tags\": \"\", \"title\": \"\"}, {\"audio_url\": \"https://files.kie.test/r/song-8.mp3\", \"createTime\": 1791277864400, \"duration\": 199.88, \"id\": \"song-8\", \"image_url\": \"https://img.suno.test/image_song-8.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-8.mp3\", \"tags\": \"\", \"title\": \"\"}], \"msg\": \"success\", \"task_id\": \"task3\"}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 63,
+   "completeTime": 1791277864400,
+   "createTime": 1791277801328,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/upload-and-cover-audio",
+   "status": "SUCCESS",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "response": {
+    "msg": "success",
+    "code": 200,
+    "data": [
+     {
+      "duration": 194.76,
+      "stream_audio_url": "https://stream.kie.test/stream/song-7.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277864400,
+      "image_url": "https://img.suno.test/image_song-7.jpeg",
+      "audio_url": "https://files.kie.test/r/song-7.mp3",
+      "id": "song-7",
+      "title": "",
+      "prompt": "",
+      "tags": ""
+     },
+     {
+      "duration": 199.88,
+      "stream_audio_url": "https://stream.kie.test/stream/song-8.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791277864400,
+      "image_url": "https://img.suno.test/image_song-8.jpeg",
+      "audio_url": "https://files.kie.test/r/song-8.mp3",
+      "id": "song-8",
+      "title": "",
+      "prompt": "",
+      "tags": ""
+     }
+    ],
+    "task_id": "task3"
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"instrumental\\\": true, \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"prompt\\\": \\\"A short calm lo-fi piano loop\\\"}\", \"model\": \"ai-music-api/upload-and-cover-audio\"}"
+  }
+ },
+ "polls": 8
+}

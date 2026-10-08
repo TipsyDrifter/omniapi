@@ -1,0 +1,1225 @@
+{
+ "_note": "Offline sandbox stand-in for the OpenRouter image roster: ten models copied from the real listing of 2026-10-05 (GET /api/v1/images/models and each /endpoints). Never sent anywhere; only read when OMNIAPI_OFFLINE=1 with OMNIAPI_DEV=1.",
+ "models": {
+  "data": [
+   {
+    "id": "x-ai/grok-imagine-image-2.0",
+    "name": "xAI: Grok Imagine Image 2.0",
+    "description": "Grok Imagine Image 2.0 is an image generation and editing model from xAI. It is suited for creating images from text prompts and editing images from references, with low and...",
+    "created": 1786486044,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "resolution": {
+      "type": "enum",
+      "values": [
+       "1K",
+       "2K"
+      ]
+     },
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "3:4",
+       "4:3",
+       "9:16",
+       "16:9",
+       "2:3",
+       "3:2",
+       "9:19.5",
+       "19.5:9",
+       "9:20",
+       "20:9",
+       "1:2",
+       "2:1",
+       "auto"
+      ]
+     },
+     "quality": {
+      "type": "enum",
+      "values": [
+       "low",
+       "medium"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 3
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/x-ai/grok-imagine-image-2.0/endpoints"
+   },
+   {
+    "id": "black-forest-labs/flux-3-image",
+    "name": "Black Forest Labs: FLUX.3 Image",
+    "description": "FLUX.3 Image is Black Forest Labs' flagship image generation and editing model. It handles text-to-image and multi-reference editing with up to 10 input images, and renders at fixed resolution tiers...",
+    "created": 1790885807,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "resolution": {
+      "type": "enum",
+      "values": [
+       "768",
+       "1K",
+       "1.5K",
+       "2K",
+       "4K"
+      ]
+     },
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "21:9",
+       "2:1",
+       "16:9",
+       "3:2",
+       "7:5",
+       "4:3",
+       "5:4",
+       "1:1",
+       "4:5",
+       "3:4",
+       "5:7",
+       "2:3",
+       "9:16",
+       "1:2",
+       "9:21",
+       "auto"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 10
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/black-forest-labs/flux-3-image/endpoints"
+   },
+   {
+    "id": "bytedance-seed/seedream-5-0-pro",
+    "name": "ByteDance Seed: Seedream 5.0 Pro",
+    "description": "Seedream 5.0 Pro is an image generation and editing model from ByteDance Seed. It is suited for commercial visual-production workflows that require precise editing control, lifelike scenes, and natural rendering.",
+    "created": 1786578139,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "resolution": {
+      "type": "enum",
+      "values": [
+       "1K",
+       "2K"
+      ]
+     },
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "1:2",
+       "2:1",
+       "2:3",
+       "3:2",
+       "3:4",
+       "4:3",
+       "4:5",
+       "5:4",
+       "9:16",
+       "16:9",
+       "9:19.5",
+       "19.5:9",
+       "9:20",
+       "20:9",
+       "9:21",
+       "21:9",
+       "auto"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 14
+     },
+     "seed": {
+      "type": "boolean"
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/bytedance-seed/seedream-5-0-pro/endpoints"
+   },
+   {
+    "id": "qwen/qwen-image-3",
+    "name": "Qwen: Qwen Image 3",
+    "description": "Qwen Image 3 is a unified image generation and editing model from Qwen. It supports precise rendering of text and details as small as 10px, along with a richer world...",
+    "created": 1785894548,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "resolution": {
+      "type": "enum",
+      "values": [
+       "1K",
+       "2K"
+      ]
+     },
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "1:2",
+       "1:4",
+       "2:1",
+       "2:3",
+       "3:2",
+       "3:4",
+       "4:1",
+       "4:3",
+       "4:5",
+       "5:4",
+       "9:16",
+       "16:9"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 6
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 4
+     },
+     "seed": {
+      "type": "boolean"
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/qwen/qwen-image-3/endpoints"
+   },
+   {
+    "id": "microsoft/mai-image-2.6",
+    "name": "Microsoft AI: MAI-Image-2.6",
+    "description": "MAI-Image-2.6 is an image generation and editing model from Microsoft AI, the precision tier of the MAI-Image-2.6 family alongside the faster [MAI-Image-2.6 Flash](/microsoft/mai-image-2.6-flash). It is suited for design-ready visuals and...",
+    "created": 1788550742,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "4:3",
+       "3:4",
+       "16:9",
+       "9:16",
+       "3:2",
+       "2:3",
+       "auto"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 5
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/microsoft/mai-image-2.6/endpoints"
+   },
+   {
+    "id": "black-forest-labs/flux.2-pro",
+    "name": "Black Forest Labs: FLUX.2 Pro",
+    "description": "A high-end image generation and editing model focused on frontier-level visual quality and reliability. It delivers strong prompt adherence, stable lighting, sharp textures, and consistent character/style reproduction across multi-reference inputs....",
+    "created": 1764030274,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "4:3",
+       "3:4",
+       "3:2",
+       "2:3",
+       "16:9",
+       "9:16",
+       "21:9",
+       "auto"
+      ]
+     },
+     "output_format": {
+      "type": "enum",
+      "values": [
+       "png",
+       "jpeg"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 8
+     },
+     "seed": {
+      "type": "boolean"
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/black-forest-labs/flux.2-pro/endpoints"
+   },
+   {
+    "id": "recraft/recraft-v4.1",
+    "name": "Recraft: Recraft V4.1",
+    "description": "Recraft V4.1 is an image generation model from Recraft tuned for high aesthetics. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios, with...",
+    "created": 1778707381,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "4:3",
+       "3:4",
+       "16:9",
+       "9:16",
+       "auto"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 6
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 1
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/recraft/recraft-v4.1/endpoints"
+   },
+   {
+    "id": "krea/krea-2-medium",
+    "name": "Krea: Krea 2 Medium",
+    "description": "Krea 2 Medium is Krea's balanced, cost-efficient image generation model and a practical starting point for a broad range of use cases. Its extensive post-training supports stable, consistent generations, with...",
+    "created": 1784574928,
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "resolution": {
+      "type": "enum",
+      "values": [
+       "1K"
+      ]
+     },
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "4:3",
+       "3:2",
+       "16:9",
+       "4:5",
+       "2:3",
+       "9:16"
+      ]
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 1
+     },
+     "seed": {
+      "type": "boolean"
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/krea/krea-2-medium/endpoints"
+   },
+   {
+    "id": "inclusionai/ming-image-0.1-design",
+    "name": "inclusionAI: Ming Image 0.1 Design",
+    "description": "Ming Image 0.1 Design is a text-to-image model from inclusionAI aimed at graphic-design output, with an emphasis on legible text rendering inside the generated image. It generates from a prompt...",
+    "created": 1790095711,
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    },
+    "supported_parameters": {
+     "output_format": {
+      "type": "enum",
+      "values": [
+       "png",
+       "jpeg",
+       "webp"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 0
+     },
+     "size": {
+      "type": "boolean"
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/inclusionai/ming-image-0.1-design/endpoints"
+   },
+   {
+    "id": "google/gemini-3.1-flash-image",
+    "name": "Google: Nano Banana 2 (Gemini 3.1 Flash Image)",
+    "description": "Gemini 3.1 Flash Image, a.k.a. \"Nano Banana 2,\" is Google’s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines advanced...",
+    "created": 1781754065,
+    "architecture": {
+     "input_modalities": [
+      "image",
+      "text"
+     ],
+     "output_modalities": [
+      "image",
+      "text"
+     ]
+    },
+    "supported_parameters": {
+     "resolution": {
+      "type": "enum",
+      "values": [
+       "512",
+       "1K",
+       "2K",
+       "4K"
+      ]
+     },
+     "aspect_ratio": {
+      "type": "enum",
+      "values": [
+       "1:1",
+       "1:4",
+       "1:8",
+       "2:3",
+       "3:2",
+       "3:4",
+       "4:1",
+       "4:3",
+       "4:5",
+       "5:4",
+       "8:1",
+       "9:16",
+       "16:9",
+       "21:9"
+      ]
+     },
+     "n": {
+      "type": "range",
+      "min": 1,
+      "max": 1
+     },
+     "input_references": {
+      "type": "range",
+      "min": 0,
+      "max": 14
+     }
+    },
+    "supports_streaming": false,
+    "endpoints": "/api/v1/images/models/google/gemini-3.1-flash-image/endpoints"
+   }
+  ]
+ },
+ "endpoints": {
+  "x-ai/grok-imagine-image-2.0": {
+   "id": "x-ai/grok-imagine-image-2.0",
+   "endpoints": [
+    {
+     "provider_name": "SpaceXAI",
+     "provider_slug": "xai",
+     "provider_tag": "xai",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "1K",
+        "2K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "3:4",
+        "4:3",
+        "9:16",
+        "16:9",
+        "2:3",
+        "3:2",
+        "9:19.5",
+        "19.5:9",
+        "9:20",
+        "20:9",
+        "1:2",
+        "2:1",
+        "auto"
+       ]
+      },
+      "quality": {
+       "type": "enum",
+       "values": [
+        "low",
+        "medium"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 3
+      }
+     },
+     "allowed_passthrough_parameters": [],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "input_image",
+       "unit": "image",
+       "cost_usd": 0.01
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.04,
+       "variant": "low_1k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.06,
+       "variant": "low_2k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.06,
+       "variant": "medium_1k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.08,
+       "variant": "medium_2k"
+      }
+     ]
+    }
+   ]
+  },
+  "black-forest-labs/flux-3-image": {
+   "id": "black-forest-labs/flux-3-image",
+   "endpoints": [
+    {
+     "provider_name": "Black Forest Labs",
+     "provider_slug": "black-forest-labs",
+     "provider_tag": "black-forest-labs",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "768",
+        "1K",
+        "1.5K",
+        "2K",
+        "4K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "21:9",
+        "2:1",
+        "16:9",
+        "3:2",
+        "7:5",
+        "4:3",
+        "5:4",
+        "1:1",
+        "4:5",
+        "3:4",
+        "5:7",
+        "2:3",
+        "9:16",
+        "1:2",
+        "9:21",
+        "auto"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 10
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "safety_tolerance"
+     ],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.041,
+       "variant": "768"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.048,
+       "variant": "1k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.07,
+       "variant": "1.5k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.1,
+       "variant": "2k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.607,
+       "variant": "4k"
+      }
+     ]
+    }
+   ]
+  },
+  "bytedance-seed/seedream-5-0-pro": {
+   "id": "bytedance-seed/seedream-5-0-pro",
+   "endpoints": [
+    {
+     "provider_name": "Seed",
+     "provider_slug": "seed",
+     "provider_tag": "seed",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "1K",
+        "2K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "1:2",
+        "2:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9",
+        "9:19.5",
+        "19.5:9",
+        "9:20",
+        "20:9",
+        "9:21",
+        "21:9",
+        "auto"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 14
+      },
+      "seed": {
+       "type": "boolean"
+      }
+     },
+     "allowed_passthrough_parameters": [],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.045
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.09,
+       "variant": "high_resolution"
+      },
+      {
+       "billable": "input_image",
+       "unit": "image",
+       "cost_usd": 0.003
+      }
+     ]
+    }
+   ]
+  },
+  "qwen/qwen-image-3": {
+   "id": "qwen/qwen-image-3",
+   "endpoints": [
+    {
+     "provider_name": "Alibaba Cloud Int.",
+     "provider_slug": "alibaba",
+     "provider_tag": "alibaba",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "1K",
+        "2K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "1:2",
+        "1:4",
+        "2:1",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:1",
+        "4:3",
+        "4:5",
+        "5:4",
+        "9:16",
+        "16:9"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 6
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 4
+      },
+      "seed": {
+       "type": "boolean"
+      }
+     },
+     "allowed_passthrough_parameters": [],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "input_image",
+       "unit": "image",
+       "cost_usd": 0.003
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.03,
+       "variant": "1k"
+      },
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.03,
+       "variant": "2k"
+      }
+     ]
+    }
+   ]
+  },
+  "microsoft/mai-image-2.6": {
+   "id": "microsoft/mai-image-2.6",
+   "endpoints": [
+    {
+     "provider_name": "Azure",
+     "provider_slug": "azure",
+     "provider_tag": "azure",
+     "supported_parameters": {
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "4:3",
+        "3:4",
+        "16:9",
+        "9:16",
+        "3:2",
+        "2:3",
+        "auto"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 5
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "web_grounding"
+     ],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "input_text",
+       "unit": "token",
+       "cost_usd": 0.000005
+      },
+      {
+       "billable": "input_image",
+       "unit": "token",
+       "cost_usd": 0.000008
+      },
+      {
+       "billable": "output_image",
+       "unit": "token",
+       "cost_usd": 0.000038
+      }
+     ]
+    }
+   ]
+  },
+  "black-forest-labs/flux.2-pro": {
+   "id": "black-forest-labs/flux.2-pro",
+   "endpoints": [
+    {
+     "provider_name": "Black Forest Labs",
+     "provider_slug": "black-forest-labs",
+     "provider_tag": "black-forest-labs",
+     "supported_parameters": {
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "4:3",
+        "3:4",
+        "3:2",
+        "2:3",
+        "16:9",
+        "9:16",
+        "21:9",
+        "auto"
+       ]
+      },
+      "output_format": {
+       "type": "enum",
+       "values": [
+        "png",
+        "jpeg"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 8
+      },
+      "seed": {
+       "type": "boolean"
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "steps",
+      "guidance",
+      "safety_tolerance"
+     ],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "output_image",
+       "unit": "megapixel",
+       "cost_usd": 0.03
+      }
+     ]
+    }
+   ]
+  },
+  "recraft/recraft-v4.1": {
+   "id": "recraft/recraft-v4.1",
+   "endpoints": [
+    {
+     "provider_name": "Recraft",
+     "provider_slug": "recraft",
+     "provider_tag": "recraft",
+     "supported_parameters": {
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "4:3",
+        "3:4",
+        "16:9",
+        "9:16",
+        "auto"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 6
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 1
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "style",
+      "controls",
+      "text_layout"
+     ],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "output_image",
+       "unit": "image",
+       "cost_usd": 0.035
+      }
+     ]
+    }
+   ]
+  },
+  "krea/krea-2-medium": {
+   "id": "krea/krea-2-medium",
+   "endpoints": [
+    {
+     "provider_name": "Krea",
+     "provider_slug": "krea",
+     "provider_tag": "krea",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "1K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "4:3",
+        "3:2",
+        "16:9",
+        "4:5",
+        "2:3",
+        "9:16"
+       ]
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 1
+      },
+      "seed": {
+       "type": "boolean"
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "image_style_references",
+      "moodboards",
+      "styles",
+      "creativity",
+      "intensity",
+      "complexity",
+      "movement",
+      "strength"
+     ],
+     "supports_streaming": false,
+     "pricing": []
+    }
+   ]
+  },
+  "inclusionai/ming-image-0.1-design": {
+   "id": "inclusionai/ming-image-0.1-design",
+   "endpoints": [
+    {
+     "provider_name": "NovitaAI",
+     "provider_slug": "novita",
+     "provider_tag": "novita",
+     "supported_parameters": {
+      "output_format": {
+       "type": "enum",
+       "values": [
+        "png",
+        "jpeg",
+        "webp"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 0
+      },
+      "size": {
+       "type": "boolean"
+      }
+     },
+     "allowed_passthrough_parameters": [],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "input_image",
+       "unit": "token",
+       "cost_usd": 0
+      },
+      {
+       "billable": "output_image",
+       "unit": "token",
+       "cost_usd": 0
+      }
+     ]
+    }
+   ]
+  },
+  "google/gemini-3.1-flash-image": {
+   "id": "google/gemini-3.1-flash-image",
+   "endpoints": [
+    {
+     "provider_name": "Google AI Studio",
+     "provider_slug": "google-ai-studio",
+     "provider_tag": "google-ai-studio",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "512",
+        "1K",
+        "2K",
+        "4K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "1:4",
+        "1:8",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:1",
+        "4:3",
+        "4:5",
+        "5:4",
+        "8:1",
+        "9:16",
+        "16:9",
+        "21:9"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 14
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "cachedContent"
+     ],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "output_image",
+       "unit": "token",
+       "cost_usd": 0.00006
+      }
+     ]
+    },
+    {
+     "provider_name": "Google Vertex",
+     "provider_slug": "google-vertex/global",
+     "provider_tag": "google-vertex/global",
+     "supported_parameters": {
+      "resolution": {
+       "type": "enum",
+       "values": [
+        "512",
+        "1K",
+        "2K",
+        "4K"
+       ]
+      },
+      "aspect_ratio": {
+       "type": "enum",
+       "values": [
+        "1:1",
+        "1:4",
+        "1:8",
+        "2:3",
+        "3:2",
+        "3:4",
+        "4:1",
+        "4:3",
+        "4:5",
+        "5:4",
+        "8:1",
+        "9:16",
+        "16:9",
+        "21:9"
+       ]
+      },
+      "n": {
+       "type": "range",
+       "min": 1,
+       "max": 1
+      },
+      "input_references": {
+       "type": "range",
+       "min": 0,
+       "max": 14
+      }
+     },
+     "allowed_passthrough_parameters": [
+      "cachedContent"
+     ],
+     "supports_streaming": false,
+     "pricing": [
+      {
+       "billable": "output_image",
+       "unit": "token",
+       "cost_usd": 0.00006
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

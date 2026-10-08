@@ -1,7 +1,7 @@
 {
  "_note": "Curated overlay for the OmniAPI model catalog. Discovery (live /models) decides what is ONLINE; this file adds pricing, capabilities, status and routing. Prices are USD per 1M tokens unless the pricing object says otherwise. Sources: docs/research/2026-09-25-*.md and 2026-10-01-* Uncurated ids that are fixed snapshots (-YYYY-MM-DD, -0613 style) or moving aliases (-latest) are kept callable but hidden from listings.",
  "version": 1,
- "updated": "2026-10-01",
+ "updated": "2026-10-05",
  "tiers": {
   "cheap": "deepseek-flash",
   "standard": "gemini-3.8-flash",
@@ -62,6 +62,13 @@
     "text",
     "image",
     "speech",
+    "music",
+    "video"
+   ],
+   "discovery_modalities": [
+    "text",
+    "image",
+    "speech",
     "music"
    ],
    "settings_key": "gemini",
@@ -97,8 +104,15 @@
   "openrouter": {
    "label": "OpenRouter",
    "discovery": "openai_compatible",
+   "image_discovery": "openrouter_images",
+   "video_discovery": "openrouter_videos",
    "harness": "claude",
    "modalities": [
+    "text",
+    "image",
+    "video"
+   ],
+   "discovery_modalities": [
     "text"
    ],
    "get_key": {
@@ -160,7 +174,11 @@
     "modality": "ignore"
    },
    {
-    "match": "(realtime|embedding|moderation|dall-e|sora|babbage|davinci|computer-use|codex-mini|-audio|search-preview|image-)",
+    "match": "^sora",
+    "modality": "video"
+   },
+   {
+    "match": "(realtime|embedding|moderation|dall-e|babbage|davinci|computer-use|codex-mini|-audio|search-preview|image-)",
     "modality": "ignore"
    },
    {
@@ -182,7 +200,11 @@
     "modality": "music"
    },
    {
-    "match": "(embedding|imagen|veo|aqa|learnlm|gemma|live|native-audio|omni)",
+    "match": "^veo",
+    "modality": "video"
+   },
+   {
+    "match": "(embedding|imagen|aqa|learnlm|gemma|live|native-audio|omni)",
     "modality": "ignore"
    },
    {
@@ -898,10 +920,12 @@
    "provider": "openai",
    "modality": "image",
    "name": "GPT Image 1.5",
-   "status": "current",
+   "status": "deprecated",
+   "shutdown": "2026-12-01",
+   "replacement": "gpt-image-2.5-sunburst",
    "pricing": {
     "unit": "per_1m_tokens",
-    "text_input": 4,
+    "text_input": 5,
     "image_output": 32
    },
    "capabilities": {
@@ -932,8 +956,14 @@
    "provider": "openai",
    "modality": "image",
    "name": "GPT Image 1 mini",
-   "status": "current",
-   "pricing": null,
+   "status": "deprecated",
+   "shutdown": "2026-12-01",
+   "replacement": "gpt-image-2.5-sunburst",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "text_input": 2,
+    "image_output": 8
+   },
    "capabilities": {
     "edit": true,
     "input_fidelity": true
@@ -999,7 +1029,10 @@
    "modality": "image",
    "name": "Nano Banana 2 Lite",
    "status": "current",
-   "pricing": null,
+   "pricing": {
+    "unit": "per_image",
+    "1K": 0.0336
+   },
    "capabilities": {
     "edit": true
    }
@@ -1009,13 +1042,14 @@
    "provider": "google",
    "modality": "image",
    "name": "Nano Banana (2.5)",
-   "status": "deprecated",
+   "status": "retired",
+   "shutdown": "2026-10-02",
    "replacement": "gemini-3.1-flash-image",
    "pricing": null,
    "capabilities": {
     "edit": true
    },
-   "note": "access limited to prior users"
+   "note": "shut down 2026-10-02 (Gemini API deprecations page)"
   },
   {
    "id": "gpt-transcribe",
@@ -1119,7 +1153,8 @@
    "provider": "openai",
    "modality": "speech",
    "name": "TTS-1",
-   "status": "current",
+   "status": "deprecated",
+   "shutdown": "2027-01-06",
    "pricing": {
     "unit": "per_1m_chars",
     "text": 15
@@ -1130,10 +1165,39 @@
    "provider": "openai",
    "modality": "speech",
    "name": "TTS-1 HD",
-   "status": "current",
+   "status": "deprecated",
+   "shutdown": "2027-01-06",
    "pricing": {
     "unit": "per_1m_chars",
     "text": 30
+   }
+  },
+  {
+   "id": "eleven_v4",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven v4",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.08
+   },
+   "capabilities": {
+    "expressive": true
+   }
+  },
+  {
+   "id": "eleven_v4_turbo",
+   "provider": "elevenlabs",
+   "modality": "speech",
+   "name": "Eleven v4 Turbo",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1k_chars",
+    "text": 0.04
+   },
+   "capabilities": {
+    "expressive": true
    }
   },
   {
@@ -1144,7 +1208,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1k_chars",
-    "text": 0.1
+    "text": 0.08
    },
    "capabilities": {
     "expressive": true
@@ -1158,7 +1222,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1k_chars",
-    "text": 0.05
+    "text": 0.04
    },
    "capabilities": {
     "realtime": true
@@ -1172,7 +1236,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1k_chars",
-    "text": 0.05
+    "text": 0.04
    },
    "capabilities": {
     "low_latency": true
@@ -1186,7 +1250,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1k_chars",
-    "text": 0.05
+    "text": 0.04
    }
   },
   {
@@ -1197,7 +1261,7 @@
    "status": "current",
    "pricing": {
     "unit": "per_1k_chars",
-    "text": 0.1
+    "text": 0.08
    }
   },
   {
@@ -1256,7 +1320,7 @@
    "pricing": {
     "unit": "credits",
     "credit_usd": 0.005,
-    "note": "credits per song not published"
+    "note": "measured on kie (V6_MINI, 2026-10-06), credits per job: 12 for generate / extend / cover / add-instrumental / add-vocals (each job gives two songs), 0.4 lyrics, 0.4 WAV, 2 music video; V6 / V6_WILD not measured separately"
    }
   },
   {
@@ -1267,7 +1331,8 @@
    "status": "current",
    "pricing": {
     "unit": "credits",
-    "credit_usd": 0.005
+    "credit_usd": 0.005,
+    "note": "measured on kie (V6_MINI, 2026-10-06), credits per job: 12 for generate / extend / cover / add-instrumental / add-vocals (each job gives two songs), 0.4 lyrics, 0.4 WAV, 2 music video; V6 / V6_WILD not measured separately"
    }
   },
   {
@@ -1278,7 +1343,8 @@
    "status": "current",
    "pricing": {
     "unit": "credits",
-    "credit_usd": 0.005
+    "credit_usd": 0.005,
+    "note": "measured on kie (V6_MINI, 2026-10-06), credits per job: 12 for generate / extend / cover / add-instrumental / add-vocals (each job gives two songs), 0.4 lyrics, 0.4 WAV, 2 music video; V6 / V6_WILD not measured separately"
    }
   },
   {
@@ -1334,11 +1400,12 @@
    "provider": "elevenlabs",
    "modality": "music",
    "name": "Eleven Music v1",
-   "status": "current",
+   "status": "deprecated",
    "pricing": {
     "unit": "per_minute",
     "audio": 0.15
-   }
+   },
+   "note": "deprecated on the official models page; no shutdown date announced"
   },
   {
    "id": "music_v2",
@@ -2102,7 +2169,7 @@
    "provider": "google",
    "modality": "text",
    "name": "Gemini 2.5 Flash",
-   "status": "current",
+   "status": "retired",
    "pricing": {
     "input": 0.3,
     "cached_input": 0.03,
@@ -2117,7 +2184,7 @@
     "reasoning": true,
     "vision": true
    },
-   "note": "legacy: access limited to accounts that already used 2.5 models; no shutdown date announced"
+   "note": "Google offers it only to users who have used it before (new keys get 404); officially not shut down, no date announced"
   },
   {
    "id": "gemini-2.5-flash-lite",
@@ -2259,6 +2326,46 @@
    "context": 128000,
    "max_output": 64000,
    "capabilities": {}
+  },
+  {
+   "id": "gemini-omni-1.1-flash",
+   "provider": "google",
+   "modality": "video",
+   "name": "Gemini Omni 1.1 Flash",
+   "status": "current",
+   "pricing": {
+    "unit": "per_1m_tokens",
+    "video_output": 17.5,
+    "text_output": 9,
+    "media_input": 1.5,
+    "tokens_per_second": {
+     "720p": 5792
+    },
+    "skus": {
+     "duration_seconds_720p": 0.10136,
+     "resolution_lines_only": 1
+    },
+    "note": "billed per output token: 5,792 tokens per second of 720p video (about $0.10 per second); Google states no token count for the other resolutions"
+   },
+   "capabilities": {
+    "first_frame": true,
+    "last_frame": true,
+    "audio": true
+   },
+   "video_params": {
+    "durations": [3, 4, 5, 6, 7, 8, 9, 10],
+    "resolutions": ["360p", "720p", "1080p"],
+    "default_resolution": "720p",
+    "aspect_ratios": ["16:9", "9:16"],
+    "sizes": [],
+    "frames": ["first_frame", "last_frame"],
+    "audio": true,
+    "audio_fixed": true,
+    "last_frame_needs_first": true,
+    "seed": null,
+    "passthrough": []
+   },
+   "note": "Google's video model (Veo 3.1's replacement), called directly with the Google key; needs a paid Gemini API tier (there is no free tier). Always makes sound."
   },
   {
    "id": "claude-sonnet-5-5",

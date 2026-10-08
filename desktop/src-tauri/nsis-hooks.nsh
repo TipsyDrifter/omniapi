@@ -16,6 +16,10 @@
 ; When it is not there — first install, or an install older than 1.3-M5 — the plain
 ; stop-by-path below is used (prototype two's hook; nothing can be asked gracefully then).
 ; (Tauri copies this .nsh into the build folder, so a script next to it cannot be compiled in.)
+;
+; 1.4: the exe is ${MAINBINARYNAME}.exe (Tauri's define, resolved where the macros are inserted):
+; OmniAPI.exe for the released app, OmniAPI-Test.exe for the test build (package.ps1 -TestIdentity),
+; so a test install never looks for, or removes payload next to, the released exe.
 
 !macro OMNI_STOP_INSTALLED
   IfFileExists "$INSTDIR\nsis-stop.ps1" 0 omni_stop_plain
@@ -34,9 +38,9 @@
 ; the files it listed, so a package dropped in an update, or anything written later inside these
 ; two folders, would stay behind. Both folders are ours alone (nothing the user makes is kept in
 ; the install folder: data is in ~/.omniapi, works in Documents\OmniAPI), so they are removed
-; whole -- only these two, only when OmniAPI.exe is in the same folder (= it is our install).
+; whole -- only these two, only when our exe is in the same folder (= it is our install).
 !macro OMNI_REMOVE_PAYLOAD
-  IfFileExists "$INSTDIR\OmniAPI.exe" 0 omni_payload_done
+  IfFileExists "$INSTDIR\${MAINBINARYNAME}.exe" 0 omni_payload_done
     RMDir /r "$INSTDIR\python"
     RMDir /r "$INSTDIR\gui"
   omni_payload_done:

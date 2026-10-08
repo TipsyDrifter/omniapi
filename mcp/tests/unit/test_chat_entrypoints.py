@@ -147,7 +147,7 @@ def test_chat_tool_is_registered_with_its_parameters():
     from omniapi_mcp.server import mcp
 
     tools = {t.name: t for t in asyncio.run(mcp.list_tools())}
-    assert len(tools) == 19 and "chat" in tools
+    assert len(tools) == 20 and "chat" in tools and "generate_video" in tools
     props = tools["chat"].inputSchema["properties"]
     assert set(props) == {"message", "conversation_id", "model", "system", "title", "reasoning_effort", "temperature", "max_completion_tokens"}
     assert tools["chat"].inputSchema["required"] == ["message"]

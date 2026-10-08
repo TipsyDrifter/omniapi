@@ -12,7 +12,10 @@ layer below)::
       "providers": {"deepseek": {"api_key": "sk-…", "enabled": true}, …},
       "tiers":     {"cheap": "deepseek-flash", "standard": …, "strong": …},
       "defaults":  {"chat": "cheap", "dispatch": "cheap", "image": "gpt-image-2",
-                    "speech": …, "music": …, "transcript": …}
+                    "speech": …, "music": …, "transcript": …, "video": …},
+      "video":     {"mcp_max_usd": 1.0, "mcp_unlimited": false,
+                    "max_wait_minutes": 20, "keep_collecting": true},
+      "music":     {"suno_all_tracks": true}
     }
 
 Provider names are the settings slots (``openai``, ``anthropic``, ``gemini``,
@@ -36,8 +39,9 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
+from .. import modalities as _MOD
 from ..catalog.paths import data_home
-from .settings import Settings
+from .settings import DefaultModelsSettings, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +61,7 @@ PROVIDERS: dict[str, str] = {
 SLOT_OF: dict[str, str] = {v: k for k, v in PROVIDERS.items()}
 
 TIERS = ("cheap", "standard", "strong")
-DEFAULT_KINDS = ("chat", "dispatch", "image", "speech", "music", "transcript")
+DEFAULT_KINDS = ("chat", "dispatch") + _MOD.KINDS
 #: what each kind falls back to when nothing is configured
 BUILTIN_DEFAULTS: dict[str, Optional[str]] = {
     "chat": "cheap",
@@ -66,10 +70,52 @@ BUILTIN_DEFAULTS: dict[str, Optional[str]] = {
     "speech": None,  # the first configured speech provider's own default
     "music": None,  # likewise for music
     "transcript": "gpt-transcribe",
+    "video": "alibaba/wan-3.0",  # used when it can be called (OpenRouter's roster); else the first usable one (Gemini Omni with a Google key counts)
 }
+_MOD.require_keys(BUILTIN_DEFAULTS, DEFAULT_KINDS, "user_settings.BUILTIN_DEFAULTS")
+# every kind but image has a field of its own (the image default stays in images.default_model)
+_MOD.require_keys(set(DefaultModelsSettings.model_fields) | {"image"}, DEFAULT_KINDS, "settings.DefaultModelsSettings")
 
 MAX_KEY_LEN = 500
 MAX_MODEL_LEN = 200
+
+#: settings.json ``video`` (1.4-M3): field -> (type, lowest, highest); the
+#: defaults are ``config.settings.VideoSettings``'s
+VIDEO_FIELDS: dict[str, tuple[type, Optional[float], Optional[float]]] = {
+    "mcp_max_usd": (float, 0.01, 1000.0),
+    "mcp_unlimited": (bool, None, None),
+    "max_wait_minutes": (float, 0.05, 1440.0),
+    "keep_collecting": (bool, None, None),
+}
+
+
+#: settings.json ``music``: same shape; defaults in ``config.settings.MusicSettings``
+MUSIC_FIELDS: dict[str, tuple[type, Optional[float], Optional[float]]] = {
+    "suno_all_tracks": (bool, None, None),
+}
+#: the plain-value sections of settings.json: name -> its fields
+VALUE_SECTIONS: dict[str, dict[str, tuple[type, Optional[float], Optional[float]]]] = {
+    "video": VIDEO_FIELDS,
+    "music": MUSIC_FIELDS,
+}
+
+
+def _clean_value(section: str, field: str, value: Any) -> Any:
+    kind, lo, hi = VALUE_SECTIONS[section][field]
+    if kind is bool:
+        if not isinstance(value, bool):
+            raise SettingsError(f"{section}.{field}: expected true or false")
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SettingsError(f"{section}.{field}: expected a number")
+    v = float(value)
+    if (lo is not None and v < lo) or (hi is not None and v > hi):
+        raise SettingsError(f"{section}.{field}: expected a number from {lo:g} to {hi:g}")
+    return v
+
+
+def _clean_video(field: str, value: Any) -> Any:
+    return _clean_value("video", field, value)
 
 #: reading while another process renames the file in place can fail for a moment on Windows
 READ_RETRIES = 8
@@ -183,7 +229,7 @@ def normalize_overlay(raw: dict[str, Any], *, strict: bool = False) -> dict[str,
     ``strict`` raises :class:`SettingsError` on anything unknown (a PATCH);
     otherwise bad parts are dropped with a warning (a hand-edited file must not
     stop the service from starting)."""
-    out: dict[str, Any] = {"providers": {}, "tiers": {}, "defaults": {}}
+    out: dict[str, Any] = {"providers": {}, "tiers": {}, "defaults": {}, **{name: {} for name in VALUE_SECTIONS}}
 
     def bad(msg: str) -> None:
         if strict:
@@ -191,7 +237,7 @@ def normalize_overlay(raw: dict[str, Any], *, strict: bool = False) -> dict[str,
         logger.warning("settings.json: ignoring %s", msg)
 
     for k in raw:
-        if k not in ("version", "providers", "tiers", "defaults"):
+        if k not in ("version", "providers", "tiers", "defaults", *VALUE_SECTIONS):
             bad(f"unknown section '{k}'")
     provs = raw.get("providers") or {}
     if not isinstance(provs, dict):
@@ -247,6 +293,19 @@ def normalize_overlay(raw: dict[str, Any], *, strict: bool = False) -> dict[str,
             out["defaults"][kind] = _clean_model(model, f"defaults.{kind}")
         except SettingsError as e:
             bad(str(e))
+    for section, fields in VALUE_SECTIONS.items():
+        body = raw.get(section) or {}
+        if not isinstance(body, dict):
+            bad(f"{section}: expected an object")
+            body = {}
+        for field, value in body.items():
+            if field not in fields:
+                bad(f"{section}.{field}: unknown field ({' / '.join(fields)})")
+                continue
+            try:
+                out[section][field] = _clean_value(section, field, value)
+            except SettingsError as e:
+                bad(str(e))
     return {k: v for k, v in out.items() if v}
 
 
@@ -287,6 +346,9 @@ def overlay_kwargs(overlay: dict[str, Any], env_only: Settings) -> dict[str, Any
         kw["images"] = {"default_model": image}
     if defaults:
         kw["defaults"] = defaults
+    for section in VALUE_SECTIONS:
+        if overlay.get(section):
+            kw[section] = dict(overlay[section])
     return kw
 
 
@@ -337,7 +399,7 @@ def apply_patch(overlay: dict[str, Any], patch: Any) -> tuple[dict[str, Any], li
     settings.json (the environment / built-in value shows through again)."""
     if not isinstance(patch, dict):
         raise SettingsError("expected a JSON object")
-    unknown = set(patch) - {"providers", "tiers", "defaults"}
+    unknown = set(patch) - {"providers", "tiers", "defaults", *VALUE_SECTIONS}
     if unknown:
         raise SettingsError(f"unknown fields: {sorted(unknown)}")
     new = json.loads(json.dumps(normalize_overlay(overlay)))
@@ -392,10 +454,29 @@ def apply_patch(overlay: dict[str, Any], patch: Any) -> tuple[dict[str, Any], li
             if cur.get(k) != v:
                 cur[k] = v
                 changed.append(f"{section}.{k}")
+    for section, fields in VALUE_SECTIONS.items():
+        body = patch.get(section)
+        if body is None:
+            continue
+        if not isinstance(body, dict):
+            raise SettingsError(f"{section}: expected an object")
+        cur = new.setdefault(section, {})
+        for k, v in body.items():
+            if k not in fields:
+                raise SettingsError(f"{section}.{k}: unknown ({' / '.join(fields)})")
+            if v is None:
+                if k in cur:
+                    cur.pop(k)
+                    changed.append(f"{section}.{k}")
+                continue
+            v = _clean_value(section, k, v)
+            if cur.get(k) != v:
+                cur[k] = v
+                changed.append(f"{section}.{k}")
     return normalize_overlay(new, strict=True), changed
 
 
-_KIND_MODALITY = {"image": "image", "speech": "speech", "music": "music", "transcript": "transcription"}
+_KIND_MODALITY = _MOD.CATALOG_OF
 
 
 def model_warnings(overlay: dict[str, Any]) -> list[str]:
@@ -421,7 +502,8 @@ def model_warnings(overlay: dict[str, Any]) -> list[str]:
             elif e.modality != "text":
                 out.append(f"defaults.{kind}: '{model}' is a {e.modality} model")
             continue
-        e = catalog.get(model)
+        # an OpenRouter id can name a chat model and an image model at once: ask for the kind's own
+        e = catalog.get(model, modality=_KIND_MODALITY[kind]) or catalog.get(model)
         if e is None:
             out.append(f"defaults.{kind}: '{model}' is not in the model catalog")
         elif e.modality != _KIND_MODALITY[kind]:
@@ -534,6 +616,17 @@ def describe(effective: Settings, env_only: Settings, overlay: dict[str, Any]) -
             "model": value if value is not None else BUILTIN_DEFAULTS.get(kind),
             "source": "settings" if kind in o_def else ("env" if env_set else "default"),
         }
+    values: dict[str, dict[str, Any]] = {}
+    for section, fields in VALUE_SECTIONS.items():
+        o_sec = overlay.get(section) or {}
+        env_sec = getattr(env_only, section, None)
+        values[section] = {
+            field: {
+                "value": getattr(getattr(effective, section), field),
+                "source": "settings" if field in o_sec else ("env" if env_sec is not None and field in env_sec.model_fields_set else "default"),
+            }
+            for field in fields
+        }
     env = env_file()
     return {
         "path": str(settings_path()),
@@ -541,6 +634,7 @@ def describe(effective: Settings, env_only: Settings, overlay: dict[str, Any]) -
         "providers": providers,
         "tiers": tiers,
         "defaults": defaults,
+        **values,
     }
 
 

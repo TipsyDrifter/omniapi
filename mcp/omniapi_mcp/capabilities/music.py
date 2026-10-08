@@ -5,12 +5,16 @@ Modality: text/audio -> music. Two very different provider styles:
 - **ElevenLabs Music** is SYNCHRONOUS: ``POST /v1/music`` returns audio bytes
   directly (same shape as the TTS provider, reuses the ElevenLabs key).
 - **Suno via kie.ai** is ASYNCHRONOUS: a job endpoint returns a ``taskId``; we
-  poll a record-info endpoint until the status field reads ``SUCCESS``, then
-  download the result URL. Wrapped so callers just await once.
+  poll until the task succeeds, then download the result URL straight away.
+  Wrapped so callers just await once. The HTTP side (Bearer auth, createTask /
+  recordInfo, the old per-operation endpoints, download, balance) lives in
+  ``providers/kie_client.py``; this module only maps Suno operations onto it.
 
 Suno exposes a whole family of operations (generate / extend / cover / add
-vocals / separate stems / lyrics / wav / mp4). They differ in three axes the
-engine below parametrises:
+vocals / separate stems / lyrics / wav / mp4). Each one is routed either to
+kie.ai's unified ``jobs`` endpoints or to its old per-operation endpoints —
+see ``SUNO_JOBS_MODELS`` below for the table and why. On the old route they
+differ in three axes:
   1. **result endpoint** — the audio family shares ``/generate/record-info``;
      lyrics, wav, mp4 and vocal-removal each have a dedicated one.
   2. **status field** — ``data.status`` (audio family + lyrics) vs
@@ -18,14 +22,13 @@ engine below parametrises:
   3. **output** — a downloadable file (audio/wav/mp4), multiple stem files,
      lyrics text, or timestamped-word JSON.
 
-Every Suno endpoint requires ``callBackUrl`` even though we only poll — a
+Every old Suno endpoint requires ``callBackUrl`` even though we only poll — a
 placeholder satisfies the check (verified live: it 422s without one).
 
 Reuses ``ProviderConfig`` / ``ProviderError`` from ``providers.base``; uses
 ``httpx`` (already a dependency).
 """
 
-import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -34,6 +37,7 @@ from typing import Any
 import httpx
 
 from ..providers.base import ProviderConfig, ProviderError
+from ..providers.kie_client import DEFAULT_CREDIT_USD, KieClient, KieTask, credits_to_usd
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,11 @@ class MusicResult:
     - ``files`` — named extra files, e.g. separated stems {name: bytes}
     - ``text`` — lyrics text
     - ``data`` — structured JSON (e.g. timestamped words)
+    - ``extra_tracks`` — the other songs of a job that returns more than one
+      (a Suno generate / extend / cover ... gives two): one dict per song with
+      ``audio_data``, ``audio_id``, ``title``, ``duration``, ``tags``, ``url``,
+      or ``error`` instead of ``audio_data`` when that song could not be
+      downloaded. ``audio_data`` and the metadata stay the first song's.
     """
 
     output_format: str = "mp3"
@@ -55,6 +64,7 @@ class MusicResult:
     files: dict[str, bytes] | None = None
     text: str | None = None
     data: Any = None
+    extra_tracks: list[dict[str, Any]] = field(default_factory=list)
 
 
 class MusicProvider(ABC):
@@ -152,14 +162,15 @@ class ElevenLabsMusicProvider(MusicProvider):
 
     # Allowed values per the ElevenLabs compose reference (checked 2026-09-25):
     # "Defaults to music_v1 ... Allowed values: music_v1 music_v2 music_v2_5".
-    # All three are current; music_v2_5 is the highest-quality one.
+    # ElevenLabs now lists music_v1 as deprecated (models page, 2026-10-05);
+    # music_v2_5 is the highest-quality one and costs the same per minute.
     SUPPORTED_MODELS = {"music_v1", "music_v2", "music_v2_5"}
     MODEL_STATUS: dict[str, str] = {
-        "music_v1": "current",
+        "music_v1": "deprecated",
         "music_v2": "current",
         "music_v2_5": "current",
     }
-    DEFAULT_MODEL = "music_v1"
+    DEFAULT_MODEL = "music_v2_5"
     DEFAULT_BASE = "https://api.elevenlabs.io"
     DEFAULT_OUTPUT_FORMAT = "mp3_44100_128"
 
@@ -371,13 +382,105 @@ class ElevenLabsMusicProvider(MusicProvider):
         return audio, meta
 
 
+#: Which Suno operation goes to which kie.ai endpoint family.
+#:
+#: kie.ai rewrote its docs so every model is reached through the unified
+#: ``/api/v1/jobs/createTask`` + ``/api/v1/jobs/recordInfo`` pair; the old
+#: per-operation endpoints are documented under ``docs.kie.ai/old-model/``.
+#: The request side of the new endpoints is documented per operation, but no
+#: page says what ``recordInfo``'s ``resultJson`` holds for a Suno task, so an
+#: operation moves to the new route only after a real task has shown it.
+#: Measured with a real key (V6_MINI, 2026-10-06; credits are per job):
+#:
+#:   operation          new model value (createTask)          default   resultJson seen               credits
+#:   generate           ai-music-api/generate                 jobs      {"data": [song, song]}        12
+#:   extend             ai-music-api/extend                   jobs      {"data": [song, song]}        12
+#:   cover              ai-music-api/upload-and-cover-audio   jobs      {"data": [song, song]}        12
+#:   upload_extend      ai-music-api/upload-and-extend-audio  legacy    task failed upstream (400, refunded); not seen
+#:   add_instrumental   ai-music-api/add-instrumental         jobs      {"data": [song, song]}        12
+#:   add_vocals         ai-music-api/add-vocals               jobs      {"data": [song, song]}        12
+#:   generate_lyrics    ai-music-api/generate-lyrics          jobs      {"resultObject": {"lyricsData": [..]}}  0.4
+#:   to_wav             ai-music-api/convert-to-wav-format    jobs      {"resultUrls": [wav]}         0.4
+#:   to_mp4             ai-music-api/create-music-video       jobs      {"resultUrls": [mp4]}         2
+#:   separate_vocals    (ai-music-api/separate-vocals)        LEGACY ONLY  request schema contradicts itself
+#:   get_timestamped_lyrics (ai-music-api/timeStamped-lyrics) LEGACY ONLY  sync answer vs createTask taskId
+#:
+#: A song is ``{id, title, duration, audio_url, stream_audio_url, image_url,
+#: model_name, prompt, tags, createTime}``; the same payload is repeated in the
+#: record's ``response``. ``PROVIDERS__KIE__SUNO_ROUTES`` still overrides the
+#: table (``legacy`` puts everything back on the old endpoints).
+SUNO_JOBS_MODELS: dict[str, str] = {
+    "generate": "ai-music-api/generate",
+    "extend": "ai-music-api/extend",
+    "cover": "ai-music-api/upload-and-cover-audio",
+    "upload_extend": "ai-music-api/upload-and-extend-audio",
+    "add_instrumental": "ai-music-api/add-instrumental",
+    "add_vocals": "ai-music-api/add-vocals",
+    "generate_lyrics": "ai-music-api/generate-lyrics",
+    "to_wav": "ai-music-api/convert-to-wav-format",
+    "to_mp4": "ai-music-api/create-music-video",
+}
+SUNO_LEGACY_ONLY: dict[str, str] = {
+    "separate_vocals": (
+        "the new page's input schema lists only type/stem_name (stem_name required) while its "
+        "example sends task_id/audio_id; the polled stem structure is undocumented"
+    ),
+    "get_timestamped_lyrics": (
+        "the new page posts to createTask (which answers a taskId) but its 200 example is the "
+        "synchronous lyrics payload, camelCase in the example and snake_case in the schema"
+    ),
+}
+# Operations whose unified-endpoint answer has been checked against the real
+# service (generate 2026-10-05; the other seven 2026-10-06, see the table
+# above). upload_extend stays on the old endpoint: its one real task failed
+# upstream, so its answer has not been seen.
+SUNO_VERIFIED_JOBS: frozenset[str] = frozenset({
+    "generate", "extend", "cover", "add_instrumental", "add_vocals", "generate_lyrics", "to_wav", "to_mp4",
+})
+SUNO_DEFAULT_ROUTES: dict[str, str] = {
+    **{op: ("jobs" if op in SUNO_VERIFIED_JOBS else "legacy") for op in SUNO_JOBS_MODELS},
+    **{op: "legacy" for op in SUNO_LEGACY_ONLY},
+}
+_ROUTE_ALIASES = {"lyrics": "generate_lyrics", "wav": "to_wav", "mp4": "to_mp4", "music_video": "to_mp4",
+                  "upload_cover": "cover", "timestamped_lyrics": "get_timestamped_lyrics",
+                  "separate": "separate_vocals"}
+
+
+def suno_routes(spec: str | None) -> dict[str, str]:
+    """Resolve ``PROVIDERS__KIE__SUNO_ROUTES`` into ``{operation: "jobs"|"legacy"}``.
+
+    ``""``/``default`` -> the table above; ``jobs``/``new``/``all`` -> every
+    operation that has a new-endpoint mapping; ``legacy``/``old``/``none`` ->
+    all old; otherwise a comma list of operations to move to the new route.
+    Legacy-only operations and unknown names are ignored with a warning.
+    """
+    routes = dict(SUNO_DEFAULT_ROUTES)
+    text = (spec or "").strip().lower()
+    if text in ("", "default"):
+        return routes
+    if text in ("legacy", "old", "none"):
+        return {op: "legacy" for op in routes}
+    wanted = set(SUNO_JOBS_MODELS) if text in ("jobs", "new", "all") else {
+        _ROUTE_ALIASES.get(p.strip(), p.strip()) for p in text.split(",") if p.strip()
+    }
+    for op in sorted(wanted):
+        if op in SUNO_JOBS_MODELS:
+            routes[op] = "jobs"
+        elif op in SUNO_LEGACY_ONLY:
+            logger.warning("Suno '%s' stays on the old kie.ai endpoint: %s", op, SUNO_LEGACY_ONLY[op])
+        else:
+            logger.warning("Ignoring unknown Suno operation %r in the kie.ai route setting", op)
+    return routes
+
+
 class SunoProvider(MusicProvider):
     """Suno via the kie.ai aggregator — asynchronous, wrapped to look synchronous.
 
-    Every job endpoint returns ``data.taskId``; we poll the matching record-info
-    endpoint until the status field is ``SUCCESS``, then download the output.
-    ``callBackUrl`` is required by kie.ai even for polling — a placeholder
-    satisfies it (we never receive the callback; results come from polling).
+    Each operation is sent to kie.ai either on the unified ``jobs`` route
+    (``createTask`` + ``recordInfo``) or the ``legacy`` per-operation route —
+    see the table above ``SUNO_JOBS_MODELS``. Both go through the shared
+    :class:`~omniapi_mcp.providers.kie_client.KieClient`, and the result file
+    is downloaded the moment the task succeeds.
 
     Model ids follow kie.ai's spelling. As of 2026-09-25 the kie.ai docs list
     V6 / V6_MINI / V6_WILD as current and mark V4, V4_5, V4_5PLUS, V4_5ALL, V5
@@ -409,11 +512,9 @@ class SunoProvider(MusicProvider):
         "V5": "deprecated",
         "V5_5": "deprecated",
     }
-    # add-instrumental / add-vocals accept a narrower set. kie.ai does not
-    # publish a per-model matrix for the stem-add endpoints; the nearest stated
-    # fact is that personas are "Only available for V5 (Discontinued), V5.5
-    # (Discontinued), V6, V6_MINI, and V6_WILD". We therefore allow the current
-    # V6 family, and keep the previously-documented V4_5PLUS/V5/V5_5 as a
+    # add-instrumental / add-vocals accept a narrower set. Both the old and the
+    # new kie.ai pages list V4_5PLUS, V5, V5_5, V6, V6_MINI, V6_WILD for these
+    # two. We allow the current V6 family and keep V4_5PLUS/V5/V5_5 as a
     # deprecated tail so existing callers do not break.
     STEM_ADD_MODELS = {"V6", "V6_MINI", "V6_WILD"}
     STEM_ADD_DEPRECATED = {"V4_5PLUS", "V5", "V5_5"}
@@ -421,11 +522,13 @@ class SunoProvider(MusicProvider):
     DEFAULT_ADD_MODEL = "V6"
     DEFAULT_BASE = "https://api.kie.ai"
 
-    # kie.ai rejects requests without callBackUrl even though we only poll.
+    # The old endpoints reject requests without callBackUrl even though we only
+    # poll; the new createTask documents it as optional, so it is sent there
+    # only when a caller passes one.
     _CALLBACK_PLACEHOLDER = "https://example.com/omniapi-mcp/suno-callback"
-    # Non-terminal statuses seen on both data.status and data.successFlag.
-    _PENDING = {"PENDING", "TEXT_SUCCESS", "FIRST_SUCCESS"}
-    # All the stem URL fields vocal-removal can return (camelCase, record-info).
+    # Non-terminal statuses of the old record-info endpoints (status / successFlag).
+    _PENDING = frozenset({"PENDING", "TEXT_SUCCESS", "FIRST_SUCCESS"})
+    # All the stem URL fields the old vocal-removal record-info can return.
     _STEM_FIELDS = (
         "vocalUrl",
         "instrumentalUrl",
@@ -442,185 +545,285 @@ class SunoProvider(MusicProvider):
         "brassUrl",
         "woodwindsUrl",
     )
+    # Old-endpoint paths, one place.
+    LEGACY_PATHS = {
+        "generate": "/api/v1/generate",
+        "extend": "/api/v1/generate/extend",
+        "cover": "/api/v1/generate/upload-cover",
+        "upload_extend": "/api/v1/generate/upload-extend",
+        "add_instrumental": "/api/v1/generate/add-instrumental",
+        "add_vocals": "/api/v1/generate/add-vocals",
+        "audio_record": "/api/v1/generate/record-info",
+        "separate_vocals": "/api/v1/vocal-removal/generate",
+        "separate_record": "/api/v1/vocal-removal/record-info",
+        "generate_lyrics": "/api/v1/lyrics",
+        "lyrics_record": "/api/v1/lyrics/record-info",
+        "get_timestamped_lyrics": "/api/v1/generate/get-timestamped-lyrics",
+        "to_wav": "/api/v1/wav/generate",
+        "wav_record": "/api/v1/wav/record-info",
+        "to_mp4": "/api/v1/mp4/generate",
+        "mp4_record": "/api/v1/mp4/record-info",
+    }
 
-    def __init__(self, config: ProviderConfig):
+    def __init__(
+        self,
+        config: ProviderConfig,
+        *,
+        poll_timeout: float | None = None,
+        routes: str | dict[str, str] | None = None,
+        credit_usd: float | None = None,
+        all_tracks: bool = True,
+    ):
         super().__init__(config)
         self.base_url = (config.base_url or self.DEFAULT_BASE).rstrip("/")
-        self.poll_interval = 5.0  # seconds; ceiling is config.timeout
+        self.routes = dict(routes) if isinstance(routes, dict) else suno_routes(routes)
+        self.credit_usd = credit_usd if credit_usd is not None else DEFAULT_CREDIT_USD
+        #: download every song a job returns (Suno gives two), or only the first;
+        #: a call can override it with ``all_tracks=`` in its kwargs
+        self.all_tracks = bool(all_tracks)
+        self.kie = KieClient(
+            config.api_key,
+            base_url=self.base_url,
+            http=self._http,
+            provider_name=self.name,
+            request_timeout=config.timeout,
+            # before 1.4 one ``timeout`` was both; keep that when no ceiling is given
+            poll_timeout=poll_timeout if poll_timeout is not None else config.timeout,
+            max_retries=config.max_retries,
+        )
 
     def get_supported_models(self) -> set[str]:
         return set(self.SUPPORTED_MODELS)
 
-    # ---- shared engine ---------------------------------------------------
+    def route(self, operation: str) -> str:
+        return self.routes.get(operation, "legacy")
 
-    def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
+    # ---- request building ------------------------------------------------
 
     def _cb(self, kwargs: dict[str, Any]) -> str:
         return kwargs.get("callBackUrl") or self._CALLBACK_PLACEHOLDER
 
-    def _parse_json(self, resp: httpx.Response, label: str) -> dict[str, Any]:
-        try:
-            return resp.json() or {}
-        except Exception:
-            raise ProviderError(
-                f"Suno {label} returned non-JSON (HTTP {resp.status_code}): "
-                f"{resp.text[:200]}",
-                provider_name=self.name,
-                error_code="BAD_RESPONSE",
-            )
+    @staticmethod
+    def _common(kwargs: dict[str, Any], *, persona: bool = True) -> dict[str, Any]:
+        """The optional style/weight/persona params shared by most jobs, keyed
+        by their new (snake_case) names. Read from the camelCase kwargs the
+        tool layer has always passed."""
+        out: dict[str, Any] = {}
+        vocal_gender = kwargs.get("vocalGender") or kwargs.get("vocal_gender")
+        if vocal_gender:
+            out["vocal_gender"] = vocal_gender
+        if kwargs.get("negativeTags"):
+            out["negative_tags"] = kwargs["negativeTags"]
+        for camel, snake in (("styleWeight", "style_weight"), ("weirdnessConstraint", "weirdness_constraint"),
+                             ("audioWeight", "audio_weight")):
+            if kwargs.get(camel) is not None:
+                out[snake] = kwargs[camel]
+        if persona:
+            for camel, snake in (("personaId", "persona_id"), ("personaModel", "persona_model")):
+                if kwargs.get(camel):
+                    out[snake] = kwargs[camel]
+        return out
 
-    async def _submit(
-        self, client: httpx.AsyncClient, endpoint: str, body: dict[str, Any]
-    ) -> str:
-        """POST a job endpoint and return its taskId."""
-        try:
-            resp = await client.post(
-                f"{self.base_url}{endpoint}", headers=self._headers(), json=body
-            )
-        except Exception as e:
-            raise ProviderError(
-                f"Suno request to {endpoint} failed: {e}",
-                provider_name=self.name,
-                error_code="REQUEST_FAILED",
-            )
-        data = self._parse_json(resp, endpoint)
-        task_id = (data.get("data") or {}).get("taskId")
-        if resp.status_code != 200 or not task_id:
-            raise ProviderError(
-                f"Suno {endpoint} failed (HTTP {resp.status_code}): "
-                f"{resp.text[:300]}",
-                provider_name=self.name,
-                error_code="GENERATION_FAILED",
-            )
-        return task_id
+    _CAMEL = {
+        "vocal_gender": "vocalGender",
+        "negative_tags": "negativeTags",
+        "style_weight": "styleWeight",
+        "weirdness_constraint": "weirdnessConstraint",
+        "audio_weight": "audioWeight",
+        "persona_id": "personaId",
+        "persona_model": "personaModel",
+    }
 
-    async def _poll(
-        self,
-        client: httpx.AsyncClient,
-        endpoint: str,
-        task_id: str,
-        status_field: str = "status",
-    ) -> dict[str, Any]:
-        """Poll a record-info endpoint until SUCCESS; return the ``data`` dict.
+    def _legacy_common(self, body: dict[str, Any], kwargs: dict[str, Any]) -> None:
+        """The pre-1.4 ``_apply_common``: same keys, same order, camelCase."""
+        for snake, value in self._common(kwargs).items():
+            body[self._CAMEL[snake]] = value
 
-        ``status_field`` is ``status`` for the audio family + lyrics, or
-        ``successFlag`` for wav / mp4 / vocal-removal. Raises on error/timeout.
-        """
-        url = f"{self.base_url}{endpoint}"
-        deadline = self.config.timeout
-        waited = 0.0
-        while waited < deadline:
-            try:
-                resp = await client.get(
-                    url, headers=self._headers(), params={"taskId": task_id}
-                )
-            except Exception as e:
-                raise ProviderError(
-                    f"Suno poll {endpoint} failed: {e}",
-                    provider_name=self.name,
-                    error_code="REQUEST_FAILED",
-                )
-            data = self._parse_json(resp, endpoint).get("data") or {}
-            status = data.get(status_field)
-            if status == "SUCCESS":
-                return data
-            if status and status not in self._PENDING:
-                msg = data.get("errorMessage") or status
-                raise ProviderError(
-                    f"Suno task failed: {msg}",
-                    provider_name=self.name,
-                    error_code=str(data.get("errorCode") or "GENERATION_FAILED"),
-                )
-            await asyncio.sleep(self.poll_interval)
-            waited += self.poll_interval
+    def _jobs_callback(self, kwargs: dict[str, Any]) -> str | None:
+        return kwargs.get("callBackUrl") or None
 
-        raise ProviderError(
-            f"Suno task timed out after {int(deadline)}s (task {task_id}).",
+    # ---- result handling ---------------------------------------------------
+
+    def _cost(self, credits: float | None) -> float | None:
+        # creditsConsumed (recordInfo) x USD per credit (catalog pricing.credit_usd)
+        return credits_to_usd(credits, self.credit_usd)
+
+    def _unrecognised(self, task: KieTask, what: str) -> ProviderError:
+        snippet = (task.result_raw or "")[:300]
+        return ProviderError(
+            f"kie.ai task {task.task_id} succeeded but its resultJson has no {what} we recognise "
+            f"(the task is paid for; resultJson: {snippet!r})",
             provider_name=self.name,
-            error_code="TIMEOUT",
+            error_code="UNRECOGNISED_RESULT",
         )
 
-    async def _download(self, client: httpx.AsyncClient, url: str) -> bytes:
+    @staticmethod
+    def _containers(result: Any) -> list[Any]:
+        """Places a Suno payload may sit in ``resultJson``. Seen for real: the
+        songs at the top level under ``data`` and the lyrics under
+        ``resultObject.lyricsData``; ``response`` (the old record-info's
+        wrapper) is kept as a fallback in case kie moves things again."""
+        out: list[Any] = [result]
+        if isinstance(result, dict):
+            for key in ("resultObject", "response", "data"):
+                if key in result:
+                    out.append(result[key])
+            ro = result.get("resultObject")
+            if isinstance(ro, dict):
+                out.extend(ro[k] for k in ("response", "data") if k in ro)
+        return out
+
+    @classmethod
+    def _find_list(cls, result: Any, keys: tuple[str, ...], need: tuple[str, ...]) -> list[dict[str, Any]]:
+        """The first list of dicts that has one of ``need`` (guess, see above)."""
+        for box in cls._containers(result):
+            candidates = [box] if isinstance(box, list) else [box.get(k) for k in keys] if isinstance(box, dict) else []
+            for cand in candidates:
+                if isinstance(cand, list) and cand and all(isinstance(i, dict) for i in cand):
+                    if any(any(i.get(n) for n in need) for i in cand):
+                        return cand
+        return []
+
+    @classmethod
+    def _find_value(cls, result: Any, keys: tuple[str, ...]) -> Any:
+        for box in cls._containers(result):
+            if isinstance(box, dict):
+                for k in keys:
+                    if box.get(k):
+                        return box[k]
+        return None
+
+    @staticmethod
+    def _result_urls(result: Any) -> list[str]:
+        """The one documented shape: ``{"resultUrls": [...]}``."""
+        urls = result.get("resultUrls") if isinstance(result, dict) else None
+        return [u for u in urls if isinstance(u, str) and u] if isinstance(urls, list) else []
+
+    @staticmethod
+    def _track_url(track: dict[str, Any]) -> str | None:
+        return track.get("audioUrl") or track.get("audio_url")
+
+    async def _legacy_tracks(self, task_id: str) -> list[dict[str, Any]]:
+        """Fallback for a jobs task whose resultJson has URLs but no track ids:
+        the new pages say the taskId is used with "Get Music Details", which is
+        the old ``/generate/record-info``. Whether that endpoint knows a jobs
+        task is NOT verified; any failure just returns []."""
         try:
-            dl = await client.get(url)
-        except Exception as e:
-            raise ProviderError(
-                f"Failed to download Suno output: {e}",
-                provider_name=self.name,
-                error_code="DOWNLOAD_FAILED",
-            )
-        if dl.status_code != 200:
-            raise ProviderError(
-                f"Failed to download Suno output (HTTP {dl.status_code}).",
-                provider_name=self.name,
-                error_code="DOWNLOAD_FAILED",
-            )
-        return dl.content
+            status, body = await self.kie.legacy_get(self.LEGACY_PATHS["audio_record"], {"taskId": task_id})
+        except Exception as e:  # noqa: BLE001 - best effort only
+            self._logger.info("Old record-info lookup for jobs task %s failed: %s", task_id, e)
+            return []
+        if status != 200 or not isinstance(body, dict):
+            return []
+        data = body.get("data") or {}
+        tracks = ((data.get("response") or {}).get("sunoData")) if isinstance(data, dict) else None
+        return [t for t in tracks if isinstance(t, dict)] if isinstance(tracks, list) else []
+
+    def _audio_music_result(
+        self, op: str, task_id: str, songs: list[tuple[str | None, dict[str, Any]]], audio: bytes, route: str,
+        cost: float | None = None,
+    ) -> MusicResult:
+        """The first song's metadata, plus every song's id and URL. ``songs`` is
+        ``[(url, track dict), ...]`` in kie's order, the downloaded one first."""
+        track = songs[0][1] if songs else {}
+        meta: dict[str, Any] = {
+            "provider": self.name,
+            "operation": op,
+            "task_id": task_id,
+            "audio_id": track.get("id"),
+            "audio_ids": [t.get("id") for _, t in songs if t],
+            "title": track.get("title"),
+            "duration": track.get("duration"),
+            "tags": track.get("tags"),
+            "all_tracks": [u for u, _ in songs],
+            "route": route,
+        }
+        if cost is not None:
+            meta["cost_usd"] = cost
+        return MusicResult(audio_data=audio, output_format="mp3", metadata=meta)
+
+    def _want_all(self, kwargs: dict[str, Any]) -> bool:
+        flag = kwargs.get("all_tracks")
+        return self.all_tracks if flag is None else bool(flag)
+
+    async def _finish_audio(
+        self, op: str, task_id: str, songs: list[tuple[str | None, dict[str, Any]]], route: str,
+        kwargs: dict[str, Any], cost: float | None = None,
+    ) -> MusicResult:
+        """Download the first song (a failure here fails the call, as before),
+        then, unless switched off, every other song. The other songs are best
+        effort: the job is already paid for, so one that cannot be fetched is
+        reported in ``extra_tracks`` with an ``error`` instead of failing."""
+        first_url = songs[0][0]
+        audio = await self.kie.download(first_url)  # type: ignore[arg-type]
+        result = self._audio_music_result(op, task_id, songs, audio, route, cost=cost)
+        if not self._want_all(kwargs):
+            return result
+        for url, track in songs[1:]:
+            entry: dict[str, Any] = {
+                "audio_id": track.get("id"),
+                "title": track.get("title"),
+                "duration": track.get("duration"),
+                "tags": track.get("tags"),
+                "url": url,
+            }
+            if not url:
+                entry["error"] = "this song came back without an audio URL"
+            else:
+                try:
+                    entry["audio_data"] = await self.kie.download(url)
+                except ProviderError as e:
+                    self._logger.warning("Suno %s task %s: song %s could not be downloaded: %s",
+                                         op, task_id, track.get("id") or url, e)
+                    entry["error"] = str(e)
+            result.extra_tracks.append(entry)
+        return result
 
     async def _run_audio(
-        self, endpoint: str, body: dict[str, Any], op: str
+        self, op: str, legacy_body: dict[str, Any], jobs_input: dict[str, Any], kwargs: dict[str, Any]
     ) -> MusicResult:
-        """Submit an audio-family job, poll /generate/record-info, download track."""
-        self._logger.info("Suno %s -> %s", op, endpoint)
-        client = self._http()
-        task_id = await self._submit(client, endpoint, body)
-        data = await self._poll(
-            client, "/api/v1/generate/record-info", task_id, "status"
-        )
-        suno_data = ((data.get("response") or {}).get("sunoData")) or []
+        """Run an audio-family job on its route and download its songs (Suno
+        answers with two; see ``_finish_audio``)."""
+        if self.route(op) == "jobs":
+            self._logger.info("Suno %s -> createTask %s", op, SUNO_JOBS_MODELS[op])
+            task = await self.kie.run(SUNO_JOBS_MODELS[op], jobs_input, callback_url=self._jobs_callback(kwargs))
+            tracks = [t for t in self._find_list(task.result, ("sunoData", "data", "tracks"), ("audio_url", "audioUrl"))]
+            if tracks and self._track_url(tracks[0]):
+                songs: list[tuple[str | None, dict[str, Any]]] = [(self._track_url(t), t) for t in tracks]
+            else:
+                urls = self._result_urls(task.result)
+                if not urls:
+                    raise self._unrecognised(task, "audio URL")
+                # bare URLs: ids / titles come from the old record-info when it
+                # knows this task, matched by URL (the order is not known)
+                known = await self._legacy_tracks(task.task_id)
+                by_url = {self._track_url(t): t for t in known if self._track_url(t)}
+                songs = [(u, by_url.get(u, {})) for u in urls]
+                songs += [(u, t) for u, t in by_url.items() if u not in urls]
+            return await self._finish_audio(op, task.task_id, songs, "jobs", kwargs,
+                                            cost=self._cost(task.credits_consumed))
+
+        path = self.LEGACY_PATHS[op]
+        self._logger.info("Suno %s -> %s", op, path)
+        task_id = await self.kie.legacy_submit(path, legacy_body)
+        data = await self.kie.legacy_poll(self.LEGACY_PATHS["audio_record"], task_id, status_field="status",
+                                          pending=self._PENDING)
+        suno_data = [t for t in (((data.get("response") or {}).get("sunoData")) or []) if isinstance(t, dict)]
         if not suno_data:
             raise ProviderError(
                 "Suno reported SUCCESS but returned no sunoData.",
                 provider_name=self.name,
                 error_code="NO_AUDIO",
             )
-        track = suno_data[0]
-        audio_url = track.get("audioUrl") or track.get("audio_url")
-        if not audio_url:
+        if not self._track_url(suno_data[0]):
             raise ProviderError(
                 "Suno finished but returned no audio URL.",
                 provider_name=self.name,
                 error_code="NO_AUDIO",
             )
-        audio = await self._download(client, audio_url)
-
-        return MusicResult(
-            audio_data=audio,
-            output_format="mp3",
-            metadata={
-                "provider": self.name,
-                "operation": op,
-                "task_id": task_id,
-                "audio_id": track.get("id"),
-                "audio_ids": [t.get("id") for t in suno_data],
-                "title": track.get("title"),
-                "duration": track.get("duration"),
-                "tags": track.get("tags"),
-                "all_tracks": [
-                    t.get("audioUrl") or t.get("audio_url") for t in suno_data
-                ],
-            },
-        )
+        return await self._finish_audio(op, task_id, [(self._track_url(t), t) for t in suno_data], "legacy", kwargs)
 
     # ---- text -> music (generate) ---------------------------------------
-
-    def _apply_common(self, body: dict[str, Any], kwargs: dict[str, Any]) -> None:
-        """Attach the optional style/weight/persona params shared by most jobs."""
-        vocal_gender = kwargs.get("vocalGender") or kwargs.get("vocal_gender")
-        if vocal_gender:
-            body["vocalGender"] = vocal_gender
-        if kwargs.get("negativeTags"):
-            body["negativeTags"] = kwargs["negativeTags"]
-        for key in ("styleWeight", "weirdnessConstraint", "audioWeight"):
-            if kwargs.get(key) is not None:
-                body[key] = kwargs[key]
-        for key in ("personaId", "personaModel"):
-            if kwargs.get(key):
-                body[key] = kwargs[key]
 
     async def generate(
         self,
@@ -656,8 +859,20 @@ class SunoProvider(MusicProvider):
             body["style"] = style
         if title:
             body["title"] = title
-        self._apply_common(body, kwargs)
-        return await self._run_audio("/api/v1/generate", body, "generate")
+        self._legacy_common(body, kwargs)
+
+        jobs: dict[str, Any] = {
+            "prompt": prompt,
+            "model": model_id,
+            "custom_mode": custom_mode,
+            "instrumental": bool(instrumental),
+        }
+        if style:
+            jobs["style"] = style
+        if title:
+            jobs["title"] = title
+        jobs.update(self._common(kwargs))
+        return await self._run_audio("generate", body, jobs, kwargs)
 
     # ---- extend / cover / upload-extend ---------------------------------
 
@@ -682,6 +897,9 @@ class SunoProvider(MusicProvider):
             "defaultParamFlag": bool(default_param_flag),
             "callBackUrl": self._cb(kwargs),
         }
+        # The new endpoint has no defaultParamFlag: leaving prompt/style/title/
+        # continue_at out is how it inherits the source track's settings.
+        jobs: dict[str, Any] = {"audio_id": audio_id, "model": model_id}
         if default_param_flag:
             if not (prompt and style and title and continue_at is not None):
                 raise ProviderError(
@@ -692,8 +910,10 @@ class SunoProvider(MusicProvider):
             body.update(
                 prompt=prompt, style=style, title=title, continueAt=continue_at
             )
-        self._apply_common(body, kwargs)
-        return await self._run_audio("/api/v1/generate/extend", body, "extend")
+            jobs.update(prompt=prompt, style=style, title=title, continue_at=continue_at)
+        self._legacy_common(body, kwargs)
+        jobs.update(self._common(kwargs))
+        return await self._run_audio("extend", body, jobs, kwargs)
 
     async def cover(
         self,
@@ -728,10 +948,21 @@ class SunoProvider(MusicProvider):
             body["style"] = style
         if title:
             body["title"] = title
-        self._apply_common(body, kwargs)
-        return await self._run_audio(
-            "/api/v1/generate/upload-cover", body, "cover"
-        )
+        self._legacy_common(body, kwargs)
+
+        # The new page has no custom_mode field (nor does the rewritten old one).
+        jobs: dict[str, Any] = {
+            "upload_url": upload_url,
+            "prompt": prompt,
+            "instrumental": bool(instrumental),
+            "model": model_id,
+        }
+        if style:
+            jobs["style"] = style
+        if title:
+            jobs["title"] = title
+        jobs.update(self._common(kwargs))
+        return await self._run_audio("cover", body, jobs, kwargs)
 
     async def upload_extend(
         self,
@@ -758,6 +989,7 @@ class SunoProvider(MusicProvider):
             "model": model_id,
             "callBackUrl": self._cb(kwargs),
         }
+        jobs: dict[str, Any] = {"upload_url": upload_url, "instrumental": bool(instrumental), "model": model_id}
         if default_param_flag:
             if not (prompt and style and title and continue_at is not None):
                 raise ProviderError(
@@ -768,10 +1000,10 @@ class SunoProvider(MusicProvider):
             body.update(
                 prompt=prompt, style=style, title=title, continueAt=continue_at
             )
-        self._apply_common(body, kwargs)
-        return await self._run_audio(
-            "/api/v1/generate/upload-extend", body, "upload_extend"
-        )
+            jobs.update(prompt=prompt, style=style, title=title, continue_at=continue_at)
+        self._legacy_common(body, kwargs)
+        jobs.update(self._common(kwargs))
+        return await self._run_audio("upload_extend", body, jobs, kwargs)
 
     # ---- add instrumental / vocals (narrower model set) -----------------
 
@@ -798,10 +1030,17 @@ class SunoProvider(MusicProvider):
             "model": model_id,
             "callBackUrl": self._cb(kwargs),
         }
-        self._apply_common(body, kwargs)
-        return await self._run_audio(
-            "/api/v1/generate/add-instrumental", body, "add_instrumental"
-        )
+        self._legacy_common(body, kwargs)
+        # the new page lists no persona fields for this operation
+        jobs: dict[str, Any] = {
+            "upload_url": upload_url,
+            "title": title,
+            "tags": tags,
+            "negative_tags": negative_tags,
+            "model": model_id,
+        }
+        jobs.update(self._common(kwargs, persona=False))
+        return await self._run_audio("add_instrumental", body, jobs, kwargs)
 
     async def add_vocals(
         self,
@@ -828,12 +1067,19 @@ class SunoProvider(MusicProvider):
             "model": model_id,
             "callBackUrl": self._cb(kwargs),
         }
-        self._apply_common(body, kwargs)
-        return await self._run_audio(
-            "/api/v1/generate/add-vocals", body, "add_vocals"
-        )
+        self._legacy_common(body, kwargs)
+        jobs: dict[str, Any] = {
+            "prompt": prompt,
+            "title": title,
+            "negative_tags": negative_tags,
+            "style": style,
+            "upload_url": upload_url,
+            "model": model_id,
+        }
+        jobs.update(self._common(kwargs, persona=False))
+        return await self._run_audio("add_vocals", body, jobs, kwargs)
 
-    # ---- separate vocals / stems (dedicated record-info, successFlag) ----
+    # ---- separate vocals / stems (old route only) ------------------------
 
     async def separate_vocals(
         self,
@@ -856,16 +1102,9 @@ class SunoProvider(MusicProvider):
             "callBackUrl": self._cb(kwargs),
         }
         self._logger.info("Suno separate_vocals (%s)", separation_type)
-        client = self._http()
-        new_task = await self._submit(
-            client, "/api/v1/vocal-removal/generate", body
-        )
-        data = await self._poll(
-            client,
-            "/api/v1/vocal-removal/record-info",
-            new_task,
-            "successFlag",
-        )
+        new_task = await self.kie.legacy_submit(self.LEGACY_PATHS["separate_vocals"], body)
+        data = await self.kie.legacy_poll(self.LEGACY_PATHS["separate_record"], new_task,
+                                          status_field="successFlag", pending=self._PENDING)
         resp = data.get("response") or {}
         files: dict[str, bytes] = {}
         for key in self._STEM_FIELDS:
@@ -873,7 +1112,7 @@ class SunoProvider(MusicProvider):
             if url:
                 # e.g. "vocalUrl" -> "vocal"
                 name = key[:-3] if key.endswith("Url") else key
-                files[name] = await self._download(client, url)
+                files[name] = await self.kie.download(url)
         if not files:
             raise ProviderError(
                 "Vocal separation returned no stem URLs.",
@@ -890,67 +1129,61 @@ class SunoProvider(MusicProvider):
                 "task_id": new_task,
                 "source_task_id": task_id,
                 "stems": sorted(files),
+                "route": "legacy",
             },
         )
 
-    # ---- lyrics (dedicated record-info, status) -------------------------
+    # ---- lyrics ------------------------------------------------------------
 
     async def generate_lyrics(self, *, prompt: str, **kwargs: Any) -> MusicResult:
-        body = {"prompt": prompt, "callBackUrl": self._cb(kwargs)}
-        self._logger.info("Suno generate_lyrics")
-        client = self._http()
-        task_id = await self._submit(client, "/api/v1/lyrics", body)
-        data = await self._poll(
-            client, "/api/v1/lyrics/record-info", task_id, "status"
-        )
-        items = ((data.get("response") or {}).get("data")) or []
-        if not items:
-            raise ProviderError(
-                "Lyrics job succeeded but returned no text.",
-                provider_name=self.name,
-                error_code="NO_LYRICS",
-            )
+        self._logger.info("Suno generate_lyrics (%s)", self.route("generate_lyrics"))
+        cost: float | None = None
+        if self.route("generate_lyrics") == "jobs":
+            task = await self.kie.run(SUNO_JOBS_MODELS["generate_lyrics"], {"prompt": prompt},
+                                      callback_url=self._jobs_callback(kwargs))
+            task_id = task.task_id
+            items = self._find_list(task.result, ("lyricsData", "data", "lyrics"), ("text",))  # seen: resultObject.lyricsData
+            if not items:
+                text = self._find_value(task.result, ("text", "lyrics"))
+                if isinstance(text, str) and text:
+                    items = [{"text": text, "title": self._find_value(task.result, ("title",))}]
+            if not items:
+                raise self._unrecognised(task, "lyrics text")
+            cost = self._cost(task.credits_consumed)
+        else:
+            body = {"prompt": prompt, "callBackUrl": self._cb(kwargs)}
+            task_id = await self.kie.legacy_submit(self.LEGACY_PATHS["generate_lyrics"], body)
+            data = await self.kie.legacy_poll(self.LEGACY_PATHS["lyrics_record"], task_id,
+                                              status_field="status", pending=self._PENDING)
+            items = ((data.get("response") or {}).get("data")) or []
+            if not items:
+                raise ProviderError(
+                    "Lyrics job succeeded but returned no text.",
+                    provider_name=self.name,
+                    error_code="NO_LYRICS",
+                )
         first = items[0]
-        return MusicResult(
-            output_format="txt",
-            text=first.get("text"),
-            metadata={
-                "provider": self.name,
-                "operation": "generate_lyrics",
-                "task_id": task_id,
-                "title": first.get("title"),
-                "variants": [i.get("text") for i in items],
-            },
-        )
+        meta: dict[str, Any] = {
+            "provider": self.name,
+            "operation": "generate_lyrics",
+            "task_id": task_id,
+            "title": first.get("title"),
+            "variants": [i.get("text") for i in items],
+            "route": self.route("generate_lyrics"),
+        }
+        if cost is not None:
+            meta["cost_usd"] = cost
+        return MusicResult(output_format="txt", text=first.get("text"), metadata=meta)
 
-    # ---- timestamped lyrics (SYNCHRONOUS, no callback/poll) --------------
+    # ---- timestamped lyrics (old route only; SYNCHRONOUS) ------------------
 
     async def get_timestamped_lyrics(
         self, *, task_id: str, audio_id: str, **kwargs: Any
     ) -> MusicResult:
         body = {"taskId": task_id, "audioId": audio_id}
         self._logger.info("Suno get_timestamped_lyrics (sync)")
-        try:
-            resp = await self._http().post(
-                f"{self.base_url}/api/v1/generate/get-timestamped-lyrics",
-                headers=self._headers(),
-                json=body,
-            )
-        except Exception as e:
-            raise ProviderError(
-                f"Suno get-timestamped-lyrics failed: {e}",
-                provider_name=self.name,
-                error_code="REQUEST_FAILED",
-            )
-        payload = self._parse_json(resp, "get-timestamped-lyrics")
-        if resp.status_code != 200:
-            raise ProviderError(
-                f"Suno get-timestamped-lyrics HTTP {resp.status_code}: "
-                f"{resp.text[:200]}",
-                provider_name=self.name,
-                error_code="GENERATION_FAILED",
-            )
-        data = payload.get("data") or {}
+        payload = await self.kie.legacy_post(self.LEGACY_PATHS["get_timestamped_lyrics"], body)
+        data = (payload.get("data") if isinstance(payload, dict) else None) or {}
         return MusicResult(
             output_format="json",
             data={
@@ -961,10 +1194,43 @@ class SunoProvider(MusicProvider):
                 "provider": self.name,
                 "operation": "get_timestamped_lyrics",
                 "source_task_id": task_id,
+                "route": "legacy",
             },
         )
 
-    # ---- format conversion: wav / mp4 (dedicated record-info, successFlag)
+    # ---- format conversion: wav / mp4 ------------------------------------
+
+    async def _run_file(
+        self,
+        op: str,
+        legacy_body: dict[str, Any],
+        jobs_input: dict[str, Any],
+        kwargs: dict[str, Any],
+        *,
+        record_key: str,
+        legacy_field: str,
+        jobs_fields: tuple[str, ...],
+        missing_code: str,
+        missing_msg: str,
+    ) -> tuple[str, bytes, float | None]:
+        """wav / mp4: one output file. Returns ``(task_id, bytes, cost_usd)``."""
+        if self.route(op) == "jobs":
+            task = await self.kie.run(SUNO_JOBS_MODELS[op], jobs_input, callback_url=self._jobs_callback(kwargs))
+            # seen for real: {"resultUrls": [url]}; a named field is the fallback
+            urls = self._result_urls(task.result)
+            url = urls[0] if urls else self._find_value(task.result, jobs_fields)
+            if not isinstance(url, str):
+                url = None
+            if not url:
+                raise self._unrecognised(task, "file URL")
+            return task.task_id, await self.kie.download(url), self._cost(task.credits_consumed)
+        new_task = await self.kie.legacy_submit(self.LEGACY_PATHS[op], legacy_body)
+        data = await self.kie.legacy_poll(self.LEGACY_PATHS[record_key], new_task, status_field="successFlag",
+                                          pending=self._PENDING)
+        url = (data.get("response") or {}).get(legacy_field)
+        if not url:
+            raise ProviderError(missing_msg, provider_name=self.name, error_code=missing_code)
+        return new_task, await self.kie.download(url), None
 
     async def to_wav(
         self, *, task_id: str, audio_id: str, **kwargs: Any
@@ -974,30 +1240,23 @@ class SunoProvider(MusicProvider):
             "audioId": audio_id,
             "callBackUrl": self._cb(kwargs),
         }
-        self._logger.info("Suno to_wav")
-        client = self._http()
-        new_task = await self._submit(client, "/api/v1/wav/generate", body)
-        data = await self._poll(
-            client, "/api/v1/wav/record-info", new_task, "successFlag"
+        self._logger.info("Suno to_wav (%s)", self.route("to_wav"))
+        new_task, audio, cost = await self._run_file(
+            "to_wav", body, {"task_id": task_id, "audio_id": audio_id}, kwargs,
+            record_key="wav_record", legacy_field="audioWavUrl",
+            jobs_fields=("audioWavUrl", "audio_wav_url", "wavUrl", "wav_url"),
+            missing_code="NO_AUDIO", missing_msg="WAV job succeeded but returned no URL.",
         )
-        wav_url = (data.get("response") or {}).get("audioWavUrl")
-        if not wav_url:
-            raise ProviderError(
-                "WAV job succeeded but returned no URL.",
-                provider_name=self.name,
-                error_code="NO_AUDIO",
-            )
-        audio = await self._download(client, wav_url)
-        return MusicResult(
-            audio_data=audio,
-            output_format="wav",
-            metadata={
-                "provider": self.name,
-                "operation": "to_wav",
-                "task_id": new_task,
-                "source_task_id": task_id,
-            },
-        )
+        meta: dict[str, Any] = {
+            "provider": self.name,
+            "operation": "to_wav",
+            "task_id": new_task,
+            "source_task_id": task_id,
+            "route": self.route("to_wav"),
+        }
+        if cost is not None:
+            meta["cost_usd"] = cost
+        return MusicResult(audio_data=audio, output_format="wav", metadata=meta)
 
     async def to_mp4(
         self,
@@ -1013,35 +1272,31 @@ class SunoProvider(MusicProvider):
             "audioId": audio_id,
             "callBackUrl": self._cb(kwargs),
         }
+        jobs: dict[str, Any] = {"task_id": task_id, "audio_id": audio_id}
         if author:
             body["author"] = author
+            jobs["author"] = author
         if domain_name:
             body["domainName"] = domain_name
-        self._logger.info("Suno to_mp4")
-        client = self._http()
-        new_task = await self._submit(client, "/api/v1/mp4/generate", body)
-        data = await self._poll(
-            client, "/api/v1/mp4/record-info", new_task, "successFlag"
+            jobs["domain_name"] = domain_name
+        self._logger.info("Suno to_mp4 (%s)", self.route("to_mp4"))
+        new_task, video, cost = await self._run_file(
+            "to_mp4", body, jobs, kwargs,
+            record_key="mp4_record", legacy_field="videoUrl",
+            jobs_fields=("videoUrl", "video_url"),
+            missing_code="NO_VIDEO", missing_msg="MP4 job succeeded but returned no URL.",
         )
-        video_url = (data.get("response") or {}).get("videoUrl")
-        if not video_url:
-            raise ProviderError(
-                "MP4 job succeeded but returned no URL.",
-                provider_name=self.name,
-                error_code="NO_VIDEO",
-            )
-        video = await self._download(client, video_url)
-        return MusicResult(
-            audio_data=video,
-            output_format="mp4",
-            metadata={
-                "provider": self.name,
-                "operation": "to_mp4",
-                "task_id": new_task,
-                "source_task_id": task_id,
-                "type": "video",
-            },
-        )
+        meta: dict[str, Any] = {
+            "provider": self.name,
+            "operation": "to_mp4",
+            "task_id": new_task,
+            "source_task_id": task_id,
+            "type": "video",
+            "route": self.route("to_mp4"),
+        }
+        if cost is not None:
+            meta["cost_usd"] = cost
+        return MusicResult(audio_data=video, output_format="mp4", metadata=meta)
 
 
 class LyriaProvider(MusicProvider):

@@ -44,8 +44,8 @@ class ProviderRegistry:
             # Register the provider
             self._providers[provider.name] = provider
 
-            # Map all supported models to this provider
-            supported_models = provider.get_supported_models()
+            # Map all supported models to this provider (a live roster is asked per call instead)
+            supported_models = set() if getattr(provider, "dynamic_models", False) else provider.get_supported_models()
             for model_id in supported_models:
                 if model_id in self._model_to_provider:
                     existing_provider = self._model_to_provider[model_id]
@@ -112,6 +112,10 @@ class ProviderRegistry:
         provider_name = self._model_to_provider.get(model_id)
         if provider_name:
             return self._providers.get(provider_name)
+        # a provider whose roster is live (OpenRouter, 1.4-M2) is asked per model
+        for provider in self._providers.values():
+            if getattr(provider, "dynamic_models", False) and provider.supports_model(model_id):
+                return provider
         return None
 
     def get_all_providers(self) -> list[LLMProvider]:
@@ -138,7 +142,11 @@ class ProviderRegistry:
         Returns:
             Set of all supported model IDs
         """
-        return set(self._model_to_provider.keys())
+        out = set(self._model_to_provider.keys())
+        for provider in self._providers.values():
+            if getattr(provider, "dynamic_models", False):
+                out |= provider.get_supported_models()
+        return out
 
     def get_models_by_provider(self) -> dict[str, set[str]]:
         """Get models grouped by provider.
@@ -160,7 +168,7 @@ class ProviderRegistry:
         Returns:
             True if the model is supported
         """
-        return model_id in self._model_to_provider
+        return model_id in self._model_to_provider or self.get_provider_for_model(model_id) is not None
 
     def get_model_info(self, model_id: str) -> dict[str, Any] | None:
         """Get detailed information about a model.

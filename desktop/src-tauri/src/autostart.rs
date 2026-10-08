@@ -15,7 +15,8 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub const RUN_VALUE: &str = "OmniAPI";
+/// `OmniAPI` (the test build: `OmniAPI-Test`, see identity.rs).
+pub const RUN_VALUE: &str = crate::identity::RUN_VALUE;
 /// What the logon entry passes: start in the tray, do not open the window.
 pub const ARG: &str = "--background";
 pub const LEGACY_VBS: &str = "OmniAPI Daemon.vbs";
@@ -104,6 +105,7 @@ mod tests {
         assert!(Legacy { startup_vbs: Some(PathBuf::from("x.vbs")), task: true }.describe().contains(" + "));
     }
 
+    #[cfg(not(feature = "test-identity"))]
     #[test]
     fn run_value_is_what_the_cli_reads() {
         // mcp/omniapi_mcp/cli.py: DESKTOP_RUN_VALUE = "OmniAPI"

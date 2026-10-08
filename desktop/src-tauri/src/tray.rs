@@ -85,7 +85,7 @@ pub fn status_text(s: &Snapshot, now_ms: u64) -> String {
 
 /// Windows cuts tray tooltips at 127 characters.
 pub fn tooltip(status: &str) -> String {
-    let t = format!("OmniAPI — {status}");
+    let t = format!("{} — {status}", crate::identity::title());
     if t.chars().count() <= 120 {
         t
     } else {
@@ -210,6 +210,8 @@ mod tests {
     fn tooltip_fits_windows_limit() {
         let long = "很".repeat(300);
         assert!(tooltip(&long).chars().count() <= 120);
+        assert_eq!(tooltip("ok"), format!("{} — ok", crate::identity::title()));
+        #[cfg(not(feature = "test-identity"))]
         assert_eq!(tooltip("ok"), "OmniAPI — ok");
     }
 }

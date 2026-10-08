@@ -1,0 +1,90 @@
+{
+ "request": {
+  "model": "ai-music-api/add-vocals",
+  "input": {
+   "prompt": "soft humming over the piano",
+   "title": "Probe vocals",
+   "negative_tags": "screamo",
+   "style": "soft pop",
+   "upload_url": "https://files.kie.test/r/song-1.mp3",
+   "model": "V6_MINI"
+  },
+  "callBackUrl": null
+ },
+ "pending": {
+  "status": 200,
+  "data": {
+   "taskId": "task5",
+   "model": "ai-music-api/add-vocals",
+   "state": "generating",
+   "param": "{\"input\": \"{\\\"negative_tags\\\": \\\"screamo\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"style\\\": \\\"soft pop\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe vocals\\\", \\\"prompt\\\": \\\"soft humming over the piano\\\"}\", \"model\": \"ai-music-api/add-vocals\"}",
+   "resultJson": "",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": null,
+   "completeTime": null,
+   "createTime": 1791278012323,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/add-vocals",
+   "status": "PENDING",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "successFlag": 0,
+   "paramJson": "{\"input\": \"{\\\"negative_tags\\\": \\\"screamo\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"style\\\": \\\"soft pop\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe vocals\\\", \\\"prompt\\\": \\\"soft humming over the piano\\\"}\", \"model\": \"ai-music-api/add-vocals\"}"
+  }
+ },
+ "final": {
+  "status": 200,
+  "data": {
+   "taskId": "task5",
+   "model": "ai-music-api/add-vocals",
+   "state": "success",
+   "param": "{\"input\": \"{\\\"negative_tags\\\": \\\"screamo\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"style\\\": \\\"soft pop\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe vocals\\\", \\\"prompt\\\": \\\"soft humming over the piano\\\"}\", \"model\": \"ai-music-api/add-vocals\"}",
+   "resultJson": "{\"code\": 200, \"data\": [{\"audio_url\": \"https://files.kie.test/r/song-11.mp3\", \"createTime\": 1791278082483, \"duration\": 182.64, \"id\": \"song-11\", \"image_url\": \"https://img.suno.test/image_song-11.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"soft humming over the piano\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-11.mp3\", \"tags\": \"soft pop\", \"title\": \"Probe vocals\"}, {\"audio_url\": \"https://files.kie.test/r/song-12.mp3\", \"createTime\": 1791278082483, \"duration\": 182.44, \"id\": \"song-12\", \"image_url\": \"https://img.suno.test/image_song-12.jpeg\", \"model_name\": \"chirp-goose\", \"prompt\": \"soft humming over the piano\", \"stream_audio_url\": \"https://stream.kie.test/stream/song-12.mp3\", \"tags\": \"soft pop\", \"title\": \"Probe vocals\"}], \"msg\": \"success\", \"task_id\": \"task5\"}",
+   "failCode": null,
+   "failMsg": null,
+   "costTime": 70,
+   "completeTime": 1791278082483,
+   "createTime": 1791278012323,
+   "creditsConsumed": 12.0,
+   "operationType": "ai-music-api/add-vocals",
+   "status": "SUCCESS",
+   "type": "chirp-goose",
+   "parentMusicId": "",
+   "response": {
+    "msg": "success",
+    "code": 200,
+    "data": [
+     {
+      "duration": 182.64,
+      "stream_audio_url": "https://stream.kie.test/stream/song-11.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791278082483,
+      "image_url": "https://img.suno.test/image_song-11.jpeg",
+      "audio_url": "https://files.kie.test/r/song-11.mp3",
+      "id": "song-11",
+      "title": "Probe vocals",
+      "prompt": "soft humming over the piano",
+      "tags": "soft pop"
+     },
+     {
+      "duration": 182.44,
+      "stream_audio_url": "https://stream.kie.test/stream/song-12.mp3",
+      "model_name": "chirp-goose",
+      "createTime": 1791278082483,
+      "image_url": "https://img.suno.test/image_song-12.jpeg",
+      "audio_url": "https://files.kie.test/r/song-12.mp3",
+      "id": "song-12",
+      "title": "Probe vocals",
+      "prompt": "soft humming over the piano",
+      "tags": "soft pop"
+     }
+    ],
+    "task_id": "task5"
+   },
+   "successFlag": 1,
+   "paramJson": "{\"input\": \"{\\\"negative_tags\\\": \\\"screamo\\\", \\\"upload_url\\\": \\\"https://files.kie.test/r/song-1.mp3\\\", \\\"style\\\": \\\"soft pop\\\", \\\"model\\\": \\\"V6_MINI\\\", \\\"title\\\": \\\"Probe vocals\\\", \\\"prompt\\\": \\\"soft humming over the piano\\\"}\", \"model\": \"ai-music-api/add-vocals\"}"
+  }
+ },
+ "polls": 8
+}

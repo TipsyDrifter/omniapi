@@ -4,6 +4,7 @@ import { headDate } from "@/lib/format";
 import { selectRunningCount, useMake } from "@/store/make";
 import { useWorks } from "@/store/works";
 import { selectNoKey, useSettings } from "@/store/settings";
+import { useRunningHover } from "./RunningHover";
 
 /* 頂欄：wordmark（唯一允許疊印的地方之一）、導覽（三組：看板・費用・聊天｜生成・作品｜模型・設定）、主題切換、日期、「＋新對話」。
    「生成」旁的小章＝進行中的生成件數（0 件不顯示）。
@@ -29,6 +30,7 @@ export default function TopBar() {
   const running = useMake(selectRunningCount);
   const unseen = useWorks((s) => s.unseen);
   const noKey = useSettings(selectNoKey);
+  const hover = useRunningHover();
   return (
     <header className="top wrap">
       <div className="logo">
@@ -48,7 +50,7 @@ export default function TopBar() {
           聊天<span>CHAT</span>
         </NavLink>
         <i className="navsep" aria-hidden="true" />
-        <NavLink to="/make">
+        <NavLink to="/make" {...hover.handlers} aria-label={running ? `生成（${running} 件生成中）` : undefined}>
           生成<span>MAKE</span>
           {running ? (
             <em className="navct" title={`${running} 件生成中`}>
@@ -78,6 +80,7 @@ export default function TopBar() {
           ) : null}
         </NavLink>
       </nav>
+      {hover.card}
       <div className="top-r">
         <ThemeSwitch />
         <span className="date">{headDate()}</span>

@@ -46,6 +46,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
+from .. import modalities as _MOD
+
 logger = logging.getLogger(__name__)
 
 #: states in which a call waits for the owner; anything else has a result message
@@ -153,8 +155,16 @@ class ToolRegistry:
 
 
 # ---------------------------------------------------------------- propose_generation
+#: the generation kinds a chat model may propose (the card only knows these two)
 GENERATION_KINDS = ("image", "speech")
-_KIND_NAME = {"image": "圖片", "speech": "語音"}
+if not set(GENERATION_KINDS) <= set(_MOD.KINDS):
+    raise RuntimeError("chat.tools.GENERATION_KINDS names a kind omniapi_mcp.modalities does not know")
+_KIND_NAME = {k: _MOD.BY_KIND[k].label for k in GENERATION_KINDS}
+#: speech vendors a chat proposal does not pick by default: on ElevenLabs'
+#: free plan the call failed in the v1.2.0 acceptance run, so an unattended
+#: default there is a likely failure. The owner's own speech default still
+#: wins, and the model or the owner may still pick an ElevenLabs model.
+_NOT_A_CHAT_DEFAULT = frozenset({"elevenlabs"})
 MAX_PROMPT_CHARS = 4000
 MAX_NOTE_CHARS = 300
 
@@ -176,6 +186,17 @@ def _price(pricing: Any, kind: str) -> str:
         return f"每千字 ${pricing['text']:g}"
     if unit == "per_1m_chars" and isinstance(pricing.get("text"), (int, float)):
         return f"每百萬字 ${pricing['text']:g}"
+    if unit == "openrouter":  # an OpenRouter image model's listed lines (1.4-M2)
+        out = [ln for ln in pricing.get("lines") or [] if ln.get("billable") == "output_image"]
+        per = [ln["cost_usd"] for ln in out if ln.get("unit") == "image"]
+        if per:
+            lo, hi = min(per), max(per)
+            return f"每張 ${lo:g}" + (f"～${hi:g}（依解析度、品質）" if hi != lo else "")
+        mp = [ln["cost_usd"] for ln in out if ln.get("unit") == "megapixel"]
+        if mp:
+            return f"每百萬像素 ${min(mp):g}（1K 約一百萬像素）"
+        if any(ln.get("unit") == "token" for ln in out):
+            return "依 token 計價"
     return "價格未知"
 
 
@@ -193,13 +214,45 @@ async def generation_menu(ctx: Any) -> Menu:
     menu: Menu = {}
     for kind in GENERATION_KINDS:
         rows = await models_for(ctx, kind)
-        usable = [r for r in rows if r.get("available") and r.get("status") == "current"]
+        # a proposal carries a prompt and nothing else: a model that cannot draw without
+        # a reference image (Recraft's style models on OpenRouter) is not offered
+        usable = [r for r in rows if r.get("available") and r.get("status") == "current"
+                  and not ((r.get("image_params") or {}).get("min_references") or 0)]
         menu[kind] = {
-            "models": [{"id": r["id"], "name": r.get("name") or r["id"], "pricing": r.get("pricing")} for r in usable],
-            "default": _default_model(ctx, kind, rows) if usable else None,
+            "models": [{"id": r["id"], "name": _menu_name(r), "pricing": r.get("pricing")} for r in usable],
+            "default": _chat_default(ctx, kind, rows, usable) if usable else None,
             "sandbox": offline() and dev_enabled(),
         }
     return menu
+
+
+def _menu_name(row: dict[str, Any]) -> str:
+    """A model's name for the menu; an OpenRouter one says whose it is and how it is reached."""
+    name = row.get("name") or row["id"]
+    if row.get("vendor_label") and row.get("provider") == "openrouter":
+        return f"{row['vendor_label']} {name}，經 OpenRouter"
+    return name
+
+
+def _chat_default(ctx: Any, kind: str, rows: list[dict[str, Any]], usable: list[dict[str, Any]]) -> Optional[str]:
+    """The generate page's default, except that a speech proposal does not
+    default to a vendor in ``_NOT_A_CHAT_DEFAULT`` unless the owner set it as
+    the speech default or no other vendor is usable. Among the others, the
+    provider's own default model goes first (OpenAI: gpt-4o-mini-tts)."""
+    from ..config.user_settings import default_model
+    from ..generate.options import _default_model
+
+    chosen = _default_model(ctx, kind, rows)
+    if kind != "speech" or default_model(getattr(ctx, "settings", None), kind):
+        return chosen
+    by_id = {r["id"]: r for r in usable}
+    if chosen in by_id and by_id[chosen].get("provider") not in _NOT_A_CHAT_DEFAULT:
+        return chosen
+    others = [r for r in usable if r.get("provider") not in _NOT_A_CHAT_DEFAULT]
+    if not others:
+        return chosen
+    own_defaults = {getattr(p, "DEFAULT_MODEL", None) for p in getattr(getattr(ctx, "speech_tool", None), "_providers", [])}
+    return next((r["id"] for r in others if r["id"] in own_defaults), others[0]["id"])
 
 
 def describe(menu: Menu) -> str:

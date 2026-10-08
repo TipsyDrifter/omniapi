@@ -90,6 +90,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import modalities as _MOD
 from ..bus import EventBus
 from ..capabilities.echo import echo_tools, echo_vision
 from ..catalog import catalog
@@ -137,7 +138,9 @@ _TITLE_CHARS = 40
 #: attachments (images, files, audio together) one message may carry
 MAX_ATTACHMENTS = 10
 #: what a work of each kind is when attached (1.2-M5)
-_WORK_ATTACH_KIND = {"image": "image", "speech": "audio", "music": "audio", "transcript": "file", "lyrics": "file"}
+#: a video work (1.4-M3) maps to nothing: no chat model takes one in this version (refused with a reason)
+_WORK_ATTACH_KIND = {kind: {"image": "image", "audio": "audio", "text": "file", "video": None}[media]
+                     for kind, media in _MOD.MEDIA_OF.items()}
 #: what the model reads for a proposal made in a round that also read files (決策記錄 1.2-M5-g)
 DEFERRED_NOTE = "（提議已記下：這次回覆結束後主人會看到提議卡，結果之後的工具訊息會告訴你；不要重複提議。）"
 
@@ -365,7 +368,7 @@ def to_provider_message(m: dict[str, Any], *, images: bool,
     return {"role": "user", "content": parts}
 
 
-_KIND_WORD = {"image": "圖片", "speech": "語音", "transcript": "逐字稿"}
+_KIND_WORD = {m.kind: m.label for m in _MOD.GENERATION}
 _STATE_WORD = {"pending": "還沒決定", "generating": "生成中", "done": "做好了", "declined": "不用了", "failed": "失敗", "cancelled": "已中止"}
 
 
@@ -539,7 +542,7 @@ class ChatManager:
                 if kind != "image" and row:
                     v.update(mime=row.get("mime"), bytes=row.get("bytes"), download_url=f"/api/artifacts/{aid}/file?download=true")
                     if kind == "audio":
-                        v["info"] = {"type": "audio", "type_name": F.TYPE_NAMES["audio"], "duration_s": row.get("duration_s")}
+                        v["info"] = {"type": "audio", "type_name": F.TYPE_NAMES["audio"], "duration_s": F.work_seconds(row)}
                         kids = [c for c in await self.store.artifact_children(aid) if c.get("kind") == "transcript"]
                         v["transcript"] = await self._transcript_view(kids[-1]["id"] if kids else None)
                     else:
@@ -624,7 +627,7 @@ class ChatManager:
         if isinstance(art, dict) and art.get("id"):
             v["artifact"] = {"id": art["id"], "kind": art.get("kind"), "name": art.get("name"),
                              "file_url": f"/api/artifacts/{art['id']}/file",
-                             "thumb_url": f"/api/artifacts/{art['id']}/thumb" if art.get("kind") == "image" else None}
+                             "thumb_url": f"/api/artifacts/{art['id']}/thumb" if _MOD.MEDIA_OF.get(art.get("kind") or "") == "image" else None}
             if art.get("chars") is not None:
                 v["artifact"]["chars"] = art["chars"]
         return v
@@ -788,6 +791,9 @@ class ChatManager:
             if not row:
                 raise ChatError(f"attachment {'upload' if uid else 'work'} '{uid or aid}' not found", 404)
             kind = row.get("kind") if uid else _WORK_ATTACH_KIND.get(row.get("kind") or "")
+            if aid and _MOD.MEDIA_OF.get(row.get("kind") or "") == "video":
+                raise ChatError(f"'{aid}' is a video: a chat cannot take a video in this version "
+                                "(attach an image or an audio file instead)")
             if kind not in ("image", "audio", "file"):
                 raise ChatError(f"'{uid or aid}' ({row.get('kind')}) cannot be attached")
             if ref.get("kind") not in (None, kind):
@@ -1023,7 +1029,7 @@ class ChatManager:
         name = row.get("title") or (Path(row["file_path"]).name if row.get("file_path") else aid)
         bf = BranchFile(key=key, id=aid, ref={"artifact_id": aid}, kind=kind, name=name, message_id=m["id"],
                         path=Path(row["file_path"]) if row.get("file_path") else None, mime=row.get("mime"), bytes=row.get("bytes"),
-                        duration_s=row.get("duration_s"), work_kind=row.get("kind"))
+                        duration_s=F.work_seconds(row) if kind == "audio" and row else row.get("duration_s"), work_kind=row.get("kind"))
         if kind == "file" and row:
             bf.text_work = row.get("text")  # None: no stored body, the file itself is extracted
         if kind == "audio" and row:
@@ -1546,7 +1552,7 @@ class ChatManager:
             art = (gen.get("artifacts") or [{}])[0]
             name = Path(art["file_path"]).name if art.get("file_path") else art.get("title")
             out = {"state": "done", "model": gen.get("model"), "artifact": {"id": art.get("id"), "kind": art.get("kind"), "name": name}}
-            if art.get("kind") in ("transcript", "lyrics"):
+            if _MOD.MEDIA_OF.get(art.get("kind") or "") == "text":  # transcript, lyrics
                 out["artifact"]["chars"] = len(art.get("text") or "")
             return out
         if status == "cancelled" and not shutting_down:

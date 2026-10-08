@@ -108,7 +108,7 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             from .artifacts import CallInfo, current_call, index_result
-            from .artifacts.fakes import FAKEABLE, fake_generate
+            from .artifacts.fakes import FAKEABLE, SANDBOX_PROVIDER_TOOLS, fake_generate
             from .devmode import PAID_TOOLS, dev_enabled, offline, offline_message
 
             ctx = None
@@ -124,6 +124,8 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
                 fake = dev_enabled() and tool_name in FAKEABLE and ctx is not None
                 if not fake:
                     return {"error": offline_message(f"the '{tool_name}' tool"), "status": "refused"}
+                if tool_name in SANDBOX_PROVIDER_TOOLS:
+                    fake = False  # the tool runs as itself; its provider is the sandbox's stand-in
             store = getattr(ctx, "store", None)
             bus = getattr(ctx, "bus", None)
             scope = call_scope.get()
