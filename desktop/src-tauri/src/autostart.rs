@@ -61,6 +61,41 @@ impl Legacy {
     }
 }
 
+/// `HKCU\...\Run`, the key the plugin writes to.
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+/// Exactly the text tauri-plugin-autostart 2.5.1 (auto-launch 0.5.0) writes into the Run value
+/// for the running exe: `format!("{} {}", current_exe().display(), args.join(" "))` -- the exe
+/// path unquoted, one space, `--background`. The installer's post-install hook writes the same
+/// text for `$INSTDIR\<exe>`.
+pub fn my_command() -> Option<String> {
+    std::env::current_exe().ok().map(|e| format!("{} {}", e.display(), ARG))
+}
+
+/// The Run value of this identity (`OmniAPI` / `OmniAPI-Test`) as it is now, `None` when there is
+/// none. The plugin only says enabled / not enabled; the restore logic also needs to know whether
+/// a value that is there points at an exe that still exists.
+pub fn read_run_value() -> Option<String> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_NOEXPAND, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ};
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    let (key, name) = (wide(RUN_KEY), wide(RUN_VALUE));
+    let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
+    let mut bytes: u32 = 0;
+    // first call: how big is it
+    let rc = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), flags, std::ptr::null_mut(), std::ptr::null_mut(), &mut bytes) };
+    if rc != 0 || bytes == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; bytes as usize / 2 + 2];
+    let mut size = (buf.len() * 2) as u32;
+    let rc = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), flags, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut size) };
+    if rc != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..len]))
+}
+
 /// The user's Startup folder, from `%APPDATA%` (the same rule `omni autostart` uses).
 pub fn startup_dir(appdata: &str) -> PathBuf {
     Path::new(appdata).join("Microsoft").join("Windows").join("Start Menu").join("Programs").join("Startup")
@@ -103,6 +138,21 @@ mod tests {
         let task = Legacy { startup_vbs: None, task: true };
         assert!(task.menu_text().contains("omni autostart remove"));
         assert!(Legacy { startup_vbs: Some(PathBuf::from("x.vbs")), task: true }.describe().contains(" + "));
+    }
+
+    #[test]
+    fn my_command_is_the_text_the_plugin_writes() {
+        // tauri-plugin-autostart 2.5.1: set_app_path(&current_exe()?.display().to_string()), then
+        // auto-launch 0.5.0 enable(): format!("{} {}", app_path, args.join(" "))
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(my_command().unwrap(), format!("{} --background", exe.display()));
+        assert!(!my_command().unwrap().starts_with('"'), "unquoted, as the plugin writes it");
+    }
+
+    #[test]
+    fn reading_the_run_value_does_not_panic_whatever_is_there() {
+        // the value may or may not exist on the machine running the tests
+        let _ = read_run_value();
     }
 
     #[cfg(not(feature = "test-identity"))]

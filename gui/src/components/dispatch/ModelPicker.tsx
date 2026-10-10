@@ -1,18 +1,12 @@
 import { Fragment, useCallback, useMemo } from "react";
 import type { ModelEntry, ModelsResponse } from "@/api/types";
 import { harnessClass, harnessName } from "@/lib/format";
-import { ModelFilterBar, RankBadge, VendorHead, useModelFilter, type CapFilter } from "@/components/ModelFilterBar";
+import { ModelFilterBar, RankBadge, TEXT_CAPS, VendorHead, useModelFilter } from "@/components/ModelFilterBar";
 import { Field } from "./Field";
 import { TIERS, fmtPricing, type ModelSel } from "./draft";
 
 const MAX_ROWS = 200;
 
-/** 文字模型的能力 chips：型別裡保證是布林的那幾個（後端 ModelEntry.to_dict） */
-const TEXT_CAPS: CapFilter<ModelEntry>[] = [
-  { key: "vision", label: "看圖", test: (m) => !!m.capabilities?.vision, title: "收圖片" },
-  { key: "pdf", label: "收 PDF", test: (m) => !!m.capabilities?.pdf, title: "PDF 原樣送（不先轉文字）" },
-  { key: "tools", label: "會用工具", test: (m) => !!m.capabilities?.tools, title: "能呼叫工具（聊天裡生圖、查資料）" },
-];
 
 /* 模型（M5-b）：三顆等級鈕＋可搜尋清單；replay 時整塊停用 */
 export function ModelPicker(props: {

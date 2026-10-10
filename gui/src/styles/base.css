@@ -80,3 +80,6 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 「估」：照單價預估記的費用（components/EstMark）。墨線小方章，跟金額同一行、不搶數字 */
+.est-mark { display: inline-block; margin-left: 4px; padding: 0 3px; border: 1.25px solid currentColor; border-radius: 2px; font-family: var(--font-sans); font-weight: 700; font-size: 0.78em; line-height: 1.25; vertical-align: 0.08em; color: var(--ink-70); cursor: help; font-variant-numeric: normal; letter-spacing: 0; }

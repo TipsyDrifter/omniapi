@@ -3,6 +3,7 @@ import type { Costs, RunsLedger } from "@/api/types";
 import { harnessClass, harnessName, usd } from "@/lib/format";
 import { selectHistory, useBoard } from "@/store/board";
 import { computeRunsLedger, dayAxis, today } from "./ledger";
+import { EstMark } from "@/components/EstMark";
 
 /* 兩本帳（THEME.md §5.4）：看板右側 .costs 側欄。
    派工帳＝runs 表 harness 自報 cost_usd；工具呼叫帳＝calls 表 OmniAPI 工具呼叫計費。口徑不同，不可相加。
@@ -41,6 +42,8 @@ export interface BrkRow {
   n: number;
   /** 另計未回報的筆數（部分回報時顯示） */
   unreported?: number;
+  /** 合計含照單價預估的（聊天・生成帳，1.4.1） */
+  estimated?: boolean;
 }
 
 /** 拆解長條 */
@@ -58,6 +61,7 @@ export function Brk({ rows }: { rows: BrkRow[] }) {
           </span>
           <span className="v">
             {r.value == null ? <span className="nil">未回報</span> : usd(r.value)}
+            {r.value != null ? <EstMark x={{ cost_estimated: r.estimated, model: r.key }} /> : null}
             <small>
               <span className="n">{r.n}</span> 筆
             </small>
@@ -144,7 +148,7 @@ export function CallsLedgerCard({ costs, axis, children }: { costs: Costs | null
     );
   }
   const rows: BrkRow[] = costs.by_model
-    .map((m) => ({ key: m.model, label: m.model === "?" ? "?（未標模型）" : m.model, value: m.cost, n: m.n }))
+    .map((m) => ({ key: m.model, label: m.model === "?" ? "?（未標模型）" : m.model, value: m.cost, n: m.n, estimated: m.cost_estimated }))
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || b.n - a.n);
   const has = new Set(costs.by_day.map((d) => d.day));
   const dataDays = axis.filter((d) => has.has(d)).length;
@@ -157,6 +161,7 @@ export function CallsLedgerCard({ costs, axis, children }: { costs: Costs | null
       <div className="def">每叫一次模型記一筆：聊天、生圖、語音、音樂、轉錄</div>
       <div className="total">
         {money(costs.total.cost)}
+        <EstMark x={costs.total} sum />
         <span className="tn">
           <span className="n">{costs.total.n}</span> 次呼叫
           <br />

@@ -10,6 +10,7 @@ import { Glyph, errMsg } from "./bits";
 import { draftFromGeneration, firstLine, mmss } from "./draft";
 import { VideoPlayer } from "./VideoPlayer";
 import { VIDEO_UI, estOf, moneyLine, specOf } from "./video";
+import { EstMark, genFlags } from "@/components/EstMark";
 
 const titleOf = (g: Generation): string => {
   const full = String(g.params?.prompt ?? "");
@@ -251,7 +252,7 @@ export function VideoOutCard({ g, now }: { g: Generation; now: number }) {
   /* ---- 做好 ---- */
   if (g.status === "done") {
     const a = (g.artifacts ?? [])[0];
-    const cost = g.cost_usd != null ? <>實際 <span className="n">{usd(g.cost_usd)}</span>{est ? `（預估${est.text}）` : ""}</> : "費用未回報";
+    const cost = g.cost_usd != null ? <>{g.cost_estimated ? "記帳" : "實際"} <span className="n">{usd(g.cost_usd)}</span><EstMark x={genFlags(g)} />{est ? `（預估${est.text}）` : ""}</> : "費用未回報";
     return (
       <article className="mk-oi done vd-done" data-gen={g.id}>
         {a && a.exists !== false ? (

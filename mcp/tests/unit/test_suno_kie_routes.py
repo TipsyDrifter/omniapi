@@ -108,10 +108,11 @@ def jobs_fake(result, credits=None, files=("https://cdn.test/a.mp3",)):
 
 class TestRouteTable:
     def test_verified_operations_default_to_jobs(self):
-        # all but upload_extend were run once with a real key (2026-10-05/06)
+        # all but upload_extend were run once with a real key (2026-10-05/06); upload_extend works
+        # in custom mode only, so it is routed per mode ("custom")
         assert {op for op, r in SUNO_DEFAULT_ROUTES.items() if r == "jobs"} == {
             "generate", "extend", "cover", "add_instrumental", "add_vocals", "generate_lyrics", "to_wav", "to_mp4"}
-        assert SUNO_DEFAULT_ROUTES["upload_extend"] == "legacy"
+        assert SUNO_DEFAULT_ROUTES["upload_extend"] == "custom"
         assert set(SUNO_DEFAULT_ROUTES) == set(SUNO_JOBS_MODELS) | set(SUNO_LEGACY_ONLY)
 
     def test_new_model_values_match_the_docs(self):
@@ -439,7 +440,7 @@ class TestToolWiring:
         assert p.kie.poll_timeout == 777 and p.kie.request_timeout == 33
         assert p.config.timeout == 33
         assert p.route("generate_lyrics") == "jobs" and p.route("generate") == "jobs" and p.route("extend") == "jobs"
-        assert p.route("upload_extend") == "legacy"
+        assert p.route("upload_extend") == "legacy" and p.route("upload_extend", custom=True) == "jobs"
         assert p.credit_usd == pytest.approx(0.005)  # from the catalogue
 
     def test_old_timeout_only(self, tmp_path):
@@ -475,3 +476,60 @@ class TestToolWiring:
         out = await tool.generate("a song")
         assert set(out) == {"audio_path", "audio_url", "provider", "operation", "task_id", "audio_id", "title",
                             "duration", "output_format", "bytes"}
+
+
+# ---- upload_extend is routed per mode ---------------------------------------
+
+UPLOAD_EXTEND_LEGACY = "/api/v1/generate/upload-extend"
+SRC = "https://src.test/a.mp3"
+CUSTOM = dict(upload_url=SRC, model="V6_MINI", default_param_flag=True, prompt="more of it", style="ambient",
+              title="Longer", continue_at=60)
+PLAIN = dict(upload_url=SRC, model="V6_MINI", instrumental=True)
+
+
+def legacy_upload_extend_fake() -> Fake:
+    return Fake().on(UPLOAD_EXTEND_LEGACY, ok({"taskId": "old-ue"})).on(
+        "/api/v1/generate/record-info",
+        ok({"status": "SUCCESS", "response": {"sunoData": [{"id": "x", "audioUrl": "https://cdn.test/e.mp3"}]}}),
+    ).on("https://cdn.test/e.mp3", (200, b"E"))
+
+
+class TestUploadExtendRoutedPerMode:
+    async def test_custom_mode_goes_to_the_new_route_by_default(self):
+        fake = jobs_fake({"data": TRACKS}, credits=12, files=("https://cdn.test/a.mp3", "https://cdn.test/b.mp3"))
+        r = await provider(fake).upload_extend(**CUSTOM)
+        assert fake.posted(CREATE) == [{"model": "ai-music-api/upload-and-extend-audio", "input": {
+            "upload_url": SRC, "instrumental": False, "model": "V6_MINI",
+            "prompt": "more of it", "style": "ambient", "title": "Longer", "continue_at": 60}}]
+        assert fake.posted(UPLOAD_EXTEND_LEGACY) == []
+        assert r.metadata["route"] == "jobs" and len(r.metadata["all_tracks"]) == 2
+        assert r.metadata["cost_usd"] == pytest.approx(12 * 0.005)
+
+    async def test_plain_mode_stays_on_the_old_route_by_default(self):
+        fake = legacy_upload_extend_fake()
+        r = await provider(fake).upload_extend(**PLAIN)
+        assert fake.posted(UPLOAD_EXTEND_LEGACY) == [{
+            "uploadUrl": SRC, "defaultParamFlag": False, "instrumental": True, "model": "V6_MINI", "callBackUrl": CB}]
+        assert CREATE not in " ".join(fake.paths())
+        assert r.metadata["route"] == "legacy"
+
+    @pytest.mark.parametrize("spec", ["legacy", "old", "none"])
+    async def test_the_legacy_setting_forces_custom_mode_to_the_old_route_too(self, spec):
+        fake = legacy_upload_extend_fake()
+        r = await provider(fake, routes=spec).upload_extend(**CUSTOM)
+        assert fake.posted(UPLOAD_EXTEND_LEGACY)[0]["defaultParamFlag"] is True
+        assert CREATE not in " ".join(fake.paths()) and r.metadata["route"] == "legacy"
+
+    async def test_naming_the_operation_sends_every_mode_to_the_new_route(self):
+        fake = jobs_fake({"data": TRACKS})
+        r = await provider(fake, routes="upload_extend").upload_extend(**PLAIN)
+        assert len(fake.posted(CREATE)) == 1 and r.metadata["route"] == "jobs"
+
+    def test_the_setting_resolution(self):
+        assert suno_routes("legacy")["upload_extend"] == "legacy"
+        assert suno_routes("jobs")["upload_extend"] == "jobs"
+        assert suno_routes("default")["upload_extend"] == "custom"
+        p = provider(Fake())
+        assert (p.route("upload_extend"), p.route("upload_extend", custom=True)) == ("legacy", "jobs")
+        assert p.route("generate") == p.route("generate", custom=True) == "jobs"
+        assert provider(Fake(), routes="legacy").route("upload_extend", custom=True) == "legacy"

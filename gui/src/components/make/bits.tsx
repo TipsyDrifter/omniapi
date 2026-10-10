@@ -1,11 +1,11 @@
 /* 生成頁共用的小元件：模態章、切換鈕、模型清單、播放器、送出列（含預估費用）、拖放上傳、從作品挑 */
-import { Fragment, useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ApiError, api } from "@/api/client";
 import type { Artifact, Estimate, GenModel, GenOptions, GenRequest } from "@/api/types";
 import { dt } from "@/lib/format";
 import { onSendKey, sendHint, sendKeyName, useSendKey } from "@/lib/sendKey";
 import { Field } from "@/components/dispatch";
-import { ModelFilterBar, RankBadge, VendorHead, useModelFilter, type CapFilter } from "@/components/ModelFilterBar";
+import { ModelFilterBar, RankBadge, VendorHead, needsFilterBar, useModelFilter, type CapFilter } from "@/components/ModelFilterBar";
 import { WORK_KIND_INFO, isWorkKind, kindsOfMedia, warnUnknown } from "@/lib/modalities";
 import { GLYPH, baseName, firstLine, msShort, priceText, type Built } from "./draft";
 
@@ -86,8 +86,6 @@ const statusRank = (m: GenModel) => (m.status === "current" ? 0 : m.status === "
 const byStatus = (a: GenModel, b: GenModel) => statusRank(a) - statusRank(b);
 const isUsable = (m: GenModel) => m.available;
 
-/** 模型清單一多（經 OpenRouter 的圖片模型有幾十個）才出篩選列；同語音的聲音清單 */
-const FILTER_AT = 12;
 
 /** 生成頁的模型清單：篩選列同新對話頁（components/ModelFilterBar），預設熱門序；caps＝這一種表單的能力 chips */
 export function ModelList({ models, sel, onSel, loading, error, caps }: { models: GenModel[]; sel: string | null; onSel: (id: string) => void; loading: boolean; error: string | null; caps?: CapFilter<GenModel>[] }) {
@@ -102,6 +100,7 @@ export function ModelList({ models, sel, onSel, loading, error, caps }: { models
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models.length]);
   const usable = models.filter((m) => m.available).length;
+  const dupNames = useMemo(() => sameNames(models), [models]);
   return (
     <Field lbl="Model" zh="模型" aside={models.length ? `${models.length} 個 · 可用 ${usable} · 價格取自模型目錄` : null}>
       {error ? (
@@ -109,7 +108,7 @@ export function ModelList({ models, sel, onSel, loading, error, caps }: { models
           <b>讀不到模型清單</b>：{error}
         </div>
       ) : null}
-      {models.length > FILTER_AT || f.discovered ? <ModelFilterBar f={f} placeholder="搜尋模型 id、名稱、原廠" /> : null}
+      {needsFilterBar(models) ? <ModelFilterBar f={f} placeholder="搜尋模型 id、名稱、原廠" /> : null}
       <div className="mk-mlist" role="listbox" aria-label="模型清單" ref={listRef}>
         {loading && !error ? <div className="dp-empty">讀取模型清單…</div> : null}
         {models.length && !rows.length ? <div className="dp-empty">{f.q.trim() ? `沒有符合「${f.q.trim()}」的模型。` : "沒有符合的模型；試著拿掉一個篩選。"}</div> : null}
@@ -119,7 +118,7 @@ export function ModelList({ models, sel, onSel, loading, error, caps }: { models
           return (
             <Fragment key={m.id}>
               {head ? <VendorHead label={head.label} count={head.count} /> : null}
-              <button type="button" role="option" className="mk-mrow" aria-selected={m.id === sel} disabled={!m.available} onClick={() => onSel(m.id)} title={m.note ?? m.name ?? m.id} data-model={m.id}>
+              <button type="button" role="option" className="mk-mrow" aria-selected={m.id === sel} disabled={!m.available} onClick={() => onSel(m.id)} aria-label={genRowLabel(m, dupNames)} title={m.note ?? m.name ?? m.id} data-model={m.id}>
                 <span className="mf-id">
                   <span className="code">{m.id}</span>
                   <RankBadge m={m} />
@@ -147,6 +146,43 @@ export function ModelList({ models, sel, onSel, loading, error, caps }: { models
       </div>
     </Field>
   );
+}
+
+/** 模型清單一列的無障礙名稱：模型名＋狀態（用「，」接）。生成頁四種表單、影片表單、聊天的換模型小窗都用這一個寫法 */
+export function rowLabel(name: string, status: (string | null | undefined | false)[] = []): string {
+  const st = status.filter((x): x is string => !!x);
+  return st.length ? `${name}，${st.join("，")}` : name;
+}
+
+/** 清單裡重複出現的模型名（直連與經 OpenRouter 的同一個模型）：這些列的名字要帶上走哪條路 */
+export function sameNames(models: { id: string; name?: string }[]): Set<string> {
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const m of models) {
+    const n = m.name ?? m.id;
+    if (seen.has(n)) dup.add(n);
+    seen.add(n);
+  }
+  return dup;
+}
+
+/** 走哪條路：經 OpenRouter／某某直連 */
+export const viaText = (provider: string) => (provider === "openrouter" ? "經 OpenRouter" : `${PROVIDER_ZH[provider] ?? provider} 直連`);
+const PROVIDER_ZH: Record<string, string> = { openai: "OpenAI", google: "Google", elevenlabs: "ElevenLabs", kie: "kie.ai", deepseek: "DeepSeek", anthropic: "Anthropic" };
+
+/** ModelList 一列的名字：模型名（同名的帶上走哪條路）＋關閉日／未整理／送不出的原因（目錄的英文備註留在 title 當補充） */
+export function genRowLabel(m: GenModel, dup?: Set<string>): string {
+  const name = m.name ?? m.id;
+  const dep = m.status === "deprecated" ? (m.shutdown ? `${m.shutdown} 關閉` : "即將關閉") : m.status === "discovered" ? "未整理" : null;
+  return rowLabel(dup?.has(name) ? `${name}（${viaText(m.provider)}）` : name, [dep, !m.available && whyText(m)]);
+}
+
+/** whyNode 的純文字版（無障礙名稱用） */
+function whyText(m: GenModel): string {
+  const u = m.unavailable;
+  if (u?.reason === "missing_key") return `缺 ${u.env ?? "API key"}，這個模型送不出去`;
+  const n = whyNode(m);
+  return typeof n === "string" ? n : "現在不能用";
 }
 
 function whyNode(m: GenModel): ReactNode {

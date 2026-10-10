@@ -1,8 +1,7 @@
 /* 圖片表單：generate_image；有來源圖＝edit_image（送出鈕變「改圖」） */
 import { useState } from "react";
 import { api } from "@/api/client";
-import type { GenModel } from "@/api/types";
-import type { CapFilter } from "@/components/ModelFilterBar";
+import { IMAGE_CAPS } from "@/components/ModelFilterBar";
 import { Field } from "@/components/dispatch";
 import { setDraft, useMake } from "@/store/make";
 import { orLines, orTierPrice } from "@/lib/catalog";
@@ -45,11 +44,6 @@ const orderRatios = (rs: string[]) => {
   const rest = rs.filter((r) => !COMMON_RATIOS.includes(r) && r !== "auto");
   return [...known, ...rest, ...(rs.includes("auto") ? ["auto"] : [])];
 };
-/** 圖片模型的能力 chips：照這張表單實際能送的（直連的 OpenAI、Google 都能改圖、一次一張來源圖；OpenRouter 的照名單的 max_references） */
-const IMAGE_CAPS: CapFilter<GenModel>[] = [
-  { key: "edit", label: "改圖", test: (m) => !m.image_params || m.image_params.max_references > 0, title: "收來源圖（有圖＝改圖）" },
-  { key: "refs", label: "多張參考圖", test: (m) => (m.image_params?.max_references ?? 1) > 1, title: "來源圖之外還能再加參考圖" },
-];
 const QUALITY_ZH: Record<string, string> = { auto: "auto", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
 const BG: Record<string, string> = { auto: "auto", transparent: "透明", opaque: "不透明" };
 

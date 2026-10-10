@@ -7,18 +7,21 @@
    卡上的改動（提示詞、模型、聲音）與「重新打開」記在這個分頁（切換版本、捲走再回來都還在），重新整理就回到後端的樣子。
    1.2-M5 轉錄提問（kind: transcript、gate: true）是同一種卡，放在回覆的位置、回覆之前：
    「不轉錄，直接回覆」「→ 轉錄後回覆」；轉錄中＝等待票；轉好＝逐字稿卡，回覆自動接著寫進同一則（跟生成相反：主人的問題還等著答）。 */
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import type { ChatMessage, ChatProposal, GenModel, GenOptions, Generation, Voice } from "@/api/types";
 import { dt, usd } from "@/lib/format";
 import { acceptProposal, declineProposal } from "@/store/chat";
 import { cancelGeneration, loadOptions, setDraft, useMake } from "@/store/make";
-import { AudioPlayer, Glyph, basisText, errMsg, useEstimate, useNow } from "@/components/make/bits";
+import { AudioPlayer, Glyph, basisText, errMsg, genRowLabel, rowLabel, sameNames, useEstimate, useNow } from "@/components/make/bits";
+import { IMAGE_CAPS, ModelFilterBar, RankBadge, VendorHead, needsFilterBar, useModelFilter } from "@/components/ModelFilterBar";
 import { fmtBytes, mmss, msShort, priceText } from "@/components/make/draft";
 import { ERROR_TEXT } from "@/components/make/Tray";
 import { ImageViewer } from "@/components/works/Lightbox";
 import CopyButton from "./CopyButton";
+import { EstMark, genFlags } from "@/components/EstMark";
+import { useTier } from "@/lib/rwd";
 
 const KIND: Record<string, { verb: string; fld: string; en: string; usual: string; full: string }> = {
   image: { verb: "生一張圖", fld: "提示詞", en: "PROMPT", usual: "圖片通常 20～60 秒", full: "完整提示詞" },
@@ -432,6 +435,13 @@ function ModelMenu({ opts, kind, model, recommended, recTag, archived, onPick, a
 }) {
   const [pop, setPop] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  // 小窗長在卡片下面、聊天捲動區裡：打開時捲進看得到的地方（多了篩選列之後更高）。
+  // 手機上小窗排進版面、常比畫面高：對齊上緣（標題與搜尋框先看到；rwd.css 留出頂端返回列與底部輸入列的高度）
+  const phone = useTier() === "s";
+  useEffect(() => {
+    if (pop) popRef.current?.scrollIntoView({ block: phone ? "start" : "nearest", inline: "nearest" });
+  }, [pop, phone]);
   useEffect(() => {
     if (!pop) return;
     const down = (e: MouseEvent) => {
@@ -460,43 +470,57 @@ function ModelMenu({ opts, kind, model, recommended, recTag, archived, onPick, a
       </button>
       {aside}
       {pop ? (
-        <div className="gp-mpop" role="dialog" aria-label={kind === "transcript" ? "換轉錄模型" : "換生成模型"}>
+        <div className="gp-mpop" ref={popRef} role="dialog" aria-label={kind === "transcript" ? "換轉錄模型" : "換生成模型"}>
           <div className="dp-fh">
             <span className="lbl">Model</span>
             <span className="zh">換模型</span>
             <span className="aside">{list.length} 個可用 · 價格取自模型目錄</span>
           </div>
-          <div className="gp-mlist" role="listbox" aria-label={kind === "transcript" ? "轉錄模型" : "生成模型"}>
-            {list.map((m) => {
-              const pt = priceText(m);
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  role="option"
-                  className="mk-mrow"
-                  aria-selected={m.id === model}
-                  onClick={() => {
-                    onPick(m.id);
-                    setPop(false);
-                  }}
-                >
-                  <span className="code">{m.id}</span>
-                  {m.id === recommended ? <span className="dp-tag">{recTag}</span> : <span />}
-                  <span className={pt ? "mk-price n" : "mk-price none"}>{pt ?? "未定價"}</span>
-                  <span className="mk-prov">
-                    {m.provider}
-                    {m.name ? ` · ${m.name}` : ""}
-                  </span>
-                </button>
-              );
-            })}
-            {!opts ? <div className="dp-empty">讀取模型清單…</div> : null}
-          </div>
+          <PopList list={list} kind={kind} model={model} recommended={recommended} recTag={recTag} loading={!opts} onPick={(id) => { onPick(id); setPop(false); }} />
           <p className="cs-note">換了模型，預估跟著重算；{kind === "transcript" ? "轉錄預設" : "推薦"}的那個一直標在清單裡，隨時換回來。</p>
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** 小窗裡的清單：篩選列同生成頁（components/ModelFilterBar），預設熱門序、AA #n；
+   篩選列出不出也照生成頁那條線（needsFilterBar：超過 12 個）。這裡只列能用的，所以沒有「只看可用」；
+   推薦（或轉錄預設）的那個不管怎麼篩都留在清單裡 */
+function PopList({ list, kind, model, recommended, recTag, loading, onPick }: { list: GenModel[]; kind: string; model: string | null; recommended: string | null; recTag: string; loading: boolean; onPick: (id: string) => void }) {
+  const f = useModelFilter(list, { caps: kind === "image" ? IMAGE_CAPS : undefined, keep: model });
+  const rec = recommended ? list.find((m) => m.id === recommended) : undefined;
+  const rows = rec && !f.shown.includes(rec) ? [rec, ...f.shown] : f.shown;
+  const dup = sameNames(list);
+  return (
+    <>
+      {needsFilterBar(list) ? <ModelFilterBar f={f} placeholder="搜尋模型 id、名稱、原廠" autoFocus vendorFold={4} /> : null}
+      <div className="gp-mlist" role="listbox" aria-label={kind === "transcript" ? "轉錄模型" : "生成模型"}>
+        {rows.map((m, i) => {
+          const pt = priceText(m);
+          const head = rec && rows[0] === rec && i === 0 && !f.shown.includes(rec) ? null : f.head(rows, i);
+          return (
+            <Fragment key={m.id}>
+              {head ? <VendorHead label={head.label} count={head.count} /> : null}
+              <button type="button" role="option" className="mk-mrow" aria-selected={m.id === model} onClick={() => onPick(m.id)} aria-label={rowLabel(genRowLabel(m, dup), [m.id === recommended && recTag])}>
+                <span className="mf-id">
+                  <span className="code">{m.id}</span>
+                  <RankBadge m={m} />
+                </span>
+                {m.id === recommended ? <span className="dp-tag">{recTag}</span> : <span />}
+                <span className={pt ? "mk-price n" : "mk-price none"}>{pt ?? "未定價"}</span>
+                <span className="mk-prov">
+                  {m.provider}
+                  {m.name ? ` · ${m.name}` : ""}
+                </span>
+              </button>
+            </Fragment>
+          );
+        })}
+        {loading ? <div className="dp-empty">讀取模型清單…</div> : null}
+        {!loading && list.length && !rows.length ? <div className="dp-empty">沒有符合的模型；試著拿掉一個篩選。</div> : null}
+      </div>
+    </>
   );
 }
 
@@ -600,7 +624,7 @@ function DoneCard({ msg, p, gen, opts }: CardProps & { gen?: Generation }) {
     <div className="mk-oi-m">
       <span className="code">{gen?.model ?? p.model ?? "—"}</span>
       {p.kind === "speech" && voiceName(opts, gen?.params?.voice) ? <span>聲音 {voiceName(opts, gen?.params?.voice)}</span> : null}
-      <span>{gen?.cost_usd != null ? <>實際 <span className="n">{usd(gen.cost_usd)}</span></> : "費用未回報"}</span>
+      <span>{gen?.cost_usd != null ? <>{gen.cost_estimated ? "記帳" : "實際"} <span className="n">{usd(gen.cost_usd)}</span><EstMark x={genFlags(gen)} /></> : "費用未回報"}</span>
       {took != null ? (
         <span>
           耗時 <span className="n">{mmss(took)}</span>
@@ -705,7 +729,7 @@ function FailCard(props: CardProps & { gen?: Generation; setLocal: (p: Partial<L
         <div className="gp-t">{p.prompt}</div>
         <div className="mk-oi-m">
           <span className="code">{p.model ?? "預設模型"}</span>
-          <span>{gen?.cost_usd != null ? <>實際 <span className="n">{usd(gen.cost_usd)}</span></> : "費用未回報"}</span>
+          <span>{gen?.cost_usd != null ? <>{gen.cost_estimated ? "記帳" : "實際"} <span className="n">{usd(gen.cost_usd)}</span><EstMark x={genFlags(gen)} /></> : "費用未回報"}</span>
           {waited != null ? (
             <span>
               等了 <span className="n">{mmss(waited)}</span>
@@ -1115,7 +1139,7 @@ function TDone({ p, gen }: CardProps & { gen?: Generation }) {
               <span className="n">{chars.toLocaleString("en-US")}</span> 字
             </span>
           ) : null}
-          <span>{gen?.cost_usd != null ? <>實際 <span className="n">{usd(gen.cost_usd)}</span></> : "費用未回報"}</span>
+          <span>{gen?.cost_usd != null ? <>{gen.cost_estimated ? "記帳" : "實際"} <span className="n">{usd(gen.cost_usd)}</span><EstMark x={genFlags(gen)} /></> : "費用未回報"}</span>
           {took != null ? (
             <span>
               耗時 <span className="n">{mmss(took)}</span>
@@ -1183,7 +1207,7 @@ function TOff(props: CardProps & { gen?: Generation }) {
   const meta = (
     <div className="mk-oi-m">
       <span className="code">{p.model ?? "預設模型"}</span>
-      {failed ? <span>{gen?.cost_usd != null ? <>實際 <span className="n">{usd(gen.cost_usd)}</span></> : "費用未回報"}</span> : <span>沒有留下逐字稿</span>}
+      {failed ? <span>{gen?.cost_usd != null ? <>{gen.cost_estimated ? "記帳" : "實際"} <span className="n">{usd(gen.cost_usd)}</span><EstMark x={genFlags(gen)} /></> : "費用未回報"}</span> : <span>沒有留下逐字稿</span>}
       <span>{waiting ? "回覆還在等你決定" : "你送了下一則，這則沒有回覆"}</span>
     </div>
   );

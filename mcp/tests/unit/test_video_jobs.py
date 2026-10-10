@@ -96,6 +96,41 @@ async def test_the_remote_id_is_stored_before_any_waiting_then_the_video_is_coll
 
 
 @pytest.mark.asyncio
+async def test_a_video_billed_at_its_estimate_is_marked_as_one_everywhere(env, monkeypatch):
+    """The vendor reports no usage and the provider bills by usage: the estimate is recorded as the cost,
+    and the job, its work and its ledger row all say it is an estimate. A reported cost is not one."""
+    from omniapi_mcp.capabilities.video import RemoteState
+    from omniapi_mcp.video.sandbox import SandboxVideoProvider
+
+    real_status = SandboxVideoProvider.status
+
+    async def silent_status(self, remote_id):
+        state = await real_status(self, remote_id)
+        return RemoteState(status=state.status, raw=state.raw) if state.status == "completed" else state
+
+    monkeypatch.setattr(SandboxVideoProvider, "status", silent_status)
+    monkeypatch.setattr(SandboxVideoProvider, "estimate_when_unreported", True, raising=False)
+    jobs = env.new()
+    row = await jobs.start({"prompt": "no usage reported", "model": WAN}, source="gui")
+    done = await _until(env.store, row["id"], ("done",))
+    assert done["cost_usd"] is not None and done["cost_estimated"] is True
+    work = (await env.store.artifacts_by_ids(done["artifact_ids"]))[0]
+    assert work["cost_estimated"] is True
+    call = await env.store.call(done["call_id"])
+    assert call["status"] == "ok" and call["cost_estimated"] is True
+    assert (await jobs.public(row["id"]))["cost_estimated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_video_whose_vendor_reported_the_cost_is_not_marked(env):
+    jobs = env.new()
+    row = await jobs.start({"prompt": "cost reported", "model": WAN}, source="gui")
+    done = await _until(env.store, row["id"], ("done",))
+    assert done["cost_usd"] == 0.0 and done["cost_estimated"] is False
+    assert (await env.store.call(done["call_id"]))["cost_estimated"] is False
+
+
+@pytest.mark.asyncio
 async def test_a_first_frame_links_the_video_to_its_source_image(env):
     from PIL import Image
 
@@ -242,6 +277,32 @@ async def test_a_failure_at_the_vendor_and_a_job_it_forgot(env):
     row = await jobs.start({"prompt": "[gone] x", "model": WAN}, source="gui")
     gone = await _until(env.store, row["id"], ("error",))
     assert gone["error_kind"] == "lost" and "no longer knows" in gone["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prompt,ended,ledger", [("[fail] x", "error", "error"), ("[gone] x", "error", "error"), ("a calm lake", "done", "ok")])
+async def test_a_job_that_reads_ended_has_its_ledger_row_settled_already(env, monkeypatch, prompt, ended, ledger):
+    """Root cause of a flaky run of the failure test: the job's status used to flip to its end before
+    its ledger row was settled, so a reader that saw "error" and looked at the ledger a moment later
+    could still find "ticket". The ledger write is made slow here (a loaded machine does that by
+    chance); the order, not the timing, is what is asserted."""
+    real_finished, real_settled = Store.call_finished, Store.settle_ticket_call
+
+    async def slow_finished(self, *a, **k):
+        await asyncio.sleep(0.2)
+        return await real_finished(self, *a, **k)
+
+    async def slow_settled(self, *a, **k):
+        await asyncio.sleep(0.2)
+        return await real_settled(self, *a, **k)
+
+    monkeypatch.setattr(Store, "call_finished", slow_finished)
+    monkeypatch.setattr(Store, "settle_ticket_call", slow_settled)
+    jobs = env.new()
+    row = await jobs.start({"prompt": prompt, "model": WAN}, source="gui")
+    # no sleeping between seeing the end and reading the ledger: the first read after the end is the one that used to lose
+    end = await _until(env.store, row["id"], (ended,))
+    assert (await env.store.call(end["call_id"]))["status"] == ledger
 
 
 @pytest.mark.asyncio

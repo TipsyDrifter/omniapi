@@ -281,6 +281,14 @@ class ElevenLabsMusicProvider(MusicProvider):
                     error_code="GENERATION_FAILED",
                 )
             meta: dict[str, Any] = {"provider": self.name, "model": model_id}
+            if prompt and music_length_ms:
+                # ElevenLabs reports no usage. With a length asked for, the bill follows from the catalog's per-minute
+                # price: recorded as an estimate. Without one (the model picks the length) nothing is guessed.
+                from ..catalog import catalog
+
+                est = catalog.estimate_per_minute_cost(model_id, music_length_ms / 1000, modality="music")
+                if est is not None:
+                    meta.update(cost_usd=est, cost_estimated=True)
             ctype = resp.headers.get("content-type", "")
             if detailed and "multipart" in ctype:
                 audio, extra = self._parse_multipart(resp.content, ctype)
@@ -396,7 +404,9 @@ class ElevenLabsMusicProvider(MusicProvider):
 #:   generate           ai-music-api/generate                 jobs      {"data": [song, song]}        12
 #:   extend             ai-music-api/extend                   jobs      {"data": [song, song]}        12
 #:   cover              ai-music-api/upload-and-cover-audio   jobs      {"data": [song, song]}        12
-#:   upload_extend      ai-music-api/upload-and-extend-audio  legacy    task failed upstream (400, refunded); not seen
+#:   upload_extend      ai-music-api/upload-and-extend-audio  custom    custom mode: {"data": [song, song]}   12
+#:                                                                      plain mode (no prompt/style/title): failed
+#:                                                                      upstream twice (400, refunded) -> legacy
 #:   add_instrumental   ai-music-api/add-instrumental         jobs      {"data": [song, song]}        12
 #:   add_vocals         ai-music-api/add-vocals               jobs      {"data": [song, song]}        12
 #:   generate_lyrics    ai-music-api/generate-lyrics          jobs      {"resultObject": {"lyricsData": [..]}}  0.4
@@ -407,8 +417,11 @@ class ElevenLabsMusicProvider(MusicProvider):
 #:
 #: A song is ``{id, title, duration, audio_url, stream_audio_url, image_url,
 #: model_name, prompt, tags, createTime}``; the same payload is repeated in the
-#: record's ``response``. ``PROVIDERS__KIE__SUNO_ROUTES`` still overrides the
-#: table (``legacy`` puts everything back on the old endpoints).
+#: record's ``response``. A default of ``custom`` means "new route when the call
+#: sets every field itself (``default_param_flag`` true), old route otherwise".
+#: ``PROVIDERS__KIE__SUNO_ROUTES`` still overrides the table (``legacy`` puts
+#: everything back on the old endpoints, custom-mode extends included; naming
+#: an operation sends it to the new route in every mode).
 SUNO_JOBS_MODELS: dict[str, str] = {
     "generate": "ai-music-api/generate",
     "extend": "ai-music-api/extend",
@@ -432,13 +445,18 @@ SUNO_LEGACY_ONLY: dict[str, str] = {
 }
 # Operations whose unified-endpoint answer has been checked against the real
 # service (generate 2026-10-05; the other seven 2026-10-06, see the table
-# above). upload_extend stays on the old endpoint: its one real task failed
-# upstream, so its answer has not been seen.
+# above). upload_extend is only half checked: custom mode answered with two
+# songs, plain mode failed upstream both times it was tried, so it is routed
+# per mode (``custom``, see SUNO_DEFAULT_ROUTES).
 SUNO_VERIFIED_JOBS: frozenset[str] = frozenset({
     "generate", "extend", "cover", "add_instrumental", "add_vocals", "generate_lyrics", "to_wav", "to_mp4",
 })
+#: Operations that take the new route only in custom mode (the call sets
+#: prompt, style, title and the rest itself) and stay on the old one otherwise.
+SUNO_JOBS_WHEN_CUSTOM: frozenset[str] = frozenset({"upload_extend"})
 SUNO_DEFAULT_ROUTES: dict[str, str] = {
-    **{op: ("jobs" if op in SUNO_VERIFIED_JOBS else "legacy") for op in SUNO_JOBS_MODELS},
+    **{op: ("jobs" if op in SUNO_VERIFIED_JOBS else "custom" if op in SUNO_JOBS_WHEN_CUSTOM else "legacy")
+       for op in SUNO_JOBS_MODELS},
     **{op: "legacy" for op in SUNO_LEGACY_ONLY},
 }
 _ROUTE_ALIASES = {"lyrics": "generate_lyrics", "wav": "to_wav", "mp4": "to_mp4", "music_video": "to_mp4",
@@ -447,7 +465,8 @@ _ROUTE_ALIASES = {"lyrics": "generate_lyrics", "wav": "to_wav", "mp4": "to_mp4",
 
 
 def suno_routes(spec: str | None) -> dict[str, str]:
-    """Resolve ``PROVIDERS__KIE__SUNO_ROUTES`` into ``{operation: "jobs"|"legacy"}``.
+    """Resolve ``PROVIDERS__KIE__SUNO_ROUTES`` into ``{operation: "jobs"|"legacy"|"custom"}``
+    (``custom``: jobs in custom mode, legacy otherwise; only the built-in table has it).
 
     ``""``/``default`` -> the table above; ``jobs``/``new``/``all`` -> every
     operation that has a new-endpoint mapping; ``legacy``/``old``/``none`` ->
@@ -595,8 +614,13 @@ class SunoProvider(MusicProvider):
     def get_supported_models(self) -> set[str]:
         return set(self.SUPPORTED_MODELS)
 
-    def route(self, operation: str) -> str:
-        return self.routes.get(operation, "legacy")
+    def route(self, operation: str, *, custom: bool = False) -> str:
+        """``jobs`` or ``legacy``. ``custom`` is whether the call sets every field itself
+        (only matters for an operation whose table entry is ``custom``)."""
+        route = self.routes.get(operation, "legacy")
+        if route == "custom":
+            return "jobs" if custom else "legacy"
+        return route
 
     # ---- request building ------------------------------------------------
 
@@ -780,11 +804,12 @@ class SunoProvider(MusicProvider):
         return result
 
     async def _run_audio(
-        self, op: str, legacy_body: dict[str, Any], jobs_input: dict[str, Any], kwargs: dict[str, Any]
+        self, op: str, legacy_body: dict[str, Any], jobs_input: dict[str, Any], kwargs: dict[str, Any],
+        *, custom: bool = False,
     ) -> MusicResult:
         """Run an audio-family job on its route and download its songs (Suno
         answers with two; see ``_finish_audio``)."""
-        if self.route(op) == "jobs":
+        if self.route(op, custom=custom) == "jobs":
             self._logger.info("Suno %s -> createTask %s", op, SUNO_JOBS_MODELS[op])
             task = await self.kie.run(SUNO_JOBS_MODELS[op], jobs_input, callback_url=self._jobs_callback(kwargs))
             tracks = [t for t in self._find_list(task.result, ("sunoData", "data", "tracks"), ("audio_url", "audioUrl"))]
@@ -1003,7 +1028,7 @@ class SunoProvider(MusicProvider):
             jobs.update(prompt=prompt, style=style, title=title, continue_at=continue_at)
         self._legacy_common(body, kwargs)
         jobs.update(self._common(kwargs))
-        return await self._run_audio("upload_extend", body, jobs, kwargs)
+        return await self._run_audio("upload_extend", body, jobs, kwargs, custom=bool(default_param_flag))
 
     # ---- add instrumental / vocals (narrower model set) -----------------
 

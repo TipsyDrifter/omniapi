@@ -72,7 +72,9 @@ class Daemon:
         self.proc: subprocess.Popen | None = None
 
     def start(self, *, ffmpeg: bool = True, extra: dict | None = None) -> None:
-        env = {**os.environ, "OMNIAPI_HOME": str(self.home), "OMNIAPI_DEV": "1", "OMNIAPI_OFFLINE": "1",
+        # OMNIAPI_SKIP_REPO_ENV=1: the sandbox never reads the checkout's mcp/.env (real keys would turn providers on
+        # and change the model lists this script expects); an offline sandbox skips it by default, this says so
+        env = {**os.environ, "OMNIAPI_HOME": str(self.home), "OMNIAPI_DEV": "1", "OMNIAPI_OFFLINE": "1", "OMNIAPI_SKIP_REPO_ENV": "1",
                "OMNIAPI_FAKE_DELAY": "4", "OMNIAPI_VIDEO_POLL": "0.5", "OMNIAPI_JOB_SOFT_TIMEOUT": "2",
                "PYTHONIOENCODING": "utf-8", **(extra or {})}
         if not ffmpeg:  # a computer without ffmpeg: no poster

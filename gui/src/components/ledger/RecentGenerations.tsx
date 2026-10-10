@@ -7,6 +7,7 @@ import type { CallRow } from "@/api/types";
 import { dt, usd } from "@/lib/format";
 import { useBoard } from "@/store/board";
 import { GEN_TOOLS, TOOL_ZH } from "@/components/works/wall";
+import { EstMark } from "@/components/EstMark";
 
 /** unsettled＝影片送出了但沒收回來（不等了、接不回）：供應商多半照樣收費，實際多少不知道 */
 const STATUS_ZH: Record<string, string> = { ok: "完成", error: "失敗", running: "進行中", cancelled: "中止", unsettled: "費用不明" };
@@ -54,7 +55,7 @@ export default function RecentGenerations() {
                 <span className="n rg-t">{dt(c.ts)}</span>
                 <span className="rg-tool">{TOOL_ZH[c.tool] ?? c.tool}</span>
                 <span className="code rg-m">{c.model ?? "—"}</span>
-                <span className="n rg-c">{c.cost_usd != null ? usd(c.cost_usd) : <span className="nil">{c.status === "unsettled" ? "費用不明" : c.status === "running" ? "還在等" : "未回報"}</span>}</span>
+                <span className="n rg-c">{c.cost_usd != null ? <>{usd(c.cost_usd)}<EstMark x={c} /></> : <span className="nil">{c.status === "unsettled" ? "費用不明" : c.status === "running" ? "還在等" : "未回報"}</span>}</span>
                 <span className={`rg-s${c.status === "ok" ? "" : " bad"}`}>{STATUS_ZH[c.status] ?? c.status}</span>
                 <span className="rg-go">{ids.length ? (ids.length > 1 ? `共 ${ids.length} 件 →` : "作品 →") : "沒有作品"}</span>
               </>

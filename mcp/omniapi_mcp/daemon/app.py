@@ -171,7 +171,7 @@ def _service_info(settings: Settings) -> dict[str, Any]:
     absolute; ``env_file`` is ``None`` when there is none and
     ``env_file_suggested`` says where one would go (to set ``STORAGE__BASE_PATH``)."""
     from ..config.user_settings import settings_path
-    from ..layout import env_file, layout_name, suggested_env_file
+    from ..layout import env_file, layout_name, skip_repo_env, suggested_env_file
 
     try:
         env = env_file()
@@ -184,6 +184,7 @@ def _service_info(settings: Settings) -> dict[str, Any]:
             "storage_env": "STORAGE__BASE_PATH",
             "env_file": str(env) if env else None,
             "env_file_suggested": str(suggested_env_file()),
+            "repo_env_skipped": skip_repo_env(),  # a test sandbox that leaves the checkout's .env unread
             "settings_file": str(settings_path()),
             "logs": str(data_home() / "logs"),
         }

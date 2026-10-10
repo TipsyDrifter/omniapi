@@ -403,6 +403,8 @@ class ImageGenerationTool:
                     "prompt": prompt,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "cost_estimate": cost_info.get("estimated_cost_usd"),
+                    # true unless the provider reported what this call cost
+                    "cost_estimated": not cost_info.get("actual"),
                     "file_size_bytes": primary["file_size_bytes"],
                     "dimensions": validated_params.get("size", size_str),
                     "format": file_format.upper(),

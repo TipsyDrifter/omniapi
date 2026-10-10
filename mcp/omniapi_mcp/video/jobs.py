@@ -722,10 +722,11 @@ class VideoJobs:
             if not e.transient:
                 # the vendor no longer knows the job (expired, or never kept)
                 remote["charged"] = "unknown"
+                # the ledger row first, then the job's own status: whoever sees the job ended finds its ledger row settled too
+                await self._settle_failed(row, remote, "the provider no longer knows the job")
                 await self.store.update_generation(gid, status="error", error_kind="lost", finished_at=time.time(), polled_at=time.time(),
                                                    error=f"the provider no longer knows this video job ({e.said}); whether it was "
                                                          "billed is not reported", remote=remote)
-                await self._settle_failed(row, remote, "the provider no longer knows the job")
                 await self._publish("generation.finished", gid)
                 return "error"
             await self.store.update_generation(gid, polled_at=time.time(), remote=remote)
@@ -748,9 +749,9 @@ class VideoJobs:
             kind = classify(state.error or "") if state.error else "other"
             if state.status == "expired":
                 kind = "timeout"
+            await self._settle_failed(row, remote, message)  # ledger row first (see the "lost" branch above)
             await self.store.update_generation(gid, status="error", error=message[:2000], error_kind=kind,
                                                finished_at=time.time(), remote=remote)
-            await self._settle_failed(row, remote, message)
             await self._publish("generation.finished", gid)
         else:
             await self._publish("generation.updated", gid, ephemeral=not changed)
@@ -822,6 +823,7 @@ class VideoJobs:
             frames = (row.get("sources") or {}).get("frames") or {}
             parent = (frames.get("first") or {}).get("artifact_id") or (frames.get("last") or {}).get("artifact_id")
             cost = self._cost(provider, state, row)
+            estimated = cost is not None and state.cost_usd is None  # the vendor reported none: the estimate is billed
             params = dict(row.get("params") or {})
             prompt = params.pop("prompt", None)
             est = row.get("estimate") or {}
@@ -839,7 +841,7 @@ class VideoJobs:
                 artifact_id=aid, kind="video", tool=TOOL, model=row.get("model"), provider=row.get("provider"),
                 title=row.get("title"), prompt=prompt, params=params, file_path=str(dest), mime=mime_for(dest),
                 bytes=dest.stat().st_size, width=facts.get("width"), height=facts.get("height"),
-                duration_s=facts.get("duration_s"), cost_usd=cost, source=row.get("source"), call_id=row.get("call_id"),
+                duration_s=facts.get("duration_s"), cost_usd=cost, cost_estimated=estimated, source=row.get("source"), call_id=row.get("call_id"),
                 parent_id=parent, meta={k: v for k, v in meta.items() if v is not None})
             if created is None:  # indexed meanwhile (another process): use that row
                 existing = await self.store.artifact_by_path(str(dest))
@@ -850,13 +852,18 @@ class VideoJobs:
         remote.pop("last_error", None)
         remote["late"] = bool(remote.get("detached_at"))
         cost = self._cost(provider, state, row)
+        estimated = cost is not None and state.cost_usd is None
         remote["charged"] = "yes" if state.cost_usd is not None else "likely"
         if cost is not None and state.cost_usd is None:
             remote["cost_from"] = "estimate"  # the vendor reported no usage: the estimate is billed (charged: likely)
-        await self.store.update_generation(gid, status="done", finished_at=time.time(), cost_usd=cost, artifact_ids=[aid],
-                                           remote_status="completed", remote=remote, error=None, error_kind=None)
+        # the ledger row is settled before the job is marked done: a job that reads "done" always has a settled row
+        # (if the process dies in between, the job is still open and is collected again; settling twice changes nothing)
         if row.get("call_id"):
-            await self.store.settle_ticket_call(row["call_id"], model=row.get("model"), provider=row.get("provider"), cost_usd=cost)
+            await self.store.settle_ticket_call(row["call_id"], model=row.get("model"), provider=row.get("provider"), cost_usd=cost,
+                                                cost_estimated=estimated)
+        await self.store.update_generation(gid, status="done", finished_at=time.time(), cost_usd=cost, cost_estimated=estimated,
+                                           artifact_ids=[aid],
+                                           remote_status="completed", remote=remote, error=None, error_kind=None)
         logger.info("video %s collected (%s, $%s)", gid, dest.name, cost)
         await self._publish("generation.finished", gid)
 
@@ -903,6 +910,8 @@ class VideoJobs:
             await self._publish("generation.updated", gid)
             return await self.public(gid)
         remote["charged"] = "likely"
+        if row.get("call_id"):
+            await self.store.call_unsettled(row["call_id"], NOT_COLLECTED_NOTE)  # ledger row first, then the job's status
         await self.store.update_generation(
             gid, status="abandoned", error_kind=None, finished_at=time.time(), remote=remote,
             error="stopped waiting: the provider has no cancel, so the video is probably still made and billed; "
@@ -910,8 +919,6 @@ class VideoJobs:
         task = self._tasks.get(gid)
         if task is not None and not task.done():
             task.cancel()
-        if row.get("call_id"):
-            await self.store.call_unsettled(row["call_id"], NOT_COLLECTED_NOTE)
         await self._publish("generation.finished", gid)
         return await self.public(gid)
 
@@ -989,6 +996,7 @@ class VideoJobs:
                     "file_url": f"/api/artifacts/{w['id']}/file" if w else None,
                     "duration_s": w.get("duration_s"), "width": w.get("width"), "height": w.get("height"),
                     "has_audio": meta.get("has_audio"), "fps": meta.get("fps"), "cost_usd": row.get("cost_usd"),
+                    **({"cost_estimated": True} if row.get("cost_estimated") else {}),
                     "waited_s": view["waited_s"], **({"late": True} if view["late"] else {}),
                     **({"resumed_after_restart": True} if view["resumed"] else {})}
         if status in WAITING:

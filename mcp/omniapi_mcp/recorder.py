@@ -92,6 +92,9 @@ def extract_call_meta(result: Any) -> dict[str, Any]:
         elif isinstance(ce, (int, float)):
             cost = ce
     meta["cost_usd"] = cost
+    # the cost is an estimate (the vendor reported none and the catalog price was applied): the tool says so itself
+    md = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    meta["cost_estimated"] = bool(cost is not None and (result.get("cost_estimated") is True or md.get("cost_estimated") is True))
     meta["usage"] = result.get("usage")
     meta["ticket"] = result.get("status") == "running" and bool(result.get("task_id"))
     meta["error"] = result.get("error") if isinstance(result.get("error"), str) else None
@@ -169,6 +172,7 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
                 # the cost belongs to the call that started the job (settled on its own row
                 # when the job lands); counting it here too would bill the same work twice
                 meta["cost_usd"] = None
+                meta["cost_estimated"] = False
             status = "ticket" if meta.get("ticket") else ("error" if meta.get("error") else "ok")
             if store is not None and call_id:
                 try:
@@ -179,6 +183,7 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
                         model=meta.get("model"),
                         provider=meta.get("provider"),
                         cost_usd=meta.get("cost_usd"),
+                        cost_estimated=bool(meta.get("cost_estimated")),
                         usage=meta.get("usage"),
                         result=summarize_result(result),
                         error=meta.get("error"),
@@ -196,6 +201,7 @@ def make_recorded(get_context: Callable[[], Any], source: str = "mcp"):
                         "model": meta.get("model"),
                         "provider": meta.get("provider"),
                         "cost_usd": meta.get("cost_usd"),
+                        "cost_estimated": bool(meta.get("cost_estimated")),
                     }
                 )
             return result

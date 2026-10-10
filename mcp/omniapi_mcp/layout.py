@@ -82,15 +82,45 @@ def gui_dist(package_dir: Optional[Path] = None) -> Optional[Path]:
 
 
 # ---------------------------------------------------------------- .env
+#: env var that decides whether the checkout's ``mcp/.env`` and the working
+#: directory's ``.env`` are left unread. ``1`` skips them, ``0`` reads them;
+#: unset, an offline sandbox (``OMNIAPI_OFFLINE=1``) skips and everything else reads.
+SKIP_REPO_ENV = "OMNIAPI_SKIP_REPO_ENV"
+_TRUE = ("1", "true", "yes", "on")
+_FALSE = ("0", "false", "no", "off")
+
+
+def skip_repo_env() -> bool:
+    """Should the service ignore the repo / working-directory ``.env``?
+
+    A sandbox for tests must not pick up the real keys that sit in ``mcp/.env``
+    of the checkout it is started from: they turn providers on and change the
+    model lists a test expects. The data home's own ``.env`` (the sandbox's
+    home, chosen explicitly through ``OMNIAPI_HOME``) is always read.
+    An offline sandbox never reaches a vendor whatever it is given, so
+    skipping by default there costs nothing; ``OMNIAPI_SKIP_REPO_ENV=0`` reads
+    the file anyway (e.g. an offline run that wants the owner's model lists)."""
+    from .devmode import offline
+
+    raw = os.environ.get(SKIP_REPO_ENV, "").strip().lower()
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    return offline()
+
+
 def env_file_candidates(package_dir: Optional[Path] = None) -> list[Path]:
     """Where a ``.env`` may be, in the order both entry points (daemon and
     stdio) look: the checkout's ``mcp/.env``, the working directory's ``.env``
-    (what the stdio server always read), then ``<data home>/.env``."""
+    (what the stdio server always read), then ``<data home>/.env``. With
+    ``skip_repo_env()`` only the last one is left."""
     out: list[Path] = []
-    proj = project_dir(package_dir)
-    if proj is not None:
-        out.append(proj / ".env")
-    out.append(Path.cwd() / ".env")
+    if not skip_repo_env():
+        proj = project_dir(package_dir)
+        if proj is not None:
+            out.append(proj / ".env")
+        out.append(Path.cwd() / ".env")
     out.append(data_home() / ".env")
     seen: set[str] = set()
     unique = []
@@ -184,5 +214,6 @@ def describe() -> dict[str, Any]:
         "package_dir": str(PACKAGE_DIR),
         "gui_dist": str(dist) if dist else None,
         "env_file": str(env) if env else None,
+        "repo_env_skipped": skip_repo_env(),
         "workdir": str(Path.cwd()),
     }

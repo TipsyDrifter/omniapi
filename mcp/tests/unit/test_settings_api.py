@@ -262,3 +262,31 @@ def test_model_rows_carry_their_leaderboard_rank(daemon):
     opts = daemon.get("/api/generate/options").json()
     images = {m["id"]: m for m in opts["kinds"]["image"]["models"]}
     assert images["gpt-image-2.5-sunburst"]["rank"] == 1
+
+
+# ---------------------------------------------------------------- music: how many tracks (the settings page's toggle)
+def test_music_suno_all_tracks_reads_and_writes_like_the_other_settings(daemon, tmp_path):
+    from omniapi_mcp.runtime import runtime
+
+    path = tmp_path / "home" / "settings.json"
+    assert daemon.get("/api/settings").json()["music"]["suno_all_tracks"] == {"value": True, "source": "default"}
+
+    r = daemon.patch("/api/settings", json={"music": {"suno_all_tracks": False}})
+    assert r.status_code == 200, r.text
+    assert r.json()["changed"] == ["music.suno_all_tracks"]
+    assert r.json()["music"]["suno_all_tracks"] == {"value": False, "source": "settings"}
+    assert json.loads(path.read_text(encoding="utf-8"))["music"] == {"suno_all_tracks": False}  # persisted
+    assert daemon.get("/api/settings").json()["music"]["suno_all_tracks"] == {"value": False, "source": "settings"}
+    assert runtime.context.settings.music.suno_all_tracks is False  # applied at once, no restart
+
+    # a value that is not a boolean is refused and changes nothing
+    for bad in ("yes", 1, [], {"x": 1}):
+        r = daemon.patch("/api/settings", json={"music": {"suno_all_tracks": bad}})
+        assert r.status_code == 400, (bad, r.text)
+    assert daemon.patch("/api/settings", json={"music": {"nope": True}}).status_code == 400
+    assert json.loads(path.read_text(encoding="utf-8"))["music"] == {"suno_all_tracks": False}
+
+    # null removes the entry: the built-in value shows through again
+    r = daemon.patch("/api/settings", json={"music": {"suno_all_tracks": None}})
+    assert r.status_code == 200 and r.json()["music"]["suno_all_tracks"] == {"value": True, "source": "default"}
+    assert runtime.context.settings.music.suno_all_tracks is True

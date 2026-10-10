@@ -193,8 +193,9 @@ async def _image(store: Any, tool: str, model: Optional[str], pricing: Any, unit
 async def _speech(store: Any, tool: str, model: Optional[str], pricing: Any, unit: Optional[str],
                   params: dict[str, Any], duration_s: Optional[float]) -> dict[str, Any]:
     chars = len(str(params.get("text") or ""))
-    if unit == "per_1k_chars" and isinstance(pricing.get("text"), (int, float)):
-        return _result("per_1k_chars", pricing["text"] * chars / 1000, unit_price=pricing["text"], chars=chars)
+    per_1k = catalog.speech_price_per_1k_chars(model) if model else None  # per-1k and per-1M character prices alike
+    if per_1k is not None:
+        return _result("per_1k_chars", per_1k * chars / 1000, unit_price=per_1k, chars=chars)
     if model:
         rows = [r for r in await store.artifact_costs(tool=tool, model=model) if r.get("prompt_len")]
         if rows:

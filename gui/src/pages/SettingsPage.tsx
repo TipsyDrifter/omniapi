@@ -989,6 +989,7 @@ function DefsSection(p: PickProps) {
         );
       })}
       {settings.video ? <VideoSettings v={settings.video} /> : null}
+      <MusicSettingsBlock m={settings.music} />
     </section>
   );
 }
@@ -1115,6 +1116,56 @@ function VideoSettings({ v }: { v: NonNullable<SettingsView["video"]> }) {
             </button>
           </div>
           {reset("keep_collecting", "不等了之後")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 音樂（settings.json 的 music 一節）：Suno 一次回兩首，收幾首 ---------------- */
+function MusicSettingsBlock({ m }: { m: SettingsView["music"] }) {
+  const saved = useSettings((s) => s.saved);
+  // 舊的服務（1.4.0 之前）GET 沒有 music 一節：照後端的內建值（兩首都收）顯示，存的時候一樣送 PATCH
+  const cur = m?.suno_all_tracks ?? { value: true, source: "default" as const };
+  const both = cur.value !== false;
+  const save = (patch: NonNullable<SettingsPatch["music"]>, what: Seg[]) => saveSettings({ music: patch }, { what, target: "m:suno_all_tracks", sub: ["之後生的音樂照新的設定；已經在做的不受影響"] });
+  const sv = saved["m:suno_all_tracks"];
+  return (
+    <div className="vd-set" id="s-music">
+      <div className="sx-sub">
+        <b>音樂</b>
+        <small>Suno 每次生成都回兩首，要收幾首</small>
+      </div>
+      <div className="tr" id="tr-m-tracks">
+        <div className="tr-lab">
+          <b className="zh">音樂收幾首</b>
+          <small>只影響 Suno（kie.ai）；ElevenLabs 一次一首</small>
+        </div>
+        <div className="tr-model">
+          <div className="x-dim">
+            {both
+              ? "兩首都收：各存一個檔、作品牆各一件，費用兩首平分。"
+              : "只收第一首：第二首不存檔、不上作品牆。Suno 照樣一次做兩首、收一次的錢。"}
+          </div>
+        </div>
+        <div className="tr-src">
+          <SrcStamp s={cur.source} />
+          {sv ? <span className="done-stamp solid">已存・已生效 {clock(sv)}</span> : null}
+        </div>
+        <div className="tr-acts">
+          <div className="sseg" role="group" aria-label="音樂收幾首">
+            <button type="button" aria-pressed={both} onClick={() => !both && void save({ suno_all_tracks: true }, ["音樂收幾首 → 兩首都收"])}>
+              兩首都收
+            </button>
+            <button type="button" aria-pressed={!both} onClick={() => both && void save({ suno_all_tracks: false }, ["音樂收幾首 → 只收第一首"])}>
+              只收第一首
+            </button>
+          </div>
+          {cur.source === "settings" ? (
+            <button type="button" className="btn soft" onClick={() => void save({ suno_all_tracks: null }, ["音樂收幾首 還原成內建"])}>
+              還原內建
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

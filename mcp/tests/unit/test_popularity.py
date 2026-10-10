@@ -179,3 +179,39 @@ def test_the_service_does_not_reorder_lists(cat):
     """Sorting is the page's; the catalog keeps its own order."""
     rows = cat.models(modality="text")
     assert [e.id for e in rows] == [e.id for e in sorted(rows, key=lambda e: (e.modality, e.provider, e.id))]
+
+
+# ---- what the MCP tool tells a caller about `rank` -----------------------------------------------------------------
+
+
+def _list_models_help() -> str:
+    import asyncio
+    import json
+
+    from omniapi_mcp.server import mcp
+
+    tool = {t.name: t for t in asyncio.run(mcp.list_tools())}["list_available_models"]
+    return tool.description or ""
+
+
+def test_list_available_models_explains_what_rank_means():
+    text = _list_models_help()
+    low = text.lower()
+    assert "'rank'" in text and "artificial analysis" in low
+    assert "lower number" in low and "more popular" in low  # 1 is the top
+    assert "absent" in low  # a model on no leaderboard has no rank
+    assert "popularity" in low and "rank_badge" in low
+
+
+def test_the_public_help_carries_no_internal_ids():
+    import json
+    import re
+    from pathlib import Path
+
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "manifest.json").read_text(encoding="utf-8"))
+    tool = {t["name"]: t for t in manifest["tools"]}["list_available_models"]
+    for text in (_list_models_help(), tool["description"]):
+        assert not re.search(r"\bD\d{2,3}\b", text), text  # decision numbers
+        assert not re.search(r"\b\d\.\d(?:\.\d)?-M\d\b", text), text  # milestone codes
+        assert "決策記錄" not in text and "ROADMAP" not in text
+    assert "rank" in tool["description"] and "lower is more popular" in tool["description"]

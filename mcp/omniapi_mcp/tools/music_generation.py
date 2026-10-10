@@ -310,6 +310,8 @@ class MusicGenerationTool:
             # only set when the cost is known: Lyria's flat price, or kie's
             # creditsConsumed x credit_usd on the jobs route; otherwise absent
             **{k: r.metadata[k] for k in ("model", "cost_usd") if r.metadata.get(k) is not None},
+            # the cost is an estimate (ElevenLabs reports none; the catalog price for the length asked for)
+            **({"cost_estimated": True} if r.metadata.get("cost_estimated") and r.metadata.get("cost_usd") is not None else {}),
             **({"lyrics": r.text} if r.text else {}),
         }
 

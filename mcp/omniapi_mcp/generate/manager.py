@@ -393,7 +393,8 @@ class GenerationManager:
             elif not artifact_ids:
                 fields = {"status": "error", "error": "the tool finished but produced no file", "error_kind": "other"}
             else:
-                fields = {"status": "done", "model": meta.get("model"), "cost_usd": meta.get("cost_usd")}
+                fields = {"status": "done", "model": meta.get("model"), "cost_usd": meta.get("cost_usd"),
+                          "cost_estimated": bool(meta.get("cost_estimated"))}
         except asyncio.CancelledError:
             fields = {"status": "cancelled"}  # asked for, so not an error: no kind, no message
         except Exception as e:  # noqa: BLE001 — every failure becomes a row the page can show

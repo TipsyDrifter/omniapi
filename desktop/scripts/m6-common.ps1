@@ -46,7 +46,16 @@ function Say([string]$m) {
 function Get-Health([int]$Port = $TestPort, [int]$TimeoutSec = 2) {
     try { return Invoke-RestMethod "http://127.0.0.1:$Port/api/health" -TimeoutSec $TimeoutSec } catch { return $null }
 }
-function Get-OwnerPid { $h = Get-Health $OwnerPort 3; if (-not $h) { throw "7788 is NOT answering" }; [int]$h.pid }
+# The pid behind 7788: the service's own health answer, else whatever listens there, else 0
+# (nothing listens, e.g. the owner's app is not running right now). The tests only check that this
+# number does not change; they never start or stop what is behind 7788.
+function Get-OwnerPid {
+    $h = Get-Health $OwnerPort 3
+    if ($h) { return [int]$h.pid }
+    $l = Get-NetTCPConnection -LocalPort $OwnerPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($l) { return [int]$l.OwningProcess }
+    return 0
+}
 function Assert-Owner([int]$Expected, [string]$When) {
     $now = Get-OwnerPid
     if ($now -ne $Expected) { throw "7788 pid changed ($When): $Expected -> $now" }

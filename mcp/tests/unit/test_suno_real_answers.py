@@ -60,7 +60,7 @@ def _sent(seen: list[httpx.Request]) -> dict:
 def test_the_default_table_matches_what_was_verified():
     for op in ("generate", "extend", "cover", "add_instrumental", "add_vocals", "generate_lyrics", "to_wav", "to_mp4"):
         assert SUNO_DEFAULT_ROUTES[op] == "jobs", op
-    assert SUNO_DEFAULT_ROUTES["upload_extend"] == "legacy"
+    assert SUNO_DEFAULT_ROUTES["upload_extend"] == "custom"  # custom mode worked (2026-10-08), plain mode failed upstream
 
 
 @pytest.mark.parametrize("op,call", [

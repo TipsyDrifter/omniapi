@@ -162,3 +162,66 @@ def test_apply_storage_default_tolerates_test_doubles(tmp_path, monkeypatch):
     monkeypatch.setattr(layout, "documents_dir", lambda: tmp_path / "Docs")
     s = NS(storage=NS(base_path="./storage"))
     assert layout.apply_storage_default(s, _pkg(tmp_path, repo=False)) == str(tmp_path / "Docs" / "OmniAPI")
+
+
+# ---- the switch that keeps a test sandbox from reading the checkout's real .env ----
+
+
+def _checkout_with_keys(tmp_path, monkeypatch):
+    """A fake checkout whose mcp/.env holds (fake) keys, a cwd with its own .env, and a data home with one."""
+    repo = _pkg(tmp_path, repo=True)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    (repo.parent / ".env").write_text("PROVIDERS__DEEPSEEK__API_KEY=fake-from-the-checkout-0001\nPROVIDERS__DEEPSEEK__ENABLED=true\n", encoding="utf-8")
+    (cwd / ".env").write_text("PROVIDERS__DEEPSEEK__API_KEY=fake-from-the-cwd-0002\n", encoding="utf-8")
+    for var in (layout.SKIP_REPO_ENV, "OMNIAPI_OFFLINE", "OMNIAPI_DEV"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(layout, "PACKAGE_DIR", repo)
+    return repo, cwd, home
+
+
+def test_skip_repo_env_default_follows_the_offline_lock(tmp_path, monkeypatch):
+    _checkout_with_keys(tmp_path, monkeypatch)
+    assert layout.skip_repo_env() is False  # a normal service reads the checkout's .env, as always
+    monkeypatch.setenv("OMNIAPI_OFFLINE", "1")
+    assert layout.skip_repo_env() is True  # an offline sandbox never takes the real keys
+    monkeypatch.setenv(layout.SKIP_REPO_ENV, "0")
+    assert layout.skip_repo_env() is False  # ...unless asked to
+    monkeypatch.delenv("OMNIAPI_OFFLINE")
+    for yes in ("1", "true", "YES", "on"):
+        monkeypatch.setenv(layout.SKIP_REPO_ENV, yes)
+        assert layout.skip_repo_env() is True
+    monkeypatch.setenv(layout.SKIP_REPO_ENV, "")  # empty = unset
+    assert layout.skip_repo_env() is False
+
+
+def test_the_switch_leaves_only_the_data_homes_env(tmp_path, monkeypatch):
+    repo, cwd, home = _checkout_with_keys(tmp_path, monkeypatch)
+    assert layout.env_file_candidates(repo) == [repo.parent / ".env", cwd / ".env", home / ".env"]
+    monkeypatch.setenv(layout.SKIP_REPO_ENV, "1")
+    assert layout.env_file_candidates(repo) == [home / ".env"]
+    assert layout.env_file(repo) is None  # neither the checkout's nor the cwd's file is found
+    (home / ".env").write_text("X=1\n", encoding="utf-8")
+    assert layout.env_file(repo) == home / ".env"  # the sandbox's own home still counts
+    # when the service's cwd is the data home itself (installed layout) its .env is the same file and stays
+    monkeypatch.chdir(home)
+    assert layout.env_file_candidates(repo) == [home / ".env"]
+
+
+def test_settings_do_not_see_the_checkouts_keys_when_the_switch_is_on(tmp_path, monkeypatch):
+    from omniapi_mcp.config.user_settings import load_settings
+
+    for k in list(os.environ):
+        if k.upper().startswith("PROVIDERS__"):
+            monkeypatch.delenv(k)
+    repo, cwd, home = _checkout_with_keys(tmp_path, monkeypatch)
+    assert layout.env_file(repo) == repo.parent / ".env"
+    assert load_settings().providers.deepseek.api_key == "fake-from-the-checkout-0001"
+    monkeypatch.setenv("OMNIAPI_OFFLINE", "1")  # the sandbox
+    s = load_settings()
+    assert s.providers.deepseek is None or not s.providers.deepseek.api_key
+    (home / ".env").write_text("PROVIDERS__DEEPSEEK__API_KEY=fake-from-the-sandbox-0003\n", encoding="utf-8")
+    assert load_settings().providers.deepseek.api_key == "fake-from-the-sandbox-0003"

@@ -1385,6 +1385,12 @@ async def generate_speech(
     the Gemini Developer-API key and returns WAV.
 
     Deprecated but still callable: eleven_turbo_v2_5 (use eleven_flash_v2_5).
+
+    Cost: none of these vendors reports what a call cost. For a model priced
+    per character (every ElevenLabs model, OpenAI tts-1 / tts-1-hd) the result
+    carries `cost_usd` computed from the text length and the catalog price,
+    with `cost_estimated: true`. Token-priced models (gpt-4o-mini-tts, Gemini)
+    carry no cost.
     """
     ctx = mcp.get_context()
     server_ctx = get_server_context(ctx)
@@ -2215,9 +2221,13 @@ def _video_limit(est: dict[str, Any], allowed: Optional[float], limit: Optional[
         f"({', '.join(CATALOG_MODALITIES)}), with provider, online status, pricing, "
         "deprecation/shutdown info and the tier aliases (cheap/standard/strong). "
         "Rosters are live: providers are asked what is online at startup. "
-        "A model on an Artificial Analysis leaderboard of its modality also carries "
-        "'rank' (its best rank there, lower is more popular; a snapshot shipped with "
-        "the release), 'popularity' and 'rank_badge'. "
+        "'rank' is a model's position on the Artificial Analysis leaderboard for its "
+        "kind of model (its best position when it is on several): 1 is the top, so a "
+        "LOWER number means MORE popular. It is absent for a model that is on no "
+        "leaderboard (no entry means unknown, not last), it is a snapshot shipped with "
+        "the release rather than live data, and the list is not sorted by it. "
+        "'popularity' gives the position on each leaderboard the model is on; "
+        "'rank_badge' names the leaderboard and score behind 'rank' when that match is certain. "
         "Filter with modality='text' etc."
     ),
 )

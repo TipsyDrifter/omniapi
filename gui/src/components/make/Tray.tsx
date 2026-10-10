@@ -9,6 +9,7 @@ import { cancelGeneration, dismissGeneration, isRunning, setDraft, startGenerati
 import { VideoOutCard } from "./VideoTray";
 import { KIND_META, draftFromGeneration, firstLine, mmss, retryRequest } from "./draft";
 import { AudioPlayer, Glyph, artName, errMsg, useNow } from "./bits";
+import { EstMark, genFlags } from "@/components/EstMark";
 
 /** error_kind → 一句人話 */
 export const ERROR_TEXT: Record<string, string> = {
@@ -115,7 +116,7 @@ function OutCard({ g, now }: { g: Generation; now: number }) {
     <div className="mk-oi-m">
       <span className="code">{modelOf(g)}</span>
       {g.kind === "image" ? <span>{g.tool === "edit_image" || g.sources?.images?.length ? "改圖" : "生圖"}</span> : null}
-      {g.status === "done" ? <span>{g.cost_usd != null ? <>實際 <span className="n">{usd(g.cost_usd)}</span></> : "費用未回報"}</span> : null}
+      {g.status === "done" ? <span>{g.cost_usd != null ? <>{g.cost_estimated ? "記帳" : "實際"} <span className="n">{usd(g.cost_usd)}</span><EstMark x={genFlags(g)} /></> : "費用未回報"}</span> : null}
       {g.status === "done" && g.finished_at ? (
         <span>
           耗時 <span className="n">{mmss(g.finished_at - g.created_at)}</span>

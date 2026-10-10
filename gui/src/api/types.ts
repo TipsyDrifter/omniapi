@@ -97,9 +97,10 @@ export interface RunDetail extends Run {
 export interface Costs {
   days: number;
   /** 聊天・生成帳（calls 表；畫面上 2026-09-30 前叫「工具呼叫帳」） */
-  total: { cost: number; n: number };
-  by_model: { model: string; n: number; cost: number }[];
-  by_day: { day: string; n: number; cost: number }[];
+  /** cost_estimated（1.4.1）：這個合計含照單價預估的那幾筆 */
+  total: { cost: number; n: number; cost_estimated?: boolean };
+  by_model: { model: string; n: number; cost: number; cost_estimated?: boolean }[];
+  by_day: { day: string; n: number; cost: number; cost_estimated?: boolean }[];
   /** 派工帳（runs 表）：M4 後端加入；舊 daemon 沒有這欄，前端要能退回用 runs 自己算 */
   runs?: RunsLedger;
 }
@@ -236,6 +237,14 @@ export interface SettingsView {
   defaults: Record<DefaultKind, { model: string | null; source: "settings" | "env" | "default" }>;
   /** 1.4-M3：影片的設定（MCP／CLI 的單支上限、最長等待、不等了之後要不要繼續收） */
   video?: Record<keyof VideoSettings, { value: number | boolean; source: "settings" | "env" | "default" }>;
+  /** 1.4.1：音樂的設定（Suno 一次回兩首：都收或只收第一首） */
+  music?: Record<keyof MusicSettings, { value: boolean; source: "settings" | "env" | "default" }>;
+}
+
+/** settings.json 的 music 一節（1.4.0 起後端就讀，1.4.1 設定頁才有開關） */
+export interface MusicSettings {
+  /** Suno 每次回兩首：true＝兩首都收（各一個檔、各一件作品，費用兩首平分）；false＝只收第一首 */
+  suno_all_tracks: boolean;
 }
 
 /** 1.4-M3：settings.json 的 video 一節 */
@@ -262,6 +271,7 @@ export interface SettingsPatch {
   tiers?: Partial<Record<string, string | null>>;
   defaults?: Partial<Record<DefaultKind, string | null>>;
   video?: Partial<{ [K in keyof VideoSettings]: VideoSettings[K] | null }>;
+  music?: Partial<{ [K in keyof MusicSettings]: MusicSettings[K] | null }>;
 }
 
 export interface TestKeyResult {
@@ -1080,6 +1090,8 @@ export interface Artifact {
   /** 逐字稿／歌詞的文字（清單裡超過 400 字會截成預覽） */
   text: string | null;
   cost_usd: number | null;
+  /** 1.4.1：true＝這筆費用是照單價預估記的（供應商不回報用量，例如 ElevenLabs）；舊服務不帶＝實際 */
+  cost_estimated?: boolean;
   source: string | null;
   parent_id: string | null;
   file_url: string;
@@ -1123,6 +1135,8 @@ export interface Generation {
   error_kind: GenErrorKind | null;
   estimate: Estimate | null;
   cost_usd: number | null;
+  /** 1.4.1：true＝照單價預估記的帳（同 Artifact.cost_estimated） */
+  cost_estimated?: boolean;
   artifacts: Artifact[];
   source?: string;
   /** 1.2-M4：聊天來的生成記著是哪段聊天、哪一則、哪張提議 */
@@ -1218,6 +1232,8 @@ export interface CallRow {
   provider: string | null;
   cost_usd: number | null;
   error: string | null;
+  /** 1.4.1：true＝照單價預估記的帳（同 Artifact.cost_estimated） */
+  cost_estimated?: boolean;
   source: string | null;
   /** 1.1-M4：這筆呼叫做出來的作品 */
   artifact_ids?: string[];

@@ -171,7 +171,8 @@ class Runtime:
                 # the ledger row of the ticketed call gets its real cost now, fetched or not
                 meta = extract_call_meta(result)
                 if not meta.get("error"):
-                    await store.settle_ticket_call(call.call_id, model=meta.get("model"), provider=meta.get("provider"), cost_usd=meta.get("cost_usd"))
+                    await store.settle_ticket_call(call.call_id, model=meta.get("model"), provider=meta.get("provider"), cost_usd=meta.get("cost_usd"),
+                                                cost_estimated=bool(meta.get("cost_estimated")))
 
         ctx.jobs.on_late_result = _index_late
 

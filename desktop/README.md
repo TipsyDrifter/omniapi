@@ -41,6 +41,24 @@ How to install and use it as a user: the root [README](../README.md) (install) a
   false, the page shows no switch and `PUT` answers 409. The shell re-reads the value when the
   pointer reaches the tray icon and every 5 s, and rebuilds the menu when it changed
   (`autostart-followed` in `shell.log`).
+  **The choice survives a covering install (1.4.1).** Double-clicking a newer installer first runs the
+  old version's uninstaller, which deletes the Run value unless Tauri's own updater started it
+  (`/UPDATE`); so the shell also keeps the choice in `<data home>autostart.pref` (`~/.omniapi`, or
+  `~/.omniapi-test` for the test build; a place no install touches): one line, `autostart=on` or
+  `autostart=off`, written atomically (temp file + rename) by every route that changes the switch —
+  the tray, `--autostart-on/off`, and the settings page (the service writes the registry itself, so
+  the shell records it when its 5 s check sees the change; `autostart-pref` in `shell.log`). Plain
+  text, not JSON, because the installer's NSIS hook reads it too and NSIS has no JSON parser. At
+  start (`autostart-reconcile` in `shell.log`): choice on and the value missing, or pointing at an exe
+  that no longer exists → written again (`autostart-restored`); a value that points at another exe
+  that still exists is left alone; choice off → nothing is touched; no file, or an unreadable one
+  (the first start after 1.4.0) → the file is seeded from the actual state, never guessed
+  (`autostart-pref-seeded`). The installer's post-install hook (`NSIS_HOOK_POSTINSTALL`) does the same
+  at once when the file says on — the same value name (`${MAINBINARYNAME}`) and text the plugin writes —
+  so the logon entry works even if the app is not started after installing. A genuine uninstall
+  leaves the file like every other setting, so a later reinstall turns the entry on again; turning
+  the switch off first (or deleting the file) gives the other behaviour. The one upgrade this cannot
+  help is 1.4.0 → 1.4.1: 1.4.0 kept no choice and its uninstaller does the deleting.
 
 Command line (scripts and tests; also what a second launch forwards):
 
@@ -255,7 +273,8 @@ and check that the service on 7788 kept its pid.
 | `scripts/autostart-test.ps1` | logon entry on/off, `omni autostart status`, the old-launcher warning (faked APPDATA); restores the registry |
 | `scripts/screens-test.ps1` | screenshots of the starting page and the dashboard |
 | `scripts/install-test.ps1` | (shell-only installer) silent install to a temp folder, run, update over a running copy, uninstall, clean up |
-| `scripts/m6-install-test.ps1` | (the real installer, by default the test build: `OMNIAPI_M6_IDENTITY=test`; `released` is refused while any `OmniAPI.exe` runs; port **7829**, or `OMNIAPI_M6_PORT` 7800–7949; folder `%TEMP%\omniapi-proto\m6`, or `OMNIAPI_M6_DIR` under `%TEMP%`; guard in `m6-common.ps1`, which also overwrites each test install's `shell.config.json` with the test config) install, first / second start with PATH = Windows folders only, layout, `omni.cmd`, settings across a restart, the e2e scripts, update over the running copy and back, Defender, uninstall while running, a path with a space and CJK characters |
+| `scripts/m6-install-test.ps1` | (the real installer, by default the test build: `OMNIAPI_M6_IDENTITY=test`; `released` is refused while any `OmniAPI.exe` runs; port **7829**, or `OMNIAPI_M6_PORT` 7800–7949; folder `%TEMP%\omniapi-proto\m6`, or `OMNIAPI_M6_DIR` under `%TEMP%`; guard in `m6-common.ps1`, which also overwrites each test install's `shell.config.json` with the test config) install, first / second start with PATH = Windows folders only, layout, `omni.cmd`, settings across a restart, the e2e scripts, update over the running copy and back, **`autostart-upgrade`** (the logon entry across covering installs: needs `-Setup2`; see Installer), Defender, uninstall while running, a path with a space and CJK characters |
+| `scripts/nsis-hook-test.ps1` | (seconds, no Tauri build) the post-install hook alone: a tiny installer made with `makensis` runs `NSIS_HOOK_POSTINSTALL` against `autostart.pref` files in temp folders (on / off / CRLF / garbage / missing / a folder; `OMNIAPI_HOME` or the default `.omniapi` / `.omniapi-test` folder per identity; Task Manager flag); writes only `RunOmniAPI-Test` (put back) and a made-up name, never `RunOmniAPI` |
 | `scripts/m6-update-check-test.ps1` | the daily new-version check against a local stand-in for the release API |
 
 The lifecycle scripts run the service from the main checkout's `mcp/.venv` (found through git, or
@@ -273,6 +292,19 @@ asked or even queried — then stops whatever still runs from there, by path, ne
 update replaces every file and nothing is left behind by an uninstall. Uninstall leaves `~/.omniapi`
 and `Documents\OmniAPI` alone. After an update over a running copy the app is not started again by
 itself (the finish page offers to start it).
+
+`NSIS_HOOK_POSTINSTALL` puts the logon entry back after a covering install when `autostart.pref` in the
+data home says on (see Logon above; data home = `OMNIAPI_HOME` if set in the installer's environment,
+else `%USERPROFILE%.omniapi`, `.omniapi-test` for the test build), and appends a line `autostart-restore: …`
+to `%TEMP%omniapi-installer-stop.log`. `m6-install-test.ps1 -Steps autostart-upgrade -Setup <A> -Setup2 <B>`
+shows it with two builds. A silent install (`/S`) skips the installer's "already installed" page and never
+runs the old uninstaller, so it cannot show the bug; the step therefore runs the sequence that page runs
+(the old `uninstall.exe /S _?=<folder>`, no `/UPDATE`, then the new installer). With no stored choice the
+covering install clears the entry (the 1.4.0 behaviour, as a control); with the choice on the value is there right after the install, before the app
+runs; the shell repairs a deleted or stale value at its start; off stays off; seeding; and the settings
+page's `PUT` is followed. Build the second installer with `package.ps1 -TestIdentity -Version 1.4.1
+-SkipPython -SkipGui` (tests only; the version is only the installer's), `-CargoTargetName` keeps a
+private cargo target when other builds run at the same time.
 
 Known limits: the logon entry is the exe path unquoted (tauri-plugin-autostart writes it that way);
 the per-user install folder has no spaces unless the Windows user name does.

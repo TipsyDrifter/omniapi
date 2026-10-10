@@ -209,6 +209,13 @@ def _row(r: aiosqlite.Row | None) -> Optional[dict[str, Any]]:
     for k in list(d):
         if k.endswith("_json"):
             d[k[:-5]] = _loads(d.pop(k))
+    if "cost_estimated" in d:  # stored 0/1, handed out as a boolean
+        d["cost_estimated"] = bool(d["cost_estimated"])
+    return d
+
+
+def _flag_estimated(d: dict[str, Any]) -> dict[str, Any]:
+    d["cost_estimated"] = bool(d.get("cost_estimated"))
     return d
 
 
@@ -247,6 +254,10 @@ class Store:
             "provider": "TEXT", "remote_id": "TEXT", "submitted_at": "REAL", "remote_status": "TEXT", "polled_at": "REAL",
             "lease_owner": "TEXT", "lease_until": "REAL", "remote_json": "TEXT",
         })
+        # 1.4.1: a cost that is the estimate recorded because the vendor reported none (speech, a video
+        # billed at its estimate). Rows written before this column existed were never marked: 0 = not an estimate.
+        for table in ("calls", "artifacts", "generations"):
+            wanted.setdefault(table, {})["cost_estimated"] = "INTEGER NOT NULL DEFAULT 0"
         for table, cols in wanted.items():
             cur = await self._db.execute(f"PRAGMA table_info({table})")
             have = {r[1] for r in await cur.fetchall()}
@@ -326,11 +337,13 @@ class Store:
         usage: dict[str, Any] | None = None,
         result: Any = None,
         error: str | None = None,
+        cost_estimated: bool = False,
     ) -> None:
         await self.db.execute(
             "UPDATE calls SET status=?, duration_ms=?, model=?, provider=?, cost_usd=?,"
-            " usage_json=?, result_json=?, error=? WHERE id=?",
-            (status, duration_ms, model, provider, cost_usd, _dumps(usage), _dumps(result), error, call_id),
+            " usage_json=?, result_json=?, error=?, cost_estimated=? WHERE id=?",
+            (status, duration_ms, model, provider, cost_usd, _dumps(usage), _dumps(result), error,
+             1 if (cost_estimated and cost_usd is not None) else 0, call_id),
         )
         await self.db.commit()
 
@@ -358,21 +371,25 @@ class Store:
     async def cost_summary(self, *, days: int = 30) -> dict[str, Any]:
         since = time.time() - days * 86400
         cur = await self.db.execute(
-            "SELECT COALESCE(model,'?') AS model, COUNT(*) AS n, COALESCE(SUM(cost_usd),0) AS cost"
+            "SELECT COALESCE(model,'?') AS model, COUNT(*) AS n, COALESCE(SUM(cost_usd),0) AS cost,"
+            " MAX(cost_estimated) AS cost_estimated"
             " FROM calls WHERE ts>=? AND status IN ('ok','ticket') GROUP BY model ORDER BY cost DESC",
             (since,),
         )
-        by_model = [dict(r) for r in await cur.fetchall()]
+        # a sum that includes at least one estimated row says so (cost_estimated: true)
+        by_model = [_flag_estimated(dict(r)) for r in await cur.fetchall()]
         cur = await self.db.execute(
-            "SELECT date(ts,'unixepoch','localtime') AS day, COUNT(*) AS n, COALESCE(SUM(cost_usd),0) AS cost"
+            "SELECT date(ts,'unixepoch','localtime') AS day, COUNT(*) AS n, COALESCE(SUM(cost_usd),0) AS cost,"
+            " MAX(cost_estimated) AS cost_estimated"
             " FROM calls WHERE ts>=? GROUP BY day ORDER BY day DESC",
             (since,),
         )
-        by_day = [dict(r) for r in await cur.fetchall()]
+        by_day = [_flag_estimated(dict(r)) for r in await cur.fetchall()]
         cur = await self.db.execute(
-            "SELECT COALESCE(SUM(cost_usd),0) AS cost, COUNT(*) AS n FROM calls WHERE ts>=?", (since,)
+            "SELECT COALESCE(SUM(cost_usd),0) AS cost, COUNT(*) AS n, COALESCE(MAX(cost_estimated),0) AS cost_estimated"
+            " FROM calls WHERE ts>=?", (since,)
         )
-        total = dict(await cur.fetchone())
+        total = _flag_estimated(dict(await cur.fetchone()))
         return {"days": days, "total": total, "by_model": by_model, "by_day": by_day, "runs": await self._runs_ledger(since)}
 
     async def _runs_ledger(self, since: float) -> dict[str, Any]:
@@ -655,7 +672,7 @@ class Store:
     # ------------------------------------------------------------ artifacts / uploads (v1.1)
     _ARTIFACT_COLS = (
         "kind", "tool", "model", "provider", "title", "prompt", "file_path", "mime", "bytes",
-        "width", "height", "duration_s", "text", "cost_usd", "source", "call_id", "parent_id",
+        "width", "height", "duration_s", "text", "cost_usd", "cost_estimated", "source", "call_id", "parent_id",
     )
 
     async def add_artifact(self, *, artifact_id: str | None = None, created_at: float | None = None,
@@ -792,13 +809,15 @@ class Store:
             out.setdefault(r["call_id"], []).append(r["id"])
         return out
 
-    async def settle_ticket_call(self, call_id: str, *, model: str | None, provider: str | None, cost_usd: float | None) -> None:
+    async def settle_ticket_call(self, call_id: str, *, model: str | None, provider: str | None, cost_usd: float | None,
+                                 cost_estimated: bool = False) -> None:
         """A call that returned a ticket has now really finished: put what it
         cost on its own ledger row (it used to be recorded only if someone
         came back for the result — on *that* call's row)."""
         await self.db.execute(
-            "UPDATE calls SET status='ok', model=COALESCE(?, model), provider=COALESCE(?, provider), cost_usd=? WHERE id=? AND status IN ('ticket','started')",
-            (model, provider, cost_usd, call_id),
+            "UPDATE calls SET status='ok', model=COALESCE(?, model), provider=COALESCE(?, provider), cost_usd=?, cost_estimated=?"
+            " WHERE id=? AND status IN ('ticket','started')",
+            (model, provider, cost_usd, 1 if (cost_estimated and cost_usd is not None) else 0, call_id),
         )
         await self.db.commit()
 
@@ -851,7 +870,7 @@ class Store:
         return [_row(r) for r in await cur.fetchall()]
 
     # ------------------------------------------------------------ generation jobs (v1.1)
-    _GENERATION_COLS = ("finished_at", "model", "title", "status", "error", "error_kind", "cost_usd", "call_id",
+    _GENERATION_COLS = ("finished_at", "model", "title", "status", "error", "error_kind", "cost_usd", "cost_estimated", "call_id",
                         # 1.4-M3: a video job's remote side (``remote`` is JSON)
                         "provider", "remote_id", "submitted_at", "remote_status", "polled_at", "remote")
 
@@ -977,7 +996,7 @@ class Store:
     async def call_unsettled(self, call_id: str, note: str) -> None:
         """A paid call whose cost will never be known (a video sent, then not
         collected): its ledger row says so instead of a number."""
-        await self.db.execute("UPDATE calls SET status='unsettled', cost_usd=NULL, result_json=? WHERE id=? AND status IN ('ticket','started')",
+        await self.db.execute("UPDATE calls SET status='unsettled', cost_usd=NULL, cost_estimated=0, result_json=? WHERE id=? AND status IN ('ticket','started')",
                               (_dumps({"note": note}), call_id))
         await self.db.commit()
 

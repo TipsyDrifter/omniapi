@@ -238,3 +238,8 @@ a.rg-row:hover { background: var(--paper-deep); box-shadow: inset 0 0 0 1.5px va
 .rg-go { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-m11); text-align: right; white-space: nowrap; }
 .rg-row.off { cursor: default; }
 .rg-row.off .rg-go { color: var(--ink-70); }
+
+/* 燈箱〈設定與費用〉裡可以點的「看那張 →」（首幀、尾幀從作品牆挑的那張）：文字鈕，鍵盤可達 */
+.wk-golink { font-family: var(--font-label); font-weight: 700; font-size: var(--fs-xs); color: var(--ink); background: none; border: 0; padding: 0 1px; cursor: pointer; box-shadow: inset 0 -1.5px 0 var(--ink-45); white-space: nowrap; }
+.wk-golink:hover { box-shadow: inset 0 -2px 0 var(--ink); }
+.wk-golink:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

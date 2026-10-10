@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 import aiofiles
 
+from ..catalog import catalog
 from ..capabilities.speech import (
     ElevenLabsProvider,
     GeminiSpeechProvider,
@@ -245,6 +246,16 @@ class SpeechTool:
             await f.write(result.audio_data)
 
         used_model = result.metadata.get("model") or target_model
+        # No speech vendor reports what a call cost. A model priced per character (every ElevenLabs
+        # model, OpenAI tts-1 / tts-1-hd) has a bill that follows from the text, so the ledger gets that
+        # amount, marked as an estimate. Token-priced ones (gpt-4o-mini-tts, Gemini) are left without a
+        # cost: characters say nothing reliable about their audio tokens.
+        reported = result.metadata.get("cost_usd")
+        if isinstance(reported, (int, float)) and not isinstance(reported, bool):
+            cost: dict[str, Any] = {"cost_usd": float(reported)}
+        else:
+            estimated = catalog.estimate_speech_cost(used_model, len(text))
+            cost = {"cost_usd": estimated, "cost_estimated": True} if estimated is not None else {}
         return {
             "audio_path": str(out_path),
             "audio_url": f"file://{out_path}",
@@ -255,6 +266,7 @@ class SpeechTool:
             "voice_id": result.metadata.get("voice_id"),
             "output_format": result.output_format,
             "bytes": len(result.audio_data),
+            **cost,
         }
 
     async def close(self) -> None:

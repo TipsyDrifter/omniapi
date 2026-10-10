@@ -9,6 +9,7 @@ import { dt, usd } from "@/lib/format";
 import { Glyph, claimAudio, msShort } from "@/components/make";
 import { mediaOf } from "@/lib/modalities";
 import { KIND_ZH, fileName, isBare, sourceZh, verbOf } from "./wall";
+import { EstMark } from "@/components/EstMark";
 
 /** 卡片底下說明列的高度：音檔卡、文字卡、日期籤要跟「圖＋說明列」等高 */
 export const CAP = 25;
@@ -85,7 +86,7 @@ function VideoCard({ w, width, h, fresh, onOpen }: CardProps) {
       <figcaption className="wk-cap">
         <Glyph kind="video" size="sm" />
         <span className="code wk-md">{w.model ?? "沒有記錄模型"}</span>
-        <span className="wk-c n">{w.cost_usd != null ? usd(w.cost_usd) : "未回報"}</span>
+        <span className="wk-c n">{w.cost_usd != null ? <>{usd(w.cost_usd)}<EstMark x={w} /></> : "未回報"}</span>
       </figcaption>
     </figure>
   );
@@ -113,7 +114,7 @@ function ImageCard({ w, width, h, fresh, onOpen }: CardProps) {
         <Glyph kind="image" size="sm" />
         <span className="code wk-md">{w.model ?? "沒有記錄模型"}</span>
         {edit ? <span className="wk-tag" title="改圖">改</span> : null}
-        <span className="wk-c n">{w.cost_usd != null ? usd(w.cost_usd) : "未回報"}</span>
+        <span className="wk-c n">{w.cost_usd != null ? <>{usd(w.cost_usd)}<EstMark x={w} /></> : "未回報"}</span>
       </figcaption>
     </figure>
   );
@@ -183,7 +184,7 @@ function AudioCard({ w, width, h, fresh, onOpen }: CardProps) {
         ) : (
           <div className="wk-thin">
             <span className="code">{w.model ?? "沒有記錄模型"}</span>
-            {w.cost_usd != null ? <span className="n"> · {usd(w.cost_usd)}</span> : null}
+            {w.cost_usd != null ? <span className="n"> · {usd(w.cost_usd)}<EstMark x={w} /></span> : null}
           </div>
         )}
         {w.exists === false ? <div className="wk-thin">檔案不在了</div> : <MiniPlayer src={w.file_url} dur0={w.duration_s} />}

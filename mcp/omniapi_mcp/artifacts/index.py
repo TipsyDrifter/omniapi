@@ -122,10 +122,13 @@ def _num(v: Any) -> Optional[float]:
 # --------------------------------------------------------------------------- indexing a tool result
 
 
-def _cost(result: dict[str, Any]) -> Optional[float]:
+def _cost(result: dict[str, Any]) -> tuple[Optional[float], bool]:
+    """The call's cost and whether it is an estimate (the vendor reported none)."""
     from ..recorder import extract_call_meta
 
-    return _num(extract_call_meta(result).get("cost_usd"))
+    meta = extract_call_meta(result)
+    cost = _num(meta.get("cost_usd"))
+    return cost, bool(cost is not None and meta.get("cost_estimated"))
 
 
 def _track_extra(track: dict[str, Any], n: int, count: int) -> dict[str, Any]:
@@ -222,7 +225,7 @@ async def _index_result(ctx: Any, call: Optional[CallInfo], result: Any) -> list
         parent = await store.artifact_by_path(str(Path(args[source_arg]).resolve()))
         parent_id = parent["id"] if parent else None
 
-    cost = _cost(result)
+    cost, estimated = _cost(result)
     share = round(cost / len(files), 6) if cost is not None else None
     # the last file takes the rounding remainder, so the shares add up to the call's cost exactly
     last_share = round(cost - share * (len(files) - 1), 6) if cost is not None and share is not None else None
@@ -256,6 +259,7 @@ async def _index_result(ctx: Any, call: Optional[CallInfo], result: Any) -> list
             duration_s=_num(own_duration) or _num(result.get("duration")) or _wav_seconds(path),
             text=text if row_kind in ("transcript", "lyrics") else None,
             cost_usd=last_share if i == len(files) - 1 else share,
+            cost_estimated=estimated,
             source=call.source,
             call_id=call.call_id,
             parent_id=row_parent,
@@ -319,6 +323,8 @@ def _scan(base: Path) -> list[dict[str, Any]]:
                 width=width,
                 height=height,
                 cost_usd=_num(cost_info.get("estimated_cost_usd")),
+                # a sidecar's cost is the estimate unless the provider reported the real figure ("actual")
+                cost_estimated=_num(cost_info.get("estimated_cost_usd")) is not None and not cost_info.get("actual"),
                 meta={"image_id": p.stem, "task_id": side.get("task_id")} if side else {"image_id": p.stem},
             ))
     # videos/ (1.4-M3): the file says its length, size and sound; the rest was in the job

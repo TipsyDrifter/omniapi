@@ -2,7 +2,7 @@
    輸出（秒數、解析度、比例、聲音——全部照每個模型的 video_params）、預估。
    「→ 生影片」不會直接送出：先出確認單（寬版蓋在送出列的位置、手機從底部升起），在確認單按「確定送出」才送。
    送出鍵（Ctrl+Enter，或設定成 Enter）在表單＝開確認單、在確認單＝確定送出。 */
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api } from "@/api/client";
 import type { GenModel, VideoKindExtras } from "@/api/types";
 import { Field } from "@/components/dispatch";
@@ -13,7 +13,7 @@ import { useTier, useTouch } from "@/lib/rwd";
 import { sendKeyName, useSendKey } from "@/lib/sendKey";
 import { daysLeft } from "@/lib/catalog";
 import { setDraft, useMake } from "@/store/make";
-import { Glyph, ImagePicker, Knob, Seg, artName, sendKeys, useEstimate, useFileDrop, useUploader, type FormProps } from "./bits";
+import { Glyph, ImagePicker, Knob, Seg, artName, rowLabel, sameNames, sendKeys, viaText, useEstimate, useFileDrop, useUploader, type FormProps } from "./bits";
 import { effModel, msShort, type PickedSource, type VideoDraft } from "./draft";
 import { Caps } from "./VideoCaps";
 import { ConfirmTicket } from "./VideoConfirm";
@@ -358,6 +358,15 @@ const goneNote = (m: GenModel): string | null => {
 /** 不經 OpenRouter、直連原廠的影片模型標的廠名 */
 const DIRECT_LABEL: Record<string, string> = { google: "Google" };
 
+/** 一列的無障礙名稱（同生成頁其他表單 bits.genRowLabel）：模型名（同名的帶上走哪條路：Gemini Omni 直連／經 OpenRouter）
+   ＋狀態（下架日、送不出的原因）。不給的話，有些讀法會拿 title（目錄的英文備註）當名字；備註仍留在 title，當補充說明 */
+function videoRowLabel(m: GenModel, why: string | null, dup: Set<string>): string {
+  const name = m.name ?? m.id;
+  const st = vstate(m);
+  const sun = st === "sunset" ? (m.shutdown ? `${m.shutdown} 下架` : "即將下架") : null;
+  return rowLabel(dup.has(name) ? `${name}（${viaText(m.provider)}）` : name, [sun, why]);
+}
+
 /** 影片的能力 chips（同模型頁）：要首幀、要尾幀、要聲音 */
 const VIDEO_CAPS: CapFilter<GenModel>[] = [
   { key: "ff", label: "要首幀", test: (m) => vparams(m).frames.includes("first_frame") },
@@ -382,6 +391,7 @@ function VideoModels({ models, sel, onSel, loading, error, unlisted, onCompare }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [models.length]);
   const usable = models.filter((m) => m.available).length;
+  const dupNames = useMemo(() => sameNames(models), [models]);
   const cur = models.find((m) => m.id === sel) ?? null;
   const sun = cur && vstate(cur) === "sunset" ? cur : null;
   return (
@@ -413,7 +423,7 @@ function VideoModels({ models, sel, onSel, loading, error, unlisted, onCompare }
           return (
             <Fragment key={m.id}>
             {head ? <VendorHead label={head.label} count={head.count} /> : null}
-            <button type="button" role="option" className={`mk-mrow vd-mrow${dead ? " gone" : ""}`} aria-selected={m.id === sel} disabled={dead} onClick={() => onSel(m.id)} title={m.note ?? m.name ?? m.id} data-model={m.id}>
+            <button type="button" role="option" className={`mk-mrow vd-mrow${dead ? " gone" : ""}`} aria-selected={m.id === sel} disabled={dead} onClick={() => onSel(m.id)} aria-label={videoRowLabel(m, why, dupNames)} title={m.note ?? m.name ?? m.id} data-model={m.id}>
               <span className="mf-id">
                 <span className="code">{m.id}</span>
                 <RankBadge m={m} />
@@ -447,9 +457,9 @@ function VideoModels({ models, sel, onSel, loading, error, unlisted, onCompare }
       ) : null}
       {unlisted.length ? (
         <div className="mk-mmore">
-          <span className="dp-note">
-            另有 <span className="n">{unlisted.length}</span> 個不是生影片的（編輯、放大、數位人），這一版不收
-          </span>
+          {/* one text node on purpose: accessibility-tree readers that name a block from its own text nodes
+              dropped the number when it sat in its own <span className="n"> (1.4.0 acceptance) */}
+          <span className="dp-note">{`另有 ${unlisted.length} 個不是生影片的（編輯、放大、數位人），這一版不收`}</span>
         </div>
       ) : null}
     </Field>

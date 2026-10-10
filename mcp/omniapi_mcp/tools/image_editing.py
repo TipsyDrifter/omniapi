@@ -337,6 +337,7 @@ class ImageEditingTool:
                     "has_mask": mask_data is not None,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "cost_estimate": cost_info.get("estimated_cost_usd"),
+                    "cost_estimated": not cost_info.get("actual"),
                     "file_size_bytes": len(image_bytes),
                     "dimensions": size,
                     "format": output_format.upper(),

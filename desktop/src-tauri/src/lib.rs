@@ -11,6 +11,7 @@
 //!                          same as ticking "開機時啟動" in the tray menu (for scripts and tests)
 
 mod autostart;
+mod autostart_pref;
 mod config;
 mod http;
 mod identity;
@@ -24,7 +25,7 @@ mod window;
 mod winhttp;
 mod winstate;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -72,6 +73,8 @@ struct Shell {
     /// Set when the config could not be used: the window and the tray show it.
     config_error: Option<String>,
     log_dir: PathBuf,
+    /// The data home (autostart.pref lives there); `None` when the config could not be used.
+    data_home: Option<PathBuf>,
     config_dir: Option<PathBuf>,
     items: Mutex<Option<tray::Items>>,
     legacy: Mutex<Legacy>,
@@ -161,7 +164,11 @@ fn set_autostart(app: &AppHandle, want: Option<bool>, via: &str) {
     let res = if on == was { Ok(()) } else if on { al.enable() } else { al.disable() };
     let now = al.is_enabled().unwrap_or(was);
     match res {
-        Ok(()) => shell.log.line("autostart", format!("via={via} {was} -> {now}")),
+        Ok(()) => {
+            shell.log.line("autostart", format!("via={via} {was} -> {now}"));
+            // the user's intent, kept where an install cannot erase it (autostart_pref.rs)
+            remember_autostart(&shell.log, shell.data_home.as_deref(), now, via);
+        }
         Err(e) => shell.log.line("autostart-failed", format!("via={via} {was} -> {on}: {e}")),
     }
     let legacy = autostart::detect();
@@ -170,6 +177,53 @@ fn set_autostart(app: &AppHandle, want: Option<bool>, via: &str) {
     }
     *shell.legacy.lock().unwrap_or_else(|e| e.into_inner()) = legacy.clone();
     rebuild_menu(app, now, &legacy);
+}
+
+/// Keep the user's "start at logon" choice in the data home (autostart_pref.rs): the installer
+/// and the next start put the registry value back from it.
+fn remember_autostart(log: &Logger, data_home: Option<&Path>, on: bool, via: &str) {
+    let Some(dir) = data_home else { return };
+    match autostart_pref::write(dir, on) {
+        Ok(true) => log.line("autostart-pref", format!("via={via} {}", if on { "on" } else { "off" })),
+        Ok(false) => {}
+        Err(e) => log.line("autostart-pref-failed", format!("via={via} {}: {e}", dir.display())),
+    }
+}
+
+/// At start, before the tray shows the check mark: compare the stored choice with the registry.
+///  - choice on, value missing (a covering install removed it) or pointing at an exe that is gone:
+///    write it again (`autostart-restored`);
+///  - no choice stored yet (first run after 1.4.0, or the file was lost): record the actual state,
+///    change nothing (`autostart-pref-seeded`);
+///  - choice off: leave everything alone.
+/// A development build (debug) never writes the registry here: its exe is not the installed one.
+fn reconcile_autostart<R: tauri::Runtime>(app: &impl Manager<R>, log: &Logger, data_home: &Path) {
+    use crate::autostart_pref::{classify, plan, Plan};
+    let al = app.autolaunch();
+    let actual = al.is_enabled().unwrap_or(false);
+    let pref = autostart_pref::read(data_home);
+    let mine = autostart::my_command().unwrap_or_default();
+    let value = autostart::read_run_value();
+    let state = classify(value.as_deref(), &mine, |p| p.is_file());
+    let action = plan(pref, state, actual);
+    log.line("autostart-reconcile", format!("pref={pref:?} run={state:?} enabled={actual} -> {action:?}"));
+    match action {
+        Plan::Nothing => {}
+        Plan::Seed(v) => {
+            remember_autostart(log, Some(data_home), v, "seed");
+            log.line("autostart-pref-seeded", format!("no stored choice; recorded the actual state: {}", if v { "on" } else { "off" }));
+        }
+        Plan::Sync(v) => {
+            remember_autostart(log, Some(data_home), v, "start");
+        }
+        Plan::Restore if cfg!(debug_assertions) => {
+            log.line("autostart-restore-skipped", "development build: the logon entry is not written from here");
+        }
+        Plan::Restore => match al.enable() {
+            Ok(()) => log.line("autostart-restored", format!("choice is on and the entry was {state:?} (was {:?}); wrote {mine:?}", value.unwrap_or_default())),
+            Err(e) => log.line("autostart-restore-failed", e.to_string()),
+        },
+    }
 }
 
 /// The settings page can switch the logon entry too (the service writes the same registry
@@ -186,6 +240,8 @@ fn follow_autostart(app: &AppHandle, via: &str) {
         return;
     }
     shell.log.line("autostart-followed", format!("via={via} {} -> {actual} (changed outside the tray menu)", shown.map(|b| b.to_string()).unwrap_or_else(|| "?".into())));
+    // the settings page (the service writes the registry itself) or Task Manager changed it: that is the user's intent now
+    remember_autostart(&shell.log, shell.data_home.as_deref(), actual, via);
     let legacy = autostart::detect();
     if actual && legacy.any() {
         shell.log.line("autostart-legacy", format!("the old `omni autostart` launcher is also on ({}); left alone — `omni autostart remove` removes it", legacy.describe()));
@@ -344,6 +400,10 @@ pub fn run() {
                 format!("version={} exe={:?} args={first_args:?}", app.package_info().version, std::env::current_exe().ok()),
             );
             let config_dir = app.path().app_config_dir().ok();
+            let data_home = loaded.as_ref().ok().map(|(c, _)| c.data_home.clone());
+            if let Some(dir) = &data_home {
+                reconcile_autostart(&handle, &log, dir);
+            }
 
             // tray first (with a neutral status), so even a broken config is visible
             let al_on = app.autolaunch().is_enabled().unwrap_or(false);
@@ -422,6 +482,7 @@ pub fn run() {
                 service,
                 config_error,
                 log_dir,
+                data_home,
                 config_dir,
                 items: Mutex::new(Some(items)),
                 legacy: Mutex::new(legacy),

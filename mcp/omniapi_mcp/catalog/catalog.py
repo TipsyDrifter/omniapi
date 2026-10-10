@@ -870,6 +870,40 @@ class ModelCatalog:
             (prompt - cached) * p["input"] + cached * cached_rate + completion * p["output"]
         ) / 1_000_000 * peak_multiplier(p, at)
 
+    def speech_price_per_1k_chars(self, model_id: str) -> float | None:
+        """Catalog price of a flat, per-character speech model in USD per 1,000
+        characters (``per_1k_chars`` or ``per_1m_chars``); ``None`` for a token-priced
+        or unpriced one, where characters say nothing reliable about the bill."""
+        entry = self.get(model_id, modality="speech") or self.get(model_id)
+        p = entry.pricing if entry and isinstance(entry.pricing, dict) else None
+        text = p.get("text") if p else None
+        if not isinstance(text, (int, float)) or isinstance(text, bool):
+            return None
+        unit = p.get("unit")
+        if unit == "per_1k_chars":
+            return float(text)
+        if unit == "per_1m_chars":
+            return float(text) / 1000
+        return None
+
+    def estimate_speech_cost(self, model_id: str, chars: int) -> float | None:
+        """USD estimate for speaking ``chars`` characters with a flat per-character
+        model, ``None`` when the model is not priced that way (see above)."""
+        per_1k = self.speech_price_per_1k_chars(model_id)
+        return None if per_1k is None else round(per_1k * max(0, int(chars)) / 1000, 6)
+
+    def estimate_per_minute_cost(self, model_id: str, seconds: float | None, *, modality: str) -> float | None:
+        """USD estimate for ``seconds`` of audio (transcribed, or composed) with a per-minute
+        model; ``None`` when the length is unknown or the model is not priced per minute."""
+        entry = self.get(model_id, modality=modality) or self.get(model_id)
+        p = entry.pricing if entry and isinstance(entry.pricing, dict) else None
+        price = p.get("audio") if p and p.get("unit") == "per_minute" else None
+        if not isinstance(price, (int, float)) or isinstance(price, bool):
+            return None
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0:
+            return None
+        return round(float(price) * float(seconds) / 60, 6)
+
     # ------------------------------------------------------------ export
     def snapshot(
         self, *, include_retired: bool = False, modality: str | None = None

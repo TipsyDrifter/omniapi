@@ -552,7 +552,7 @@ class TestRunsLedger:
         summary = await store.cost_summary(days=30)
         # 既有的工具呼叫帳欄位不受影響
         assert set(summary) >= {"days", "total", "by_model", "by_day", "runs"}
-        assert summary["total"] == {"cost": 0, "n": 0}
+        assert summary["total"] == {"cost": 0, "n": 0, "cost_estimated": False}
 
         runs = summary["runs"]
         assert runs["total"]["n"] == 6

@@ -6,6 +6,7 @@ import { useBoard } from "@/store/board";
 import { CallsLedgerCard, FOOT_NOTE, RunsLedgerCard, useRunsLedger } from "./Ledgers";
 import { dayAxis, today } from "./ledger";
 import RecentGenerations from "./RecentGenerations";
+import { EstMark } from "@/components/EstMark";
 
 /* /costs 頁的加量版兩本帳：並排（.costs-page），每本底下多一個「依日」列表（.dayrows）。
    天數由頁面切換（7／30／90）：這裡自己抓 /api/costs?days=N，不寫回 store（看板側欄固定看 30 天）。
@@ -19,6 +20,7 @@ interface DayRow {
   day: string;
   n: number;
   cost: number;
+  cost_estimated?: boolean;
 }
 
 function DayRows({ rows, unit }: { rows: DayRow[]; unit: string }) {
@@ -41,6 +43,7 @@ function DayRows({ rows, unit }: { rows: DayRow[]; unit: string }) {
             </span>
             <span className="v">
               {usd(r.cost)}
+              <EstMark x={r} sum />
               <small>
                 <span className="n">{r.n}</span> {unit}
               </small>

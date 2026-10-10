@@ -10,6 +10,25 @@ import { priceMain } from "@/lib/catalog";
 export type ModelSort = "popular" | "vendor" | "price";
 export const SORT_LABEL: Record<ModelSort, string> = { popular: "熱門", vendor: "廠商", price: "價格" };
 
+/** 文字模型的能力 chips：型別裡保證是布林的那幾個（後端 ModelEntry.to_dict）；新對話頁、派工頁、設定頁共用 */
+export const TEXT_CAPS: CapFilter<{ capabilities?: { vision?: boolean; pdf?: boolean; tools?: boolean } | null }>[] = [
+  { key: "vision", label: "看圖", test: (m) => !!m.capabilities?.vision, title: "收圖片" },
+  { key: "pdf", label: "收 PDF", test: (m) => !!m.capabilities?.pdf, title: "PDF 原樣送（不先轉文字）" },
+  { key: "tools", label: "會用工具", test: (m) => !!m.capabilities?.tools, title: "能呼叫工具（聊天裡生圖、查資料）" },
+];
+
+/** 圖片模型的能力 chips：照生圖表單實際能送的（直連的 OpenAI、Google 都能改圖、一次一張來源圖；OpenRouter 的照名單的 max_references）。
+   生成頁、聊天的換模型小窗、設定頁共用 */
+export const IMAGE_CAPS: CapFilter<{ image_params?: { max_references: number } | null }>[] = [
+  { key: "edit", label: "改圖", test: (m) => !m.image_params || m.image_params.max_references > 0, title: "收來源圖（有圖＝改圖）" },
+  { key: "refs", label: "多張參考圖", test: (m) => (m.image_params?.max_references ?? 1) > 1, title: "來源圖之外還能再加參考圖" },
+];
+
+/** 生成頁的模型清單一多（經 OpenRouter 的圖片模型有幾十個）才出篩選列；小地方（聊天的換模型小窗、設定頁的挑選器）同一條線 */
+export const FILTER_AT = 12;
+/** 該不該出篩選列：清單超過 FILTER_AT 個，或有未整理的模型（要「顯示全部」那顆才看得到） */
+export const needsFilterBar = (models: { status: string }[]) => models.length > FILTER_AT || models.some((m) => m.status === "discovered");
+
 /** 篩得動的最小形狀（ModelEntry、GenModel 都符合） */
 export interface FilterableModel {
   id: string;
@@ -37,6 +56,8 @@ export interface ModelFilterOptions<M> {
   caps?: CapFilter<M>[];
   /** 有給才出「只看可用」 */
   usable?: (m: M) => boolean;
+  /** 「只看可用」一開始就按下（設定頁的挑選器：照 1.3 起的習慣先只列有 key 的） */
+  usableDefault?: boolean;
   /** 「顯示全部（含未整理）」：預設只列整理過的（status 不是 discovered）。all／onAll 給了就是受控的 */
   all?: boolean;
   onAll?: (v: boolean) => void;
@@ -114,7 +135,7 @@ export function useModelFilter<M extends FilterableModel>(models: M[], o: ModelF
   const dq = useDeferredValue(q.trim().toLowerCase());
   const [vendors, setVendors] = useState<string[]>([]);
   const [caps, setCaps] = useState<string[]>([]);
-  const [usableOnly, setUsableOnly] = useState(false);
+  const [usableOnly, setUsableOnly] = useState(!!o.usableDefault && !!o.usable);
   const [allOwn, setAllOwn] = useState(false);
   const [sort, setSort] = useState<ModelSort>("popular");
   const all = o.all ?? allOwn;
@@ -219,6 +240,8 @@ export function ModelFilterBar<M extends FilterableModel>({
   count,
   tail,
   disabled,
+  autoFocus,
+  vendorFold = VENDOR_FOLD,
 }: {
   f: ModelFilter<M>;
   placeholder?: string;
@@ -229,15 +252,19 @@ export function ModelFilterBar<M extends FilterableModel>({
   /** 排序那一排最右邊多放的東西（影片的「比較全部 →」） */
   tail?: ReactNode;
   disabled?: boolean;
+  /** 打開就把游標放進搜尋框（設定頁原地展開的挑選器） */
+  autoFocus?: boolean;
+  /** 廠商 chips 先列幾家（小窗用少一點，其餘收在「＋N 家」） */
+  vendorFold?: number;
 }) {
   const [open, setOpen] = useState(false);
   const chips = f.vendorChips;
-  const visible = open || chips.length <= VENDOR_FOLD + 1 ? chips : chips.filter((c, i) => i < VENDOR_FOLD || f.vendors.includes(c.id));
+  const visible = open || chips.length <= vendorFold + 1 ? chips : chips.filter((c, i) => i < vendorFold || f.vendors.includes(c.id));
   const folded = chips.length - visible.length;
   return (
     <div className="mf-bar">
       <div className="mf-top">
-        <input type="search" className="dp-in" placeholder={placeholder} value={f.q} onChange={(e) => f.setQ(e.target.value)} aria-label="搜尋模型" disabled={disabled} />
+        <input type="search" className="dp-in" placeholder={placeholder} value={f.q} onChange={(e) => f.setQ(e.target.value)} aria-label="搜尋模型" disabled={disabled} autoFocus={autoFocus} />
         <span className="dp-count">
           <span className="n">{f.shown.length}</span> 筆{count}
         </span>

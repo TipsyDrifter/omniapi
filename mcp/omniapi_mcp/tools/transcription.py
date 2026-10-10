@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..capabilities.transcription import OpenAIWhisperProvider, TranscriptionProvider
+from ..catalog import catalog
 from ..config.settings import Settings
 from ..modalities import TRANSCRIBE_INPUT_EXTS
 from ..providers.base import ProviderConfig
@@ -148,6 +149,14 @@ class TranscriptionTool:
             status = self._provider.model_status(target_model)
             shutdown = getattr(self._provider, "MODEL_SHUTDOWN", {}).get(target_model)
 
+        # The vendor's reply names no cost; a per-minute model with a known length (only a verbose reply
+        # carries it) has a bill that follows from it, recorded as an estimate. Otherwise no cost.
+        reported = result.metadata.get("cost_usd")
+        if isinstance(reported, (int, float)) and not isinstance(reported, bool):
+            cost: dict[str, Any] = {"cost_usd": float(reported)}
+        else:
+            estimated = catalog.estimate_per_minute_cost(target_model, result.metadata.get("duration"), modality="transcription")
+            cost = {"cost_usd": estimated, "cost_estimated": True} if estimated is not None else {}
         return {
             "text": result.text,
             "model": target_model,
@@ -162,6 +171,7 @@ class TranscriptionTool:
             "logprobs": result.logprobs,
             "source_filename": filename,
             "metadata": result.metadata,
+            **cost,
         }
 
     async def close(self) -> None:

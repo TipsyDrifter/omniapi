@@ -599,10 +599,10 @@ function VideoLive({ orKey, n }: { orKey: boolean; n: number }) {
         </>
       ) : (
         <span>
-          {sandbox ? "離線沙盒的示範名單" : "OpenRouter 名單現查"}：<span className="n">{n}</span> 個生影片的模型。原廠已關閉或公告下架的標在右邊；名單還在的照列，好查得到。
+          {sandbox ? "離線沙盒的示範名單" : "OpenRouter 名單現查"}：{n} 個生影片的模型。原廠已關閉或公告下架的標在右邊；名單還在的照列，好查得到。
           {unlisted?.length ? (
             <>
-              {" "}不是生影片的 <span className="n">{unlisted.length}</span> 個（
+              {` 不是生影片的 ${unlisted.length} 個（`}
               {unlisted.map((u, i) => (
                 <Fragment key={u.id}>
                   {i ? "、" : ""}

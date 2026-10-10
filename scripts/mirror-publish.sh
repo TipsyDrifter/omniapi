@@ -198,6 +198,7 @@ SECRET_ALLOWLIST=(
   'mcp/tests/unit/test_settings_m4.py|API_KEY[=]{ENV_KEY}|f-string 寫進暫存 .env，值是上面的假 ENV_KEY'
   'mcp/tests/unit/test_user_settings.py|KEY = "sk-settingsjson-|單元測試的假 key'
   'mcp/tests/unit/test_user_settings.py|ENV_KEY = "sk-environment-|單元測試的假環境 key'
+  'mcp/tests/unit/test_layout.py|DEEPSEEK__API_KEY[=]fake-from-the-|單元測試寫進暫存 .env 的假值（測沙盒讀哪一份 .env）'
 )
 # API_KEY 等號後面視為「沒填／範例」的值（不算密鑰）：空值、your_／your-、sk-your、sk-xxx、<…>、${…}／$VAR、中文「您的」
 PLACEHOLDER_RE='^(your[-_]|sk-your|sk-您|sk-xxx|sk-\.\.\.|<|\$|您|xxx|\.\.\.|changeme|placeholder)'

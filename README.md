@@ -3,7 +3,7 @@
 > 把外部 AI 模型收進同一個地方用：派工給 agent、跟任何文字模型聊天、生圖、做聲音與影片、看每一筆花了多少；
 > Claude Code 透過 MCP 用同一套能力，終端機裡有 `omni` 指令。三個入口，背後是同一個常駐服務、同一顆資料庫。
 
-![version](https://img.shields.io/badge/version-1.4.0-1F2330)
+![version](https://img.shields.io/badge/version-1.4.1-1F2330)
 ![platform](https://img.shields.io/badge/platform-Windows%2011-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-yellow)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -75,11 +75,11 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 ### 方法一：桌面版安裝包
 
-1. 到 [Releases](https://github.com/TipsyDrifter/omniapi/releases) 下載 `OmniAPI_1.4.0_x64-setup.exe`
+1. 到 [Releases](https://github.com/TipsyDrifter/omniapi/releases) 下載 `OmniAPI_1.4.1_x64-setup.exe`
 2. 執行它。Windows 可能會跳出藍色的「Windows 已保護您的電腦」（SmartScreen）：按「**其他資訊**」，再按「**仍要執行**」。
    會這樣是因為這個安裝包**沒有程式碼簽章**——簽章憑證是付費的，個人開發者不容易申請到，Windows 認不得發行者就會先擋一下。想確認下載的檔案沒被動過，可以對 Release 裡 `SHA256SUMS.txt` 的雜湊：
    ```powershell
-   Get-FileHash .\OmniAPI_1.4.0_x64-setup.exe -Algorithm SHA256
+   Get-FileHash .\OmniAPI_1.4.1_x64-setup.exe -Algorithm SHA256
    ```
 3. 安裝不需要系統管理員權限，預設裝在 `%LOCALAPPDATA%\OmniAPI`
 4. 打開 OmniAPI（安裝程式最後一頁可以直接勾選執行，或從開始功能表打開）。右下角系統匣會出現 OmniAPI 的圖示，視窗裡先是「正在啟動」頁：**第一次開要等半分鐘左右**（剛裝好的檔案第一次被讀比較慢），之後幾秒就好
@@ -89,10 +89,10 @@ OmniAPI 是一個跑在自己電腦上的常駐服務。它做三件事：
 
 ### 方法二：zip＋終端機
 
-到 Releases 下載 `omniapi-v1.4.0.zip`，解壓縮後：
+到 Releases 下載 `omniapi-v1.4.1.zip`，解壓縮後：
 
 ```bash
-cd omniapi-v1.4.0/mcp
+cd omniapi-v1.4.1/mcp
 uv sync
 uv run omni serve
 ```

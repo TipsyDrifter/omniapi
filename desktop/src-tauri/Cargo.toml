@@ -2,7 +2,7 @@
 name = "omniapi-desktop"
 # Same as the project version (scripts/build_release.py checks it with tauri.conf.json):
 # this one becomes the exe's file version, tauri.conf.json's the installer's.
-version = "1.4.0"
+version = "1.4.1"
 description = "OmniAPI desktop shell: tray icon, dashboard window, and the local service's life"
 authors = ["Kosa"]
 edition = "2021"
@@ -37,6 +37,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_Networking_WinHttp",
     "Win32_Security",
+    "Win32_System_Registry",
     "Win32_System_JobObjects",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",

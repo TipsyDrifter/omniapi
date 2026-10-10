@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "omniapi-mcp",
   "display_name": "OmniAPI — Image · Audio · Text · Speech · Music · Video · Agents",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "One MCP server for image generation/editing, audio transcription, text completion and multi-turn chat, speech synthesis, music generation, short video generation, and dispatching headless coding agents — across OpenAI, Anthropic, Google, DeepSeek, OpenRouter, ElevenLabs, and Suno (via kie.ai).",
   "long_description": "OmniAPI is a unified MCP server that routes requests to multiple AI provider APIs behind one interface — six modalities plus agent dispatch in 20 tools:\n\n- **Image generation & editing** (OpenAI gpt-image-2.5 / 2 / 1.5 / 1-mini, Google Nano Banana, and OpenRouter's image models such as FLUX, Seedream, Grok Imagine and Qwen) — text-to-image, mask editing, multi-image compositing, up to 4K, multiple candidates per call.\n- **Audio transcription** (OpenAI gpt-transcribe) — plus subtitles, word-level timestamps and speaker diarization via the deprecated whisper-1 / gpt-4o-transcribe family.\n- **Text / chat completion** (OpenAI GPT-6 & GPT-5.x, Anthropic Claude, Google Gemini, DeepSeek, and the OpenRouter long tail) — tier aliases cheap / standard / strong, reasoning controls, structured output, and function calling.\n- **Speech synthesis / TTS** (OpenAI gpt-4o-mini-tts / tts-1, ElevenLabs, Gemini TTS) — natural-language tone control and fine voice tuning.\n- **Music generation** (Suno V6 via kie.ai; ElevenLabs Music) — full songs with vocals (a Suno job keeps both of its songs), plus action-based editing (extend / cover / stems / vocals), lyrics, WAV / MP4 rendering, and ElevenLabs composition plans.\n- **Video generation** (OpenRouter's video models: Wan, Kling, Veo, Grok Imagine, Seedance…; Google's Gemini Omni directly when a Google key is configured) — text-to-video or from a first / last frame. Every video is billed when sent and cannot be cancelled, so a per-video estimate limit (default $1) refuses expensive or unpriceable videos unless the call passes max_cost_usd. Needs an OpenRouter key (Gemini Omni: a Google key on a paid Gemini API tier).\n- **Multi-turn chat** (`chat`) — conversations kept in a local store; pass the returned conversation_id to continue, switch models between turns.\n- **Agent dispatch** (`run_agent` / `get_run` / `list_runs` / `cancel_run`) — hand a task to a headless coding agent (Claude Code, Codex CLI or Gemini CLI, routed by model) working in a folder you choose, then follow or resume it.\n\nModel rosters are live: every provider is asked what is online at startup, merged with a curated pricing/capability overlay. Call list_available_models(modality=...) to see the current list, including deprecation and shutdown dates.\n\nA single OpenAI API key unlocks image, transcription, text and speech. Anthropic, Google, DeepSeek and OpenRouter add text models; OpenRouter also adds image models and video. Music needs a kie.ai key (Suno) or a paid ElevenLabs plan.\n\nLong jobs (Suno music, high-quality / 4K images, videos) return a task_id ticket and keep running in the background — fetch them with get_job_result — so they never hit the client's tool-call timeout.\n\nThis extension is the stdio MCP server on its own. The full OmniAPI — a local daemon with a web board, dispatch, a works wall, a chat UI (file attachments, retries and branches, image generation inside the conversation) and the `omni` CLI — is in the repository.",
   "author": {
@@ -67,6 +67,12 @@
         "PROVIDERS__KIE__ENABLED": "true",
         "PROVIDERS__OPENROUTER__API_KEY": "${user_config.openrouter_api_key}",
         "PROVIDERS__OPENROUTER__ENABLED": "true",
+        "PROVIDERS__GEMINI__API_KEY": "${user_config.google_api_key}",
+        "PROVIDERS__GEMINI__ENABLED": "true",
+        "PROVIDERS__ANTHROPIC__API_KEY": "${user_config.anthropic_api_key}",
+        "PROVIDERS__ANTHROPIC__ENABLED": "true",
+        "PROVIDERS__DEEPSEEK__API_KEY": "${user_config.deepseek_api_key}",
+        "PROVIDERS__DEEPSEEK__ENABLED": "true",
         "IMAGES__DEFAULT_MODEL": "${user_config.default_model}",
         "IMAGES__DEFAULT_SIZE": "${user_config.default_size}",
         "IMAGES__DEFAULT_QUALITY": "auto",
@@ -144,7 +150,7 @@
     },
     {
       "name": "list_available_models",
-      "description": "List every model OmniAPI can call across all modalities (text, image, transcription, speech, music, video) with provider, online status, pricing, deprecation/shutdown info and the tier aliases; models on an Artificial Analysis leaderboard carry their rank. Filter with modality; flags: include_retired, include_snapshots, refresh."
+      "description": "List every model OmniAPI can call across all modalities (text, image, transcription, speech, music, video) with provider, online status, pricing, deprecation/shutdown info and the tier aliases; models on an Artificial Analysis leaderboard carry a 'rank' (its position there; lower is more popular; absent when unknown). Filter with modality; flags: include_retired, include_snapshots, refresh."
     },
     {
       "name": "health_check",
@@ -187,6 +193,30 @@
       "type": "string",
       "title": "OpenRouter API Key (optional)",
       "description": "Optional. Add an OpenRouter key to generate video (generate_video) and to use the image models OpenRouter carries (FLUX, Seedream, Grok Imagine, Qwen, Recraft and others) in generate_image and edit_image, plus its text models. Leave blank to go without them.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "google_api_key": {
+      "type": "string",
+      "title": "Google (Gemini) API Key (optional)",
+      "description": "Optional. Add a Google AI Studio key (Gemini Developer API) to use Gemini text models, Nano Banana images, Gemini TTS speech and Gemini Omni video. Leave blank to go without them.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API Key (optional)",
+      "description": "Optional. Add an Anthropic API key to use the Claude models in complete_text and chat (pay per token). Leave blank to go without them.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "deepseek_api_key": {
+      "type": "string",
+      "title": "DeepSeek API Key (optional)",
+      "description": "Optional. Add a DeepSeek key to use the DeepSeek text models in complete_text and chat. Leave blank to go without them.",
       "sensitive": true,
       "required": false,
       "default": ""

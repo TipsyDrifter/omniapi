@@ -12,6 +12,7 @@ import { AudioPlayer, Glyph, VideoPlayer, canRegenerate, draftFromArtifact, fmtB
 import { carryIn, getMakeState, loadOptions } from "@/store/make";
 import { setHidden } from "@/store/works";
 import { KIND_EN, KIND_ZH, fileName, isAudio, isBare, sourceZh, verbOf } from "./wall";
+import { EstMark, estNote } from "@/components/EstMark";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const fullTime = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
@@ -316,7 +317,7 @@ export function Lightbox({ id, query, pos, onClose, onGo }: LightboxProps) {
             ) : null}
 
             <PromptBlock a={a} copy={copy} />
-            <DetailTable a={a} />
+            <DetailTable a={a} onGo={onGo} />
             <Lineage a={a} onGo={onGo} />
           </div>
         </div>
@@ -632,7 +633,7 @@ function PromptBlock({ a, copy }: { a: ArtifactDetail; copy: (t: string, what: s
 const isText = (a: Artifact) => isWorkKind(a.kind) && WORK_KIND_INFO[a.kind].media === "text";
 
 /** 影片的設定與費用：秒數、解析度、比例、聲音、首尾幀、長度、像素、費用（實際＋送出時的預估）、耗時；不列內部編號 */
-function VideoDetail({ a }: { a: ArtifactDetail }) {
+function VideoDetail({ a, onGo }: { a: ArtifactDetail; onGo: (id: string) => void }) {
   const nil = (s: string) => <span className="wk-nil">{s}</span>;
   const p = a.params ?? {};
   const meta = a.meta ?? {};
@@ -640,7 +641,21 @@ function VideoDetail({ a }: { a: ArtifactDetail }) {
   const estTxt = est ? (est.usd != null ? `約 ${vUsd(est.usd)}` : est.low != null && est.high != null ? `約 ${vUsd(est.low)}–${vUsd(est.high)}` : null) : null;
   const sandbox = est?.basis === "sandbox";
   const fr = meta.frames ?? null;
-  const frameTxt = (r: { artifact_id?: string; upload_id?: string } | undefined) => (!r ? null : r.artifact_id ? "有（見下面的來源）" : "有（從電腦選的圖）");
+  // 從作品牆挑的首幀／尾幀：可以點，換到那一件（同下面〈來源與衍生〉的那張卡）；首幀的那件已經不在作品庫就不給點
+  const goFrame = (id: string, zh: string) => (
+    <>
+      有（作品牆的圖）{" "}
+      <button type="button" className="wk-golink" onClick={() => onGo(id)} aria-label={`看那張：當${zh}的圖`}>
+        看那張 →
+      </button>
+    </>
+  );
+  const frameTxt = (r: { artifact_id?: string; upload_id?: string } | undefined, zh: "首幀" | "尾幀"): ReactNode => {
+    if (!r) return null;
+    if (!r.artifact_id) return "有（從電腦選的圖）";
+    if (zh === "首幀" && a.parent?.id !== r.artifact_id) return a.parent ? goFrame(r.artifact_id, zh) : "有（作品牆的圖，已經不在作品庫）";
+    return goFrame(r.artifact_id, zh);
+  };
   const audio = p.generate_audio === true ? "有" : p.generate_audio === false ? "無" : null;
   const fileAudio = a.has_audio === true ? "檔案裡有聲音" : a.has_audio === false ? "檔案裡沒有聲音" : null;
   const code = (v: unknown) => <span className="code">{String(v)}</span>;
@@ -679,11 +694,11 @@ function VideoDetail({ a }: { a: ArtifactDetail }) {
           {fileAudio ? <span className="wk-dim"> · {fileAudio}</span> : null}
         </dd>
         <dt>首幀</dt>
-        <dd>{frameTxt(fr?.first) ?? (a.parent ? "有（見下面的來源）" : nil("沒有（文生影片）"))}</dd>
+        <dd>{frameTxt(fr?.first, "首幀") ?? (a.parent ? goFrame(a.parent.id, "首幀") : nil("沒有（文生影片）"))}</dd>
         {fr?.last ? (
           <>
             <dt>尾幀</dt>
-            <dd>{frameTxt(fr.last)}</dd>
+            <dd>{frameTxt(fr.last, "尾幀")}</dd>
           </>
         ) : null}
         {a.duration_s ? (
@@ -704,6 +719,8 @@ function VideoDetail({ a }: { a: ArtifactDetail }) {
         <dt>費用</dt>
         <dd>
           {a.cost_usd != null ? <span className="n">{usd(a.cost_usd)}</span> : nil("未回報")}
+          {a.cost_usd != null ? <EstMark x={a} /> : null}
+          {a.cost_usd != null && a.cost_estimated ? <span className="wk-dim"> · {estNote(a)}</span> : null}
           {sandbox ? <span className="wk-dim"> · 離線沙盒，沒有計費</span> : estTxt ? <span className="wk-dim"> · 送出時預估{estTxt}</span> : null}
         </dd>
         {meta.waited_s != null ? (
@@ -741,8 +758,8 @@ function VideoDetail({ a }: { a: ArtifactDetail }) {
   );
 }
 
-function DetailTable({ a }: { a: ArtifactDetail }) {
-  if (mediaOf(a.kind) === "video") return <VideoDetail a={a} />;
+function DetailTable({ a, onGo }: { a: ArtifactDetail; onGo: (id: string) => void }) {
+  if (mediaOf(a.kind) === "video") return <VideoDetail a={a} onGo={onGo} />;
   const nil = (s: string) => <span className="wk-nil">{s}</span>;
   const params = Object.entries(a.params ?? {}).filter(([k, v]) => !SKIP_PARAM.test(k) && v !== null && v !== undefined && v !== "");
   return (
@@ -776,7 +793,11 @@ function DetailTable({ a }: { a: ArtifactDetail }) {
           </>
         ) : null}
         <dt>費用</dt>
-        <dd>{a.cost_usd != null ? <span className="n">{usd(a.cost_usd)}</span> : nil("未回報")}</dd>
+        <dd>
+          {a.cost_usd != null ? <span className="n">{usd(a.cost_usd)}</span> : nil("未回報")}
+          {a.cost_usd != null ? <EstMark x={a} /> : null}
+          {a.cost_usd != null && a.cost_estimated ? <span className="wk-dim"> · {estNote(a)}</span> : null}
+        </dd>
         <dt>來源</dt>
         <dd>
           {sourceZh(a.source)}

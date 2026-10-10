@@ -14,6 +14,9 @@
 #                      NOT changed, the exe's file version stays Cargo.toml's; never for a release)
 #   -ShellConfig <f>   ship this file as shell.config.json instead of config\shell.installed.json
 #                      (tests only, e.g. the update experiment bakes in a test port)
+#   -CargoTargetName <n>  cargo target folder name under %TEMP%\omniapi-proto (default: the identity's own,
+#                      cargo-target-desktop / cargo-target-desktop-test). Another name = a private build
+#                      that shares nothing with other builds running at the same time (parallel worktrees).
 #   -Jobs <n>          parallel rustc (default 4; this machine idles near 88% commit charge)
 #   -TestIdentity      build the TEST app instead of the released one: identifier com.kosa.omniapi.test,
 #                      product / exe / install folder / uninstall entry OmniAPI-Test, logon value
@@ -38,6 +41,7 @@ param(
     [string]$Version = '',
     [string]$ShellConfig = '',
     [int]$Jobs = 4,
+    [string]$CargoTargetName = '',
     [switch]$SkipMemoryCheck,
     [switch]$TestIdentity
 )
@@ -51,7 +55,7 @@ $Ident = if ($TestIdentity) {
 }
 $DesktopDir = Split-Path -Parent $PSScriptRoot
 $RepoDir = Split-Path -Parent $DesktopDir
-$TargetDir = Join-Path $env:TEMP ('omniapi-proto\' + $Ident.Target)
+$TargetDir = Join-Path $env:TEMP ('omniapi-proto\' + $(if ($CargoTargetName) { $CargoTargetName } else { $Ident.Target }))
 $Payload = Join-Path $Stage 'payload'
 $Py = Join-Path $Payload 'python'
 $Build = Join-Path $Stage 'build'

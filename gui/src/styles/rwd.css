@@ -456,7 +456,9 @@ html.sheet-lock { overflow: hidden; }
   .gp-foot { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; }
   .gp-foot .gp-basis { grid-column: 1 / -1; grid-row: 2; }
   .gp-row { grid-template-columns: 48px minmax(0, 1fr); column-gap: 10px; }
-  .gp-mpop { max-width: calc(100vw - 2 * var(--m)); }
+  /* 換模型小窗：手機上排進版面（不浮在上面）——卡片跟著長高，不會蓋到底下的訊息與輸入列（.ch-dock 疊在浮層之上）；捲進畫面時底下留出輸入列的高度（約 150px）；
+     從這一列的最左邊（標籤欄 48px＋間距 10px）展開到卡片右緣，不再超出卡片。打開時捲進畫面（Proposal.tsx） */
+  .gp-mpop { position: relative; top: auto; left: -58px; flex: 0 0 calc(100% + 58px); width: auto; max-width: none; margin-top: 2px; box-shadow: none; scroll-margin: 60px 0 160px; }
   .gp-aside { display: none; }
   .gp-mbtn { flex-wrap: wrap; row-gap: 0; }
   .gp-mname { white-space: normal; }
@@ -601,6 +603,11 @@ html.sheet-lock { overflow: hidden; }
   .tr-src small { display: none; }
   .tr-acts { justify-content: flex-end; align-self: start; }
   .tr.is-picking { grid-template-areas: "lab acts" "model model" "src src" "pick pick"; margin: 0 calc(-1 * var(--m)); padding-left: var(--m); padding-right: var(--m); }
+  /* 影片、音樂那幾列的動作是一整排分段鈕（＋還原內建）：自己一列，標籤不被擠成一字一行 */
+  .vd-set .tr { grid-template-areas: "lab lab" "acts acts" "model model" "src src"; }
+  .vd-set .tr-lab { flex-wrap: wrap; }
+  .vd-set .tr-lab b { white-space: nowrap; }
+  .vd-set .tr-acts { justify-content: flex-start; flex-wrap: wrap; }
   .pk-list { max-height: 300px; }
   .pk-r { grid-template-columns: minmax(0, 1fr) auto; }
   .pk-r .pv2 { display: none; }
