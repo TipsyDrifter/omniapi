@@ -255,7 +255,7 @@ def decide(f: BranchFile, support: NativeSupport, budget: Budget, *, tools: bool
         if not ex.readable:
             why = "這個模型聽不到音檔" if not support.audio else (
                 "這個音檔的格式不能原樣送（只收 wav、mp3）" if fmt not in NATIVE_AUDIO_FORMATS else "這個音檔太大，不能原樣送")
-            tail = f"：{why}，也沒有轉成文字，內容未知；照實告訴主人你聽不到，不要假裝聽過"
+            tail = f"：{why}，也沒有轉成文字，內容未知；照實告訴使用者你聽不到，不要假裝聽過"
             meta = {**base, "mode": "unreadable", "reason": "audio_unheard", "reason_text": why + "，也沒有轉成文字"}
             return Delivery("unreadable", [{"type": "text", "text": _header(f, tail)}], meta)
         base.update(transcribed=True, transcript_id=f.transcript_id)  # fall through: its transcript is its text

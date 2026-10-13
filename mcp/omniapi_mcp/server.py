@@ -26,7 +26,6 @@ from .config.settings import Settings
 from .modalities import CATALOG_MODALITIES
 from .prompts.template_manager import template_manager
 from .recorder import make_recorded
-from .resources.model_registry import model_registry
 from .resources.prompt_templates import prompt_template_resource_manager
 from .runtime import ServerContext, runtime
 from .utils.path_utils import find_existing_image_path
@@ -340,13 +339,16 @@ async def _is_video_job(server_ctx: Any, gid: str) -> bool:
         "Use model tiers: cheap (default) / standard / strong — which model each "
         "tier means is configurable; list_available_models shows the current "
         "mapping under 'tiers' — or any model id. Set resume_run_id to continue a "
-        "previous run's session with a follow-up instruction."
+        "previous run's session with a follow-up instruction. The agent really "
+        "edits files and runs commands in cwd, and it costs money (Claude models "
+        "bill the user's Claude subscription by default; other models bill their "
+        "API key), so use it only when the user asks for work to be dispatched."
     ),
 )
 async def run_agent(
     task: str = Field(..., description="The task, written as a complete brief (goal, files, constraints, expected report)."),
     model: str = Field(default="cheap", description="Tier alias (cheap/standard/strong) or model id (deepseek-flash, gpt-6-sol, gemini-3.8-flash, claude-sonnet-5, moonshotai/kimi-k3 …)."),
-    cwd: Optional[str] = Field(default=None, description="Working directory the agent operates in (absolute path). Defaults to the daemon's cwd."),
+    cwd: Optional[str] = Field(default=None, description="Working directory the agent operates in (absolute path). Omitted, the agent works in the OmniAPI service's own working directory, so pass the project's path."),
     title: Optional[str] = Field(default=None, description="Short title for the board (defaults to the first 40 chars of the task)."),
     yolo: bool = Field(default=False, description="Skip all permission prompts / sandbox (only for trusted mechanical tasks). Default: acceptEdits + Bash/WebFetch/search allowed."),
     search: bool = Field(default=True, description="Attach web search MCP servers (DuckDuckGo + Tavily) — claude harness only."),
@@ -354,7 +356,7 @@ async def run_agent(
     max_turns: Optional[int] = Field(default=None, ge=1, description="Cap agentic turns."),
     resume_run_id: Optional[str] = Field(default=None, description="Continue this earlier run's session; task becomes the follow-up message."),
     dispatcher: Optional[str] = Field(default=None, description="Who dispatched (e.g. the Claude Code conversation title) — shown on the board."),
-    billing: Optional[str] = Field(default=None, description="Claude models only: 'subscription' (default — the owner's Claude login, no per-token cost) or 'api' (pay-per-token Anthropic API key; only when the owner explicitly asks)."),
+    billing: Optional[str] = Field(default=None, description="Claude models only: 'subscription' (default — the user's Claude login, no per-token cost) or 'api' (pay-per-token Anthropic API key; only when the user explicitly asks)."),
 ) -> dict[str, Any]:
     """Start an agent run and return its ticket."""
     server_ctx = get_server_context(mcp.get_context())
@@ -427,7 +429,15 @@ async def list_runs(
     return {"runs": slim, "live": server_ctx.runs.live_count}
 
 
-@mcp.tool(title="Cancel Run", description="Stop a running agent run.")
+@mcp.tool(
+    title="Cancel Run",
+    description=(
+        "Stop a running agent run. Returns {run_id, state, cancelled}: cancelled=true "
+        "when it was stopped; a run that already ended returns its state with "
+        "cancelled=false, an unknown id returns state 'not_found'. Changes the agent "
+        "already made (files, commands) are not undone."
+    ),
+)
 async def cancel_run(run_id: str = Field(..., description="The run to cancel.")) -> dict[str, Any]:
     server_ctx = get_server_context(mcp.get_context())
     return await server_ctx.runs.cancel(run_id)
@@ -463,7 +473,7 @@ def _chat_url(server_ctx: Any, cid: str) -> tuple[str, Optional[str]]:
     description=(
         "Talk with an external text model over several turns (GPT-6 / GPT-5.x, Claude, "
         "Gemini, DeepSeek, OpenRouter; tiers cheap / standard / strong). The conversation "
-        "is stored and shows up in the OmniAPI GUI under /chat, so the owner can read or "
+        "is stored and shows up in the OmniAPI GUI under /chat, so the user can read or "
         "continue it there. Start a new conversation by leaving conversation_id empty; "
         "for every later turn pass back the conversation_id this tool returned — the "
         "model then sees the whole history. Pick the tool by the job: chat = a back-and-"
@@ -533,7 +543,16 @@ async def chat(
         return {"error": f"chat failed: {e}", **({"conversation_id": cid} if cid else {})}
 
 
-@mcp.tool(title="Health Check", description="Check server health and status")
+@mcp.tool(
+    title="Health Check",
+    description=(
+        "Check the image providers and local storage/cache. Pings each configured "
+        "image provider (OpenAI, Gemini, OpenRouter images; 10 s each) and checks "
+        "storage and cache. Text, speech, music and video providers are not checked, "
+        "so with only a text key this reports unhealthy even though text tools work; "
+        "list_available_models shows which providers have a key."
+    ),
+)
 async def health_check() -> dict[str, Any]:
     """
     Check the health status of the MCP server and its dependencies.
@@ -641,7 +660,13 @@ async def health_check() -> dict[str, Any]:
 
 
 @mcp.tool(
-    title="Server Info", description="Get server configuration and runtime information"
+    title="Server Info",
+    description=(
+        "Server name, version and non-secret settings (image defaults, storage "
+        "retention, cache). 'capabilities' is the fixed list of features this "
+        "server has, not which providers have a key — see configured_providers "
+        "in list_available_models for that."
+    ),
 )
 async def server_info() -> dict[str, Any]:
     """
@@ -673,7 +698,6 @@ async def server_info() -> dict[str, Any]:
                 "caching": server_ctx.cache_manager.enabled,
                 "storage": True,
                 "prompt_templates": True,
-                "model_registry": True,
             },
             "configuration": {
                 "default_quality": settings.images.default_quality
@@ -697,6 +721,21 @@ async def server_info() -> dict[str, Any]:
         return {"error": str(e)}
 
 
+#: size / background arguments of generate_image and edit_image (same rules on both)
+_IMAGE_SIZE_DESCRIPTION = (
+    "OpenAI gpt-image size: auto, 1024x1024, 1536x1024 or 1024x1536. The "
+    "gpt-image-2 family also takes a custom WIDTHxHEIGHT (edges multiples of 16, "
+    "longest edge <= 3840, aspect ratio <= 3:1, 655,360-8,294,400 pixels). A "
+    "size the model does not take falls back to auto. Gemini and OpenRouter "
+    "models ignore it: use image_size / aspect_ratio there."
+)
+_IMAGE_BACKGROUND_DESCRIPTION = (
+    "Background: auto, transparent or opaque (OpenAI gpt-image only). "
+    "transparent works on gpt-image-1.5 / gpt-image-1 / gpt-image-1-mini "
+    "with png or webp output; the gpt-image-2 family sends auto instead."
+)
+
+
 @mcp.tool(
     title="Generate Image",
     description=(
@@ -708,10 +747,8 @@ async def generate_image(
     prompt: str = Field(
         ...,
         description=(
-            "The best practices for image generation prompt is to be highly specific "
-            "and detailed about the subject, setting, style, mood, and visual elements "
-            "you want, while using clear, unambiguous language to guide the AI's "
-            "creative interpretation."
+            "What the image should show: subject, setting, style, light and "
+            "composition (1-4000 characters)."
         ),
         min_length=1,
         max_length=4000,
@@ -732,11 +769,11 @@ async def generate_image(
     ),
     size: Optional[str] = Field(
         default="auto",
-        description="Image size: 1024x1024, 1536x1024, 1024x1536 or auto",
+        description=_IMAGE_SIZE_DESCRIPTION,
     ),
     style: Optional[str] = Field(
         default="vivid",
-        description="Image style: vivid or natural (OpenAI models only)",
+        description="Legacy DALL-E 3 option; no current model uses it, so it is ignored.",
     ),
     moderation: Optional[str] = Field(
         default="auto",
@@ -750,7 +787,7 @@ async def generate_image(
     ),
     background: Optional[str] = Field(
         default="auto",
-        description="Background type: auto, transparent, opaque (OpenAI models only)",
+        description=_IMAGE_BACKGROUND_DESCRIPTION,
     ),
     n: Optional[int] = Field(
         default=1,
@@ -1118,7 +1155,8 @@ async def complete_text(
         default=None,
         description=(
             "DeepSeek only: true enables thinking (chain-of-thought in the "
-            "'reasoning' field), false disables it. Ignored by OpenAI."
+            "'reasoning' field), false disables it. Ignored by OpenAI, Gemini and "
+            "OpenRouter. Do not set it for Claude models; use reasoning_effort there."
         ),
     ),
     tools: Optional[list[dict[str, Any]]] = Field(
@@ -1288,10 +1326,12 @@ async def generate_speech(
         default=None,
         description=(
             "TTS model. ElevenLabs: eleven_flash_v2_5 (default, ~75ms), "
-            "eleven_flash_v2, eleven_multilingual_v2 (most lifelike), "
-            "eleven_v3 (most advanced), eleven_v3_conversational (expressive "
-            "realtime), eleven_turbo_v2_5 (DEPRECATED -> eleven_flash_v2_5). "
-            "OpenAI: gpt-4o-mini-tts, tts-1, tts-1-hd. "
+            "eleven_v4 (newest, most expressive), eleven_v4_turbo (v4 at half "
+            "the price), eleven_v3, eleven_v3_conversational (expressive "
+            "realtime), eleven_multilingual_v2 (most lifelike), eleven_flash_v2, "
+            "eleven_turbo_v2_5 (DEPRECATED -> eleven_flash_v2_5). "
+            "OpenAI: gpt-4o-mini-tts (default), tts-1 and tts-1-hd (DEPRECATED, "
+            "shut down 2027-01-06). "
             "Gemini: gemini-3.8-flash-tts, gemini-3.8-flash-lite-tts, "
             "gemini-3.1-flash-tts-preview (legacy)."
         ),
@@ -1300,8 +1340,8 @@ async def generate_speech(
         default="mp3_44100_128",
         description=(
             "Audio format, e.g. mp3_44100_128, mp3_44100_192, wav_44100, "
-            "pcm_16000. Gemini TTS only emits PCM, so it returns WAV (or raw "
-            "PCM when a pcm_* format is asked for) whatever you request."
+            "pcm_16000. Gemini TTS emits PCM: mp3_* is encoded to MP3 when "
+            "ffmpeg is on PATH (else WAV), wav gives WAV, pcm_* gives raw PCM."
         ),
     ),
     instructions: Optional[str] = Field(
@@ -1428,11 +1468,14 @@ async def generate_speech(
 @mcp.tool(
     title="Generate Music",
     description=(
-        "Generate music from a text description. Two backends, chosen by "
+        "Generate music from a text description. Three backends, chosen by "
         "'model': ElevenLabs Music (music_v2_5 / music_v2 / music_v1, "
         "synchronous) reuses PROVIDERS__ELEVENLABS__API_KEY; Suno via kie.ai "
         "(V6 / V6_MINI / V6_WILD, supports vocals and custom mode) needs "
-        "PROVIDERS__KIE__API_KEY. Saves an audio file and returns its path "
+        "PROVIDERS__KIE__API_KEY; Google Lyria (lyria-3.5 full song, "
+        "lyria-3-clip-preview 30 s) uses the Gemini key on a paid tier and takes "
+        "only the prompt and instrumental — write lyrics into the prompt with "
+        "[Verse] / [Chorus] tags. Saves an audio file and returns its path "
         "(audio_path, audio_id, title, duration...). A Suno job makes two "
         "songs: both are saved, the top-level fields describe the first, and "
         "'tracks' lists every song with its own audio_path and audio_id "
@@ -1453,13 +1496,14 @@ async def generate_music(
     model: Optional[str] = Field(
         default=None,
         description=(
-            "Model/backend. ElevenLabs: music_v2_5 (default), music_v2, music_v1 (deprecated), "
-            "music_v2_5 (highest quality). Suno (via kie.ai): V6 (default), "
+            "Model/backend. ElevenLabs: music_v2_5 (default, highest quality), "
+            "music_v2, music_v1 (deprecated). Google Lyria: lyria-3.5, "
+            "lyria-3-clip-preview. Suno (via kie.ai): V6 (default), "
             "V6_MINI (fast/lightweight), V6_WILD (experimental). The older Suno "
             "ids V4, V4_5, V4_5PLUS, V4_5ALL, V5 and V5_5 are discontinued "
             "upstream: still accepted for old presets, but they log a warning "
-            "and may stop working without notice. Omit to use the first "
-            "configured backend."
+            "and may stop working without notice. Omit to use the configured "
+            "default music model (else the first configured backend's default)."
         ),
     ),
     instrumental: bool = Field(
@@ -1913,8 +1957,14 @@ async def compose_music(
 @mcp.tool(
     title="Edit Image",
     description=(
-        "Edit existing images using multiple AI models (OpenAI, Gemini, etc.) "
-        "with text instructions"
+        "Edit an image with a text instruction. Give the source as image_path "
+        "(a local file; preferred when this server runs on your machine) or "
+        "image_data (base64 / data URL; used when both are given). Extra reference "
+        "images go in additional_image_paths / additional_images. Routed by model: "
+        "gpt-image ids go to OpenAI (the only backend with a real mask), Nano Banana "
+        "to Gemini, OpenRouter ids to OpenRouter (models whose "
+        "image_params.max_references > 0). A long edit returns a task_id; fetch "
+        "the image with get_job_result."
     ),
 )
 async def edit_image(
@@ -1942,7 +1992,12 @@ async def edit_image(
     ),
     mask_data: Optional[str] = Field(
         default=None,
-        description="Optional base64 encoded mask image for targeted editing",
+        description=(
+            "OpenAI gpt-image only: a PNG mask (base64) the same size as the source. "
+            "Fully transparent pixels (alpha 0) mark the area to redraw; the rest is "
+            "kept. Applies to the first image only. Gemini only gets it as a "
+            "best-effort hint; OpenRouter models refuse a mask."
+        ),
     ),
     model: Optional[str] = Field(
         default=None,
@@ -1961,7 +2016,7 @@ async def edit_image(
     ),
     size: Optional[str] = Field(
         default="auto",
-        description="Output image size: 1024x1024, 1536x1024, or 1024x1536",
+        description=_IMAGE_SIZE_DESCRIPTION,
     ),
     quality: Optional[str] = Field(
         default="auto", description="Image quality: auto, high, medium, or low"
@@ -1973,7 +2028,8 @@ async def edit_image(
         default=100, ge=0, le=100, description="Compression level for JPEG/WebP (0-100)"
     ),
     background: Optional[str] = Field(
-        default="auto", description="Background type: auto, transparent, or opaque"
+        default="auto",
+        description=_IMAGE_BACKGROUND_DESCRIPTION,
     ),
     input_fidelity: Optional[str] = Field(
         default=None,
@@ -2094,8 +2150,9 @@ async def edit_image(
         "A video costs real money the moment it is sent (from about $0.05 to several dollars) "
         "and cannot be cancelled at the provider. A video whose estimate is above the per-video "
         "limit (default $1; settings: video.mcp_max_usd), or whose price cannot be computed up "
-        "front (per-token models), is NOT sent: the answer says the estimate and the limit; call "
-        "again with max_cost_usd to allow it. Takes minutes: the call returns a ticket "
+        "front (per-token models), is NOT sent: the answer gives the estimate and the limit. "
+        "max_cost_usd is the user's approval of a higher amount, so pass it only after the user "
+        "has agreed to that estimate. Takes minutes: the call returns a ticket "
         "(task_id 'video_…') after ~45 s — fetch the result with get_job_result; the ticket "
         "survives a service restart."
     ),
@@ -2138,9 +2195,9 @@ async def generate_video(
     ),
     max_cost_usd: Optional[float] = Field(
         default=None, gt=0, le=1000,
-        description="Allow this video up to this many US dollars (estimated). Needed when the estimate is above the "
-                    "per-video limit, or when the model's price cannot be computed up front (it is then the caller's "
-                    "acknowledgement; the real cost is recorded afterwards).",
+        description="The user's approval to spend up to this many US dollars (estimated) on this video. Needed when "
+                    "the estimate is above the per-video limit, or when the model's price cannot be computed up front. "
+                    "Set it only after the user has agreed to that amount; the real cost is recorded afterwards.",
     ),
 ) -> dict[str, Any]:
     """Send a video, wait up to ~45 s, then hand back the result or a ticket.
@@ -2196,9 +2253,9 @@ def _video_limit(est: dict[str, Any], allowed: Optional[float], limit: Optional[
                "no_price": "OpenRouter lists no price for it"}.get(priced.get("basis") or "", "its price cannot be computed up front")
         return {"status": "refused", "reason": "price_unknown", "estimate_usd": None, "limit_usd": cap,
                 "error": f"Not sent: the cost of this video ({what}) is not known up front — {why}.",
-                "message": (f"Not sent: the cost of this video ({what}) is not known up front — {why}. To send it anyway, "
-                            "call generate_video again with max_cost_usd set to the most you accept (the real cost is "
-                            "recorded afterwards), or pick a model priced per second."),
+                "message": (f"Not sent: the cost of this video ({what}) is not known up front — {why}. If the user accepts an upper "
+                            "amount, call generate_video again with max_cost_usd set to it (the real cost is recorded "
+                            "afterwards), or pick a model priced per second."),
                 "estimate": est}
     if cap is not None and top > cap + 1e-9:
         amount = f"about ${usd:.4g}" if usd is not None else f"about ${low:.4g}–${high:.4g}"
@@ -2209,7 +2266,7 @@ def _video_limit(est: dict[str, Any], allowed: Optional[float], limit: Optional[
                 "limit_usd": cap,
                 "error": f"Not sent: this video ({what}) is estimated at {amount}, above the limit of ${cap:g}.",
                 "message": (f"Not sent: this video ({what}) is estimated at {amount}, above the per-video limit of ${cap:g}. "
-                            f"To send it, {hint}; or choose a shorter duration / lower resolution."),
+                            f"If the user agrees to that amount, {hint}; or choose a shorter duration / lower resolution."),
                 "estimate": est}
     return None
 
@@ -2219,15 +2276,20 @@ def _video_limit(est: dict[str, Any], allowed: Optional[float], limit: Optional[
     description=(
         "List every model OmniAPI can call, across all modalities "
         f"({', '.join(CATALOG_MODALITIES)}), with provider, online status, pricing, "
-        "deprecation/shutdown info and the tier aliases (cheap/standard/strong). "
-        "Rosters are live: providers are asked what is online at startup. "
-        "'rank' is a model's position on the Artificial Analysis leaderboard for its "
-        "kind of model (its best position when it is on several): 1 is the top, so a "
-        "LOWER number means MORE popular. It is absent for a model that is on no "
-        "leaderboard (no entry means unknown, not last), it is a snapshot shipped with "
-        "the release rather than live data, and the list is not sorted by it. "
-        "'popularity' gives the position on each leaderboard the model is on; "
-        "'rank_badge' names the leaderboard and score behind 'rank' when that match is certain. "
+        "deprecation/shutdown info. Rosters are live: providers are asked what is "
+        "online at startup. Top-level fields: 'tiers' (which model cheap / standard / "
+        "strong mean right now, including the user's own overrides), "
+        "'configured_providers' (which providers have a key, per text and image), "
+        "'default_text_model', 'default_image_model' and 'image_capabilities' (sizes, "
+        "qualities, formats per image model), 'providers' (per provider: get_key = "
+        "where to get a key, suggested_tiers). Per model: OpenRouter image models carry "
+        "'image_params' (resolutions, aspect ratios, max_references), video models "
+        "'video_params' (durations, resolutions, aspect_ratios, frames, audio). "
+        "'rank' is the model's best position on an Artificial Analysis leaderboard "
+        "for its kind: 1 is the top, so a LOWER number means MORE popular; absent means unknown, "
+        "not last; it is a snapshot shipped with the release, and the list is not "
+        "sorted by it. 'popularity' gives every leaderboard position; 'rank_badge' "
+        "names the board and score behind 'rank' when that match is certain. "
         "Filter with modality='text' etc."
     ),
 )
@@ -2383,69 +2445,6 @@ async def get_storage_stats() -> str:
     ctx = mcp.get_context()
     server_ctx = get_server_context(ctx)
     return await server_ctx.resource_manager.get_storage_stats()
-
-
-@mcp.resource(
-    "model-info://{model_id}",
-    name="get_model_info",
-    title="Model Documentation",
-    description=(
-        "Complete API documentation for AI models including capabilities, pricing, "
-        "rate limits, available resources, and usage examples. Support for multiple "
-        "models via model_id parameter."
-    ),
-    mime_type="text/markdown",
-)
-async def get_model_info(
-    model_id: str = Field(
-        ..., description="Model identifier (e.g., 'gpt-image-1', 'dalle-3')"
-    ),
-) -> str:
-    """Get model capabilities and pricing information for specified model."""
-    return await model_registry.get_model_documentation(model_id)
-
-
-@mcp.resource(
-    "models://list",
-    name="list_models",
-    title="Available Models",
-    description=(
-        "List all available AI models with their basic information and capabilities."
-    ),
-    mime_type="application/json",
-)
-async def list_models() -> str:
-    """List all available AI models."""
-    import json
-
-    models = []
-    for model_id in await model_registry.list_models():
-        model_info = await model_registry.get_model_info(model_id)
-        if model_info:
-            models.append(
-                {
-                    "model_id": model_info.model_id,
-                    "name": model_info.name,
-                    "version": model_info.version,
-                    "capabilities": model_info.capabilities,
-                    "resource_uri": f"model-info://{model_id}",
-                }
-            )
-
-    return json.dumps(
-        {
-            "models": models,
-            "total": len(models),
-            "usage": {
-                "description": (
-                    "Use model-info://{model_id} to get detailed information about "
-                    "specific models"
-                ),
-                "example": "model-info://gpt-image-1",
-            },
-        },
-        indent=2,
-    )
 
 
 @mcp.resource(

@@ -129,7 +129,7 @@ if (-not $SkipPython) {
     # --- checks: installed layout, data files, no bundled CLI
     $pkg = Join-Path $site 'omniapi_mcp'
     if (Test-Path (Join-Path $site 'pyproject.toml')) { throw "pyproject.toml next to omniapi_mcp: the service would think it runs from a repo" }
-    foreach ($rel in 'catalog\catalog.json', 'prompts\data', 'resources\models', 'daemon\app.py') {
+    foreach ($rel in 'catalog\catalog.json', 'prompts\data', 'daemon\app.py') {
         if (-not (Test-Path (Join-Path $pkg $rel))) { throw "missing from the installed package: omniapi_mcp\$rel" }
     }
     $srcData = @(Get-ChildItem (Join-Path $RepoDir 'mcp\omniapi_mcp') -Recurse -File | Where-Object { $_.Extension -notin '.py', '.pyc' -and $_.FullName -notmatch '\\__pycache__\\' })

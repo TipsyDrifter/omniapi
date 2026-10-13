@@ -116,7 +116,7 @@
 
 ## B. Google Gemini — Nano Banana
 
-> 🕘 **Google 的專用生圖模型系列已全面退場**（2026 年關閉），連帶那條走雲端企業平台、`generate_images` 端點、service-account 憑證的路徑也一起沒了。omniapi 自 v1.0 起**只留 Nano Banana 系列**，並改用 **AI Studio API key**（`genai.Client(api_key=…)`）——`PROVIDERS__GEMINI__API_KEY` 給檔案路徑會直接被擋下。
+> Google 生圖只有 **Nano Banana 系列**（`generate_content`＋**AI Studio API key**，`genai.Client(api_key=…)`）；Imagen 與 `generate_images` 端點已關閉，service-account 憑證不再使用。`PROVIDERS__GEMINI__API_KEY` 給檔案路徑會被擋下。
 
 呼叫方式：`generate_content` + `GenerateContentConfig(response_modalities, image_config)`。
 

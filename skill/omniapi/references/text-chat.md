@@ -14,15 +14,15 @@
 
 omniapi 的 `complete_text` 暴露：`prompt`★ **或** `messages`(多輪)、`model`、`system`、`temperature`、`top_p`、`seed`、`stop`、`reasoning_effort`、`verbosity`、`max_completion_tokens`、`response_format`、`thinking`、`tools`、`tool_choice`、`parallel_tool_calls`、`store`、`metadata`、`service_tier`、`prompt_cache_key`、`safety_identifier`。
 
-**✅ 陷阱已修（temperature 防呆）：**
-- ⚠️→✅ **`temperature` 不再會炸**：GPT-5.x reasoning 模型收到非預設 temperature 本會回 HTTP 400（見 A.3），但 omniapi 現在**偵測到 reasoning 模型會自動丟棄 temperature**（記一筆 warning log，不送出）→ 傳了也安全。DeepSeek 則照常轉送（非 thinking 模式有效、thinking 模式靜默忽略）。`*-chat-latest` 這類非 reasoning 變體會保留 temperature。
+**omniapi 的自動處理：**
+- **temperature**：GPT-5.x reasoning 模型不接受非預設 temperature，omniapi 偵測到 reasoning 模型時會**自動丟棄**這個參數（記一筆 warning log，不送出），所以傳了也安全。DeepSeek 則照常轉送（非 thinking 模式有效、thinking 模式靜默忽略）。`*-chat-latest` 這類非 reasoning 變體會保留 temperature。
 - ✅ **`system` 自動轉 `developer`**：對 GPT-5.x reasoning 模型，omniapi 自動把 system role 改成 developer role（見 A.4）；DeepSeek 保留 system。
 - ✅ **`max_completion_tokens` 自動對應**：OpenAI 用 `max_completion_tokens`，DeepSeek 自動改送 `max_tokens`（見 §0 心智模型）。
-- ✅ **`thinking`**：工具收 bool（`true`/`false`），自動包成 DeepSeek 的 `extra_body={"thinking":{"type":"enabled"|"disabled"}}`；對 OpenAI 自動略過。
+- ✅ **`thinking`**：工具收 bool（`true`/`false`），自動包成 DeepSeek 的 `extra_body={"thinking":{"type":"enabled"|"disabled"}}`；OpenAI、Gemini、OpenRouter 自動略過。Claude 請用 `reasoning_effort`；真的傳了，`true` 會換成 adaptive thinking（沒給 `reasoning_effort` 就用模型自己的預設深度），`false` 在一律思考的模型（Fable 5／5.1、Opus 5.5、Sonnet 5.5）上會被拿掉並記 warning。
 - ✅ **`response_format`**：直接傳 dict，如 `{"type":"json_object"}` 或 OpenAI 的 `{"type":"json_schema","json_schema":{...}}`。
 - ✅ **回傳強化**：`usage` 現在含 `reasoning_tokens`（OpenAI reasoning）與 `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens`（DeepSeek）；reasoning 模型的 CoT 在 `reasoning` 欄位。
 
-**✅ 新增（2026-06-28 大擴充）：**
+**其他可傳參數：**
 - ⭐ **Function calling**：`tools`(function 定義陣列)、`tool_choice`(`none`/`auto`/`required`/指定)、`parallel_tool_calls`(OpenAI)。模型呼叫工具時，回傳新增 `tool_calls` 欄位（list of {id, function:{name, arguments}}）。多輪：用 `messages` 把 `{role:"tool", tool_call_id, content}` 餵回續跑。**已實機驗證**（gpt-5.4-mini 正確回 tool_calls）。
 - **`messages` 多輪**：可改傳完整對話陣列取代 prompt+system（餵 tool 結果、多輪對話）。
 - **取樣 `top_p`/`seed`/`stop`**：⚠️ GPT-5.x reasoning 模型對這三個（連同 temperature）**一律 400**，故 omniapi 偵測 reasoning 模型時**全部自動丟棄**（`stop` 也在內——實機驗證 gpt-5.4-mini 確實拒絕 stop，文件沒寫）；DeepSeek 保留。
@@ -55,7 +55,7 @@ omniapi 的 `complete_text` 暴露：`prompt`★ **或** `messages`(多輪)、`m
 | 家 | 代表模型 | 端點 / 相容性 | 備註 |
 |---|---|---|---|
 | **OpenAI** | `gpt-6-astra`（最強）、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.5`/`-pro`、`gpt-5.4`/`-pro`/`-mini`/`-nano`、`gpt-5.3-codex` | 原生 `chat.completions` | reasoning 模型拒收 sampling 參數（A.3） |
-| **Anthropic** | `claude-fable-5-1`、`claude-fable-5`、`claude-opus-5-5`、`claude-opus-5`、`claude-opus-4-8`/`4-7`/`4-6`、`claude-sonnet-5`、`claude-haiku-4-5-20251001` | 原生 **Messages API**（omniapi 內部做形狀轉換） | `reasoning_effort` 依模型換形狀：**4.7 起**（Opus 4.7／4.8／5／5.5、Sonnet 5／5.5、Fable）→ `thinking:{type:"adaptive"}`＋`output_config.effort`（low／medium／high／xhigh／max 直對），且 `temperature`／`top_p` 一律拿掉（會 400），沒給 `max_completion_tokens` 時預設 16000（不帶 effort 也會思考）；Fable 5.1／Opus 5.5／Sonnet 5.5 不收強制選工具，`tool_choice` 為 required 或指定工具時改送 auto（記 warning，模型可能不呼叫工具）；**4.6** → 同上但 xhigh 降 high、sampling 照收；**更舊**（Haiku 4.5、Sonnet／Opus 4.5）→ extended-thinking budget：low 1024／medium 4096／high 16000／xhigh 32000 tokens。自帶 `thinking` dict 則原樣送出。經 OpenRouter 的 `anthropic/claude-*` 改送 OpenRouter 的 `reasoning:{effort}` |
+| **Anthropic** | `claude-fable-5-1`、`claude-fable-5`、`claude-opus-5-5`、`claude-opus-5`、`claude-opus-4-8`/`4-7`/`4-6`、`claude-sonnet-5`、`claude-haiku-4-5-20251001` | 原生 **Messages API**（omniapi 內部做形狀轉換） | `reasoning_effort` 依模型換形狀：**4.7 起**（Opus 4.7／4.8／5／5.5、Sonnet 5／5.5、Fable）→ `thinking:{type:"adaptive"}`＋`output_config.effort`（low／medium／high／xhigh／max），且 `temperature`／`top_p` 一律拿掉（會 400），沒給 `max_completion_tokens` 時預設 16000（不帶 effort 也會思考）；Fable 5.1／Opus 5.5／Sonnet 5.5 不收強制選工具，`tool_choice` 為 required 或指定工具時改送 auto（記 warning，模型可能不呼叫工具）；**4.6** → 同上但 xhigh 降 high、sampling 照收；**更舊**（Haiku 4.5、Sonnet／Opus 4.5）→ extended-thinking budget：low 1024／medium 4096／high 16000／xhigh 32000 tokens。自帶 `thinking` dict 則原樣送出；`thinking`（布林）怎麼處理見 §⓪。經 OpenRouter 的 `anthropic/claude-*` 改送 OpenRouter 的 `reasoning:{effort}` |
 | **Google** | `gemini-3.8-flash`、`gemini-3.7-flash`、`gemini-3.1-pro-preview` | **OpenAI 相容端點** `…/v1beta/openai/` | function calling / JSON schema / `reasoning_effort` 直通；**sampling 參數照收不 400** |
 | **DeepSeek** | `deepseek-flash`、`deepseek-v4-pro` | OpenAI 相容（`api.deepseek.com`） | 見 B 段；另有 Anthropic 相容端點 `…/anthropic` |
 | **OpenRouter** | `vendor/model` 命名空間，如 `moonshotai/kimi-k3` | OpenAI 相容 | 名單全靠 discovery；**未知 id 照樣轉發**（長尾每天變） |
@@ -294,7 +294,7 @@ GPT-5.x reasoning 模型**回 HTTP 400 拒絕**（非靜默忽略）：
 > [Context Caching](https://api-docs.deepseek.com/guides/kv_cache)、
 > [Parameter Settings](https://api-docs.deepseek.com/quick_start/parameter_settings)。
 
-## B.0 ⚠️ Model 名稱（先讀，這節改過兩次）
+## B.0 ⚠️ Model 名稱
 
 **✅ 現行結論（2026-09-25，官方 `/models` 實測）：**
 
@@ -306,12 +306,7 @@ GPT-5.x reasoning 模型**回 HTTP 400 拒絕**（非靜默忽略）：
 - **新的呼叫一律寫 `deepseek-flash`**；`deepseek-v4-flash` 仍然可以送（omniapi 的 catalog 認得它是別名，會解析成 `deepseek-flash`），但回傳的 `model` 欄位會是正式 id。
 - 更省事的寫法是用等級別名 **`cheap`**（§0.5），它就指向 `deepseek-flash`。
 
-**🕘 歷史脈絡（別重蹈覆轍）：**
-- **2026-04-24**：DeepSeek 發布 V4 系列。當時官方 `/models` 回的是 `deepseek-v4-pro` 與 `deepseek-v4-flash`，所以 **2026-06-28 版的本檔結論是「一律用 `deepseek-v4-flash`」**——那在當時是對的。
-- **2026-07-24 15:59 UTC**：舊別名 `deepseek-chat` / `deepseek-reasoner` 依官方公告棄用。它們曾對應 `deepseek-v4-flash` 的 non-thinking（chat）/ thinking（reasoner）。**現在別用這兩個。**
-- **2026-09-25**：再查官方 `/models` 與定價頁，flash 那顆的正式 id 已經是 **`deepseek-flash`**（定價頁以 `deepseek-flash` 與 `deepseek-v4-pro` 並列並標 `"Anthropic API: ✓ supported"`），`deepseek-v4-flash` 降為別名。→ 本節結論隨之更新。
-
-> ⚠️ 已知不一致：`config/settings.py` 裡 `DeepSeekSettings.default_model` 仍寫 `"deepseek-v4-flash"`（別名），而 `capabilities/text.py` 的 `DeepSeekTextProvider.DEFAULT_MODEL` 已是 `"deepseek-flash"`。兩者指向同一顆模型，但字串不一致——**明寫 model 就不會踩到**。
+`deepseek-chat`／`deepseek-reasoner` 已於 2026-07-24 棄用，不要用。
 
 > 🔗 DeepSeek 另有 **Anthropic Messages 相容端點** `https://api.deepseek.com/anthropic`（兩顆模型都支援），給 `ANTHROPIC_BASE_URL` 式的 harness 用；omniapi 的 `complete_text` 走的是 OpenAI 相容那條。
 
@@ -450,7 +445,7 @@ print(resp.choices[0].text)
 | **deepseek-flash** | **$0.007** | **$0.22** | **$0.66** |
 | **deepseek-v4-pro** | 官方未列靜態價（catalog 留白） | — | — |
 
-> ⏰ **離峰／尖峰是真的**（2026-09-25 起）：上表是**離峰價**——台北時間平日 12–14 時、18 時之後，以及整個週末。**尖峰時段是兩倍。** 這與 2026-06-28 版本的結論相反（當時官方頁查無任何時段定價，本檔曾寫「別假設有折扣」），該結論**已過時**，以本節為準。
+> ⏰ 上表是離峰價（台北時間平日 12–14 時、18 時後與週末）；尖峰兩倍。
 > ⚠️ `deepseek-v4-pro` 的價目 catalog 是空的——**不要沿用 2026-06-28 的舊數字**（$0.003625/$0.435/$0.87，那是 V4 剛發布時的表）。要算成本請臨場查官方頁。
 > ⚠️ 舊 URL `pricing-details-usd` 仍顯示更早的 V3/R1 定價，**不要採用**，以 `quick_start/pricing` 為準。
 > 💡 omniapi 會在回傳的 `cost_usd` 幫你算好（catalog 有價才算得出來）。
@@ -508,7 +503,6 @@ print(resp.choices[0].text)
 - `gpt-5.5-chat-latest` / `gpt-5.5-pro` 是否支援 Chat Completions：需 `GET /v1/models` 實證（`-pro` 系常僅 Responses API）。
 
 **DeepSeek：**
-- 🕘 *（2026-06-28 曾判定「V4 目前無 off-peak 折扣」——2026-09-25 查證推翻，現行確有離峰／尖峰兩段價，見 B.5。留此條記錄判斷曾經翻轉。）*
 - `deepseek-v4-pro` 現行定價：catalog 留白，本次未取得官方靜態數字 → 要精算成本得臨場查。
 - `logprobs`/`top_logprobs` 在 V4 thinking 下行為：參數頁列為通用，thinking 頁未明文保證 → 保守別傳。
 - `json_schema`：官方參數頁未出現 → 判定不支援。

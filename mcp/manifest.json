@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "omniapi-mcp",
   "display_name": "OmniAPI — Image · Audio · Text · Speech · Music · Video · Agents",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "One MCP server for image generation/editing, audio transcription, text completion and multi-turn chat, speech synthesis, music generation, short video generation, and dispatching headless coding agents — across OpenAI, Anthropic, Google, DeepSeek, OpenRouter, ElevenLabs, and Suno (via kie.ai).",
   "long_description": "OmniAPI is a unified MCP server that routes requests to multiple AI provider APIs behind one interface — six modalities plus agent dispatch in 20 tools:\n\n- **Image generation & editing** (OpenAI gpt-image-2.5 / 2 / 1.5 / 1-mini, Google Nano Banana, and OpenRouter's image models such as FLUX, Seedream, Grok Imagine and Qwen) — text-to-image, mask editing, multi-image compositing, up to 4K, multiple candidates per call.\n- **Audio transcription** (OpenAI gpt-transcribe) — plus subtitles, word-level timestamps and speaker diarization via the deprecated whisper-1 / gpt-4o-transcribe family.\n- **Text / chat completion** (OpenAI GPT-6 & GPT-5.x, Anthropic Claude, Google Gemini, DeepSeek, and the OpenRouter long tail) — tier aliases cheap / standard / strong, reasoning controls, structured output, and function calling.\n- **Speech synthesis / TTS** (OpenAI gpt-4o-mini-tts / tts-1, ElevenLabs, Gemini TTS) — natural-language tone control and fine voice tuning.\n- **Music generation** (Suno V6 via kie.ai; ElevenLabs Music) — full songs with vocals (a Suno job keeps both of its songs), plus action-based editing (extend / cover / stems / vocals), lyrics, WAV / MP4 rendering, and ElevenLabs composition plans.\n- **Video generation** (OpenRouter's video models: Wan, Kling, Veo, Grok Imagine, Seedance…; Google's Gemini Omni directly when a Google key is configured) — text-to-video or from a first / last frame. Every video is billed when sent and cannot be cancelled, so a per-video estimate limit (default $1) refuses expensive or unpriceable videos unless the call passes max_cost_usd. Needs an OpenRouter key (Gemini Omni: a Google key on a paid Gemini API tier).\n- **Multi-turn chat** (`chat`) — conversations kept in a local store; pass the returned conversation_id to continue, switch models between turns.\n- **Agent dispatch** (`run_agent` / `get_run` / `list_runs` / `cancel_run`) — hand a task to a headless coding agent (Claude Code, Codex CLI or Gemini CLI, routed by model) working in a folder you choose, then follow or resume it.\n\nModel rosters are live: every provider is asked what is online at startup, merged with a curated pricing/capability overlay. Call list_available_models(modality=...) to see the current list, including deprecation and shutdown dates.\n\nA single OpenAI API key unlocks image, transcription, text and speech. Anthropic, Google, DeepSeek and OpenRouter add text models; OpenRouter also adds image models and video. Music needs a kie.ai key (Suno) or a paid ElevenLabs plan.\n\nLong jobs (Suno music, high-quality / 4K images, videos) return a task_id ticket and keep running in the background — fetch them with get_job_result — so they never hit the client's tool-call timeout.\n\nThis extension is the stdio MCP server on its own. The full OmniAPI — a local daemon with a web board, dispatch, a works wall, a chat UI (file attachments, retries and branches, image generation inside the conversation) and the `omni` CLI — is in the repository.",
   "author": {
@@ -110,7 +110,7 @@
     },
     {
       "name": "generate_music",
-      "description": "Generate music from a text description (Suno V6 family via kie.ai, or ElevenLabs Music); supports instrumental, custom mode, and vocal gender. A Suno job makes two songs: both are saved and listed in 'tracks'."
+      "description": "Generate music from a text description (Suno V6 family via kie.ai, ElevenLabs Music, or Google Lyria with a Google key); supports instrumental, custom mode, and vocal gender. A Suno job makes two songs: both are saved and listed in 'tracks'."
     },
     {
       "name": "edit_music",
@@ -130,11 +130,11 @@
     },
     {
       "name": "generate_video",
-      "description": "Generate a short video from a text prompt, optionally from a first frame (and a last frame where the model takes one), with OpenRouter's video models, or Google's Gemini Omni (gemini-omni-1.1-flash) when a Google key is configured. Billed when sent, no cancel: above the per-video estimate limit (default $1) or when the price cannot be computed up front it is not sent unless max_cost_usd is given. Returns a video_<id> ticket for get_job_result when it takes long."
+      "description": "Generate a short video from a text prompt, optionally from a first frame (and a last frame where the model takes one), with OpenRouter's video models, or Google's Gemini Omni (gemini-omni-1.1-flash) when a Google key is configured. Billed when sent, no cancel: above the per-video estimate limit (default $1) or when the price cannot be computed up front it is not sent unless max_cost_usd carries the user's approval of a higher amount. Returns a video_<id> ticket for get_job_result when it takes long."
     },
     {
       "name": "run_agent",
-      "description": "Dispatch a task to a headless coding agent (Claude Code, Codex CLI or Gemini CLI — chosen by model) in a working directory; returns a run id right away. Supports resume."
+      "description": "Dispatch a task to a headless coding agent (Claude Code, Codex CLI or Gemini CLI — chosen by model) in a working directory; returns a run id right away. The agent really edits files and runs commands, and it costs money. Supports resume."
     },
     {
       "name": "get_run",
@@ -146,7 +146,7 @@
     },
     {
       "name": "cancel_run",
-      "description": "Stop a running agent run."
+      "description": "Stop a running agent run; changes it already made are not undone."
     },
     {
       "name": "list_available_models",
@@ -154,11 +154,11 @@
     },
     {
       "name": "health_check",
-      "description": "Check whether the MCP server and its providers are reachable."
+      "description": "Check the image providers and local storage/cache (text, speech, music and video providers are not checked)."
     },
     {
       "name": "server_info",
-      "description": "Return server metadata (version, capabilities, default model, etc.)."
+      "description": "Return server metadata (version, the fixed feature list, image defaults); list_available_models shows which providers have a key."
     },
     {
       "name": "get_job_result",

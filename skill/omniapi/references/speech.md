@@ -27,7 +27,7 @@
 |---|---|---|---|
 | `eleven_flash_v2_5` ⭐ElevenLabs 預設 | ElevenLabs | current | 超低延遲 ~75ms |
 | `eleven_flash_v2` | ElevenLabs | current | 超快，英文為主 |
-| `eleven_v4` | ElevenLabs | current | 最新一代、最具表現力（OmniAPI 目錄價 $0.08／1K 字元） |
+| `eleven_v4` | ElevenLabs | current | 最新一代、最具表現力（目錄價 $0.08／1K 字元） |
 | `eleven_v4_turbo` | ElevenLabs | current | v4 的半價版（目錄價 $0.04／1K 字元） |
 | `eleven_v3` | ElevenLabs | current | 前一代最進階 / 最具表現力 |
 | `eleven_v3_conversational` | ElevenLabs | current | 表現力強的即時對話（~280ms） |
@@ -117,7 +117,7 @@
 
 - **voice**：prebuilt 名稱，omniapi 預設 `Kore`；完整清單在 Google 的 speech-generation 文件頁。
 - **`language_code`**：可強制輸出語言（ISO-639-1）。
-- ⚠️ **只吐 PCM**：官方文件說是 24 kHz / 16-bit / mono。omniapi 會包成 **WAV** 回傳（你要 `pcm_*` 格式才給裸 PCM）——所以 `output_format` 填 mp3 也一樣拿到 WAV。
+- ⚠️ **原始輸出只有 PCM**（官方文件說是 24 kHz / 16-bit / mono）：`output_format` 填 `mp3_*` 且機器上有 `ffmpeg` 時 omniapi 轉成 MP3，沒有 ffmpeg 就包成 **WAV**；填 `wav` 給 WAV、填 `pcm_*` 給裸 PCM。
   - 回應的 mime type（如 `audio/L16;codec=pcm;rate=24000`）若有標 rate，omniapi 以它為準，常數只是 fallback。**這組取樣率常數未對真實回應實測過**。
 - 取音訊：`candidates[0].content.parts[*].inline_data.data` 已經是 **bytes，別再 base64 decode**。
 
@@ -138,12 +138,12 @@
 最具情緒表現                 → eleven_v3（不適合即時，字數保守 3000）
 即時對話又要有情緒           → eleven_v3_conversational
 長文有聲書                   → eleven_multilingual_v2
-便宜的 Gemini 配音           → gemini-3.8-flash-lite-tts（注意回 WAV）
+便宜的 Gemini 配音           → gemini-3.8-flash-lite-tts（沒有 ffmpeg 時回 WAV）
 ```
 - **雷 1**：OpenAI 的 `instructions`（語氣）**只對 gpt-4o-mini-tts 有效**，且該模型**忽略 speed**；反之 tts-1/hd 吃 speed、不吃 instructions。
 - **雷 2**：OpenAI 字數兩層限制（API 4096 字元 vs gpt-4o-mini-tts 2000 tokens）——切文字以 token 保守。
 - **雷 3**：ElevenLabs `output_format` 是 **query 參數**；`eleven_v3` 官方字數上限文件自相矛盾（3000/5000），保守取 3000。
-- **雷 4**：**Gemini TTS 不管你要什麼格式都回 WAV**，要接後製管線先預期這件事。
+- **雷 4**：**Gemini TTS 的格式看機器上有沒有 ffmpeg**（有：MP3；沒有：WAV），要接後製管線先看回傳的格式。
 - **雷 5**：`eleven_turbo_v2_5` 與 `gemini-3.1-flash-tts-preview` 已 deprecated 但**沒有關閉日**——會記 warning，不會擋，新工作別選它們。
 
 ## 來源

@@ -73,7 +73,7 @@ export function Permissions(props: {
                 <b>會從 Anthropic API 餘額扣款</b>，按 token 計費。
               </div>
             ) : (
-              <div className="dp-note">用主人的 Claude 訂閱額度，不另外扣款。</div>
+              <div className="dp-note">用你的 Claude 訂閱額度，不另外扣款。</div>
             )}
           </div>
         </div>

@@ -259,9 +259,9 @@ def describe(menu: Menu) -> str:
     """The tool description: what it does, that nothing is spent until the
     owner presses the button, and the menu with prices."""
     lines = [
-        "向主人提議生成一張圖片或一段語音。呼叫後不會立刻生成：對話裡會出現一張提議卡，"
-        "主人按「生成」才會真的做（才花錢），也可以改提示詞或模型、或說不用了。"
-        "主人想要圖片或語音、或明顯用得上時才提議；一次回覆最多 3 個。結果會在之後的工具訊息裡告訴你。",
+        "向使用者提議生成一張圖片或一段語音。呼叫後不會立刻生成：對話裡會出現一張提議卡，"
+        "使用者按「生成」才會真的做（才花錢），也可以改提示詞或模型、或說不用了。"
+        "使用者想要圖片或語音、或明顯用得上時才提議；一次回覆最多 3 個。結果會在之後的工具訊息裡告訴你。",
     ]
     defaults = []
     for kind in GENERATION_KINDS:
@@ -354,20 +354,20 @@ class ProposeGeneration(ChatTool):
         state = record.get("state")
         what = _KIND_NAME.get(record.get("kind") or "", "作品")
         if state == "generating":
-            return f"主人按下了生成，{what}正在用 {record.get('model') or '預設模型'} 生成中，還沒好。"
+            return f"使用者按下了生成，{what}正在用 {record.get('model') or '預設模型'} 生成中，還沒好。"
         if state == "done":
             art = record.get("artifact") or {}
             return (f"{what}做好了：作品 {art.get('id')}（{art.get('name') or '檔案'}），模型 {record.get('model') or '—'}。"
-                    "主人在對話裡與作品牆都看得到它。")
+                    "使用者在對話裡與作品牆都看得到它。")
         if state == "declined":
             if record.get("auto"):
-                return "主人沒有回應這個提議就繼續對話了，視為不用了，沒有生成。"
-            return "主人說不用了，沒有生成。"
+                return "使用者沒有回應這個提議就繼續對話了，視為不用了，沒有生成。"
+            return "使用者說不用了，沒有生成。"
         if state == "failed":
             return f"生成失敗（{record.get('error_kind') or 'other'}）：{str(record.get('error') or '原因不明')[:300]}"
         if state == "cancelled":
-            return "主人中止了生成，沒有作品。"
-        return "主人還沒有決定。"
+            return "使用者中止了生成，沒有作品。"
+        return "使用者還沒有決定。"
 
     async def request(self, record: dict[str, Any], env: ToolEnv, *, prompt: Optional[str] = None,
                       model: Optional[str] = None, params: Optional[dict[str, Any]] = None) -> tuple[str, dict[str, Any]]:

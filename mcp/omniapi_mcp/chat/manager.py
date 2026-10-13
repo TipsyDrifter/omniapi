@@ -142,7 +142,7 @@ MAX_ATTACHMENTS = 10
 _WORK_ATTACH_KIND = {kind: {"image": "image", "audio": "audio", "text": "file", "video": None}[media]
                      for kind, media in _MOD.MEDIA_OF.items()}
 #: what the model reads for a proposal made in a round that also read files (決策記錄 1.2-M5-g)
-DEFERRED_NOTE = "（提議已記下：這次回覆結束後主人會看到提議卡，結果之後的工具訊息會告訴你；不要重複提議。）"
+DEFERRED_NOTE = "（提議已記下：這次回覆結束後使用者會看到提議卡，結果之後的工具訊息會告訴你；不要重複提議。）"
 
 
 def att_kind(a: dict[str, Any]) -> str:

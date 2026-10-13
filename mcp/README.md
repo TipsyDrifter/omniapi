@@ -251,7 +251,6 @@ Not supported in this version: video extension, video editing, lip-sync, upscali
 - `generated-images://{image_id}` - Access specific generated images
 - `image-history://recent` - Browse recent generation history
 - `storage-stats://overview` - Storage usage and statistics
-- `model-info://{model_id}` - Model capabilities and pricing for any configured image model (e.g. `model-info://gpt-image-2`)
 
 ## Prompt Templates
 

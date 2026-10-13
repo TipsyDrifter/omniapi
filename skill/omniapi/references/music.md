@@ -3,9 +3,9 @@
 > 入口在 [`../SKILL.md`](../SKILL.md) §6。本檔是音樂能力的完整參數、依賴鏈、輪詢機制、定價與雷區。
 > **模型名單查證日：2026-09-25**（kie.ai 文件 + ElevenLabs compose reference）。
 
-## §0 對接現況（2026-09-25，v1.0.0-alpha.1）
+## §0 對接現況（2026-09-25 查證）
 
-- **工具面收斂**：原本 13 個音樂工具已合併為 **5 個**——`generate_music`、`edit_music(action)`、`music_lyrics(action)`、`music_utility(action)`、`compose_music(action)`。功能一個沒少，只是改由 `action` 分流。
+- 音樂共 5 個工具：`generate_music` 與四個以 `action` 分流的工具。
 - **Suno via kie.ai** ✅ 端到端實測通過（生成 / 寫詞 / WAV / 字級時間軸實測綠燈；其餘 action 走同一組已驗證的引擎分支）。
 - **ElevenLabs Music** 🟡 code 正確、送達 API 正確，但**免費版回 402**，要用需付費方案。`compose_music(action="compose")` 的 multipart 解析待付費帳號實測。
 
@@ -16,7 +16,7 @@
 | **Suno**（via kie.ai 聚合平台） | 內部輪詢到完成（對呼叫端是一次呼叫） | `PROVIDERS__KIE__API_KEY` | 一句話→完整歌、**V6 家族**、免洗商用、pay-as-you-go |
 | **ElevenLabs Music** | 同步（直接回 audio bytes） | `PROVIDERS__ELEVENLABS__API_KEY`（**付費方案**） | composition plan 精控編曲、最長 10 分鐘、music_v1/v2/v2_5、$0.15/分鐘 |
 
-路由：`generate_music` 依 `model` 值選後端（`V*`→Suno；`music_v*`→ElevenLabs）；不傳 model 用第一個配置好的後端。`edit_music`／`music_lyrics`／`music_utility` 一律走 kie.ai，`compose_music` 一律走 ElevenLabs。
+路由：`generate_music` 依 `model` 值選後端（`V*`→Suno；`music_v*`→ElevenLabs；`lyria-*`→Google Lyria）；不傳 model 用設定頁的音樂預設，沒設就用第一個配置好的後端。`edit_music`／`music_lyrics`／`music_utility` 一律走 kie.ai，`compose_music` 一律走 ElevenLabs。
 
 ## 模型名單（2026-09-25）
 
@@ -26,9 +26,11 @@
 | `V6_MINI` | kie.ai | current（快 / 輕量） |
 | `V6_WILD` | kie.ai | current（實驗性） |
 | `V4`、`V4_5`、`V4_5PLUS`、`V4_5ALL`、`V5`、`V5_5` | kie.ai | ⚠️ **retired**（kie.ai 標 Discontinued）。仍可送、只記 warning，隨時可能失效——舊 task id 與存檔 preset 才留著 |
-| `music_v1` ⭐ElevenLabs 預設 | ElevenLabs | current |
+| `music_v1` | ElevenLabs | ⚠️ deprecated（未公布關閉日） |
 | `music_v2` | ElevenLabs | current |
-| `music_v2_5` | ElevenLabs | current（最高品質） |
+| `music_v2_5` ⭐ElevenLabs 預設 | ElevenLabs | current（最高品質） |
+| `lyria-3.5` | Google（Gemini key，付費層） | current（完整歌曲，$0.08／首） |
+| `lyria-3-clip-preview` | Google（Gemini key，付費層） | current（固定 30 秒，$0.04／首） |
 
 > 📡 名單是即時的。跑 `list_available_models(modality="music")` 看現況；加 `include_retired=true` 才會列出已下架的 Suno 舊版。
 
@@ -46,7 +48,7 @@
 | `vocal_gender` | Suno custom | `m` / `f` |
 | `negative_tags` | Suno | 排除的曲風，如 `'heavy metal, distortion'` |
 
-回傳：`audio_path`、`audio_url`、`provider`、`model`、`title`、`duration`、`bytes`，**Suno 另回 `audio_id` 供串接**。存 `storage/music/<date>/`。
+回傳：`audio_path`、`audio_url`、`provider`、`model`、`title`、`duration`、`bytes`，**Suno 另回 `audio_id`（+`audio_ids`）供串接**。存 `storage/music/<date>/`。
 
 **Suno 一次給兩首**（generate／extend／cover／upload_extend／add_instrumental／add_vocals 都是）：兩首都存、都進作品庫。頂層欄位＝第一首（跟以前一樣）；`tracks` 列出每一首 `{audio_path, audio_id, title, duration, bytes}`（第一首也在裡面），`track_count` 是首數；第二首檔名是第一首加 `_2`。要延長／轉 WAV／做 MV 哪一首，就帶那一首的 `audio_id`（`task_id` 兩首共用）。某一首下載失敗時，那一筆只有 `audio_id`＋`error`，不影響另一首。費用是整次生成的總額，作品庫裡兩首平分。`settings.json` 設 `"music": {"suno_all_tracks": false}` 可改回只收第一首。
 
@@ -122,20 +124,3 @@ generate_music ──► audio_id + task_id
 - ⚠️ **record-info 欄位是 camelCase**（`audioUrl`），callback payload 才是 snake_case（`audio_url`）——工具兩者都容錯。
 - ⚠️ **retired 的 Suno 舊 id 仍會被接受**（只記 warning），所以「沒報錯」不代表「還能用」。新工作一律指定 V6 家族。
 - 生成產物保留 14 天（kie.ai）。
-
-## 9️⃣ 舊工具名對照（2026-09-25 前的呼叫端）
-
-| 舊工具 | 現在怎麼叫 |
-|---|---|
-| 延長既有曲 | `edit_music(action="extend")` |
-| 翻唱上傳檔 | `edit_music(action="cover")` |
-| 延長上傳檔 | `edit_music(action="upload_extend")` |
-| 加伴奏 | `edit_music(action="add_instrumental")` |
-| 加人聲 | `edit_music(action="add_vocals")` |
-| 人聲分離 | `edit_music(action="separate_vocals")` |
-| AI 寫歌詞 | `music_lyrics(action="generate")` |
-| 字級時間軸歌詞 | `music_lyrics(action="timestamped")` |
-| 轉 WAV | `music_utility(action="convert_to_wav")` |
-| 生成 MV | `music_utility(action="create_music_video")` |
-| 產編曲藍圖 | `compose_music(action="create_plan")` |
-| 依藍圖生成 | `compose_music(action="compose")` |

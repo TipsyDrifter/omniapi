@@ -263,7 +263,7 @@ class EchoTextProvider(TextProvider):
             return (*_reply(messages, model), [])
         reads = _read_calls(messages, tools)
         if reads:  # first round of a file read: say so briefly and call the tool
-            return "我先用 read_file 讀一下檔案。", "（回音模型的思考）主人要我讀檔，先讀開頭。", reads
+            return "我先用 read_file 讀一下檔案。", "（回音模型的思考）使用者要我讀檔，先讀開頭。", reads
         calls = _proposals(messages, tools)
         return (*_reply(messages, model, len(calls)), calls)
 

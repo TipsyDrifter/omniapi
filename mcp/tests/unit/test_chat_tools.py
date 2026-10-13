@@ -303,7 +303,7 @@ _HISTORY = [
     {"role": "system", "content": "sys"},
     {"role": "user", "content": "畫貓"},
     {"role": "assistant", "content": None, "tool_calls": [_call("toolu_1")], "_anthropic_thinking": [{"type": "thinking", "thinking": "t", "signature": "S"}]},
-    {"role": "tool", "tool_call_id": "toolu_1", "content": "主人說不用了，沒有生成。"},
+    {"role": "tool", "tool_call_id": "toolu_1", "content": "使用者說不用了，沒有生成。"},
     {"role": "user", "content": "那改畫狗"},
 ]
 
@@ -314,7 +314,7 @@ def test_openai_family_gets_tool_calls_and_tool_messages_without_private_keys():
     msgs = req["messages"]
     assert msgs[0]["role"] == "developer"
     assert msgs[2] == {"role": "assistant", "content": None, "tool_calls": [_call("toolu_1")]}
-    assert msgs[3] == {"role": "tool", "tool_call_id": "toolu_1", "content": "主人說不用了，沒有生成。"}
+    assert msgs[3] == {"role": "tool", "tool_call_id": "toolu_1", "content": "使用者說不用了，沒有生成。"}
     assert all(not k.startswith("_") for m in msgs for k in m)
 
 
@@ -326,7 +326,7 @@ def test_anthropic_gets_tool_use_after_its_signed_thinking_and_the_result_ahead_
     assert asst["content"] == [{"type": "thinking", "thinking": "t", "signature": "S"},
                                {"type": "tool_use", "id": "toolu_1", "name": "propose_generation", "input": {"kind": "image", "prompt": "貓"}}]
     assert user["role"] == "user" and user["content"] == [
-        {"type": "tool_result", "tool_use_id": "toolu_1", "content": "主人說不用了，沒有生成。"}, {"type": "text", "text": "那改畫狗"}]
+        {"type": "tool_result", "tool_use_id": "toolu_1", "content": "使用者說不用了，沒有生成。"}, {"type": "text", "text": "那改畫狗"}]
 
 
 # --------------------------------------------------------------------------- the tools flag
@@ -667,7 +667,7 @@ async def test_a_turn_without_tools_reads_calls_and_results_as_text(store, dev, 
     history = tool.seen[-1][0]
     assert all(m["role"] != "tool" and not m.get("tool_calls") for m in history)
     asst = [m for m in history if m["role"] == "assistant"][0]
-    assert "propose_generation" in asst["content"] and "主人說不用了" in asst["content"]
+    assert "propose_generation" in asst["content"] and "使用者說不用了" in asst["content"]
     await mgr.close()
 
 

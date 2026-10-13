@@ -390,6 +390,59 @@ async def test_anthropic_callers_own_thinking_dict_is_sent_as_given():
     assert "extra_body" not in sent
 
 
+async def test_anthropic_thinking_true_from_complete_text_turns_into_adaptive():
+    """complete_text(thinking=true) arrives as {type: enabled} with no budget: a 400 on every Claude."""
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete("claude-opus-5-5", [{"role": "user", "content": "go"}], thinking={"type": "enabled"})
+    assert sent["thinking"] == {"type": "adaptive"}
+    assert "extra_body" not in sent  # no effort asked: the model's own default depth
+
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete(
+        "claude-opus-5-5", [{"role": "user", "content": "go"}], thinking={"type": "enabled"}, reasoning_effort="high"
+    )
+    assert sent["thinking"] == {"type": "adaptive"}
+    assert sent["extra_body"] == {"output_config": {"effort": "high"}}
+
+
+async def test_anthropic_thinking_true_on_old_model_gets_a_budget():
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete("claude-haiku-4-5-20251001", [{"role": "user", "content": "go"}], thinking={"type": "enabled"})
+    assert sent["thinking"] == {"type": "enabled", "budget_tokens": AnthropicTextProvider.THINKING_BUDGETS["medium"]}
+
+
+async def test_anthropic_thinking_false_is_dropped_where_thinking_is_always_on():
+    p, sent = _anthropic_on_fake_wire()
+    result = await p.complete("claude-opus-5-5", [{"role": "user", "content": "go"}], thinking={"type": "disabled"})
+    assert "thinking" not in sent
+    assert any("disabled" in w for w in result.metadata["warnings"])
+
+    p, sent = _anthropic_on_fake_wire()
+    await p.complete("claude-opus-5", [{"role": "user", "content": "go"}], thinking={"type": "disabled"})
+    assert sent["thinking"] == {"type": "disabled"}  # Opus 5 can still turn it off
+
+
+@pytest.mark.parametrize(
+    "model, rejects",
+    [
+        ("claude-fable-5-1", True),
+        ("claude-fable-5", True),
+        ("claude-mythos-5-1", True),
+        ("claude-opus-5-5", True),
+        ("claude-sonnet-5-5", True),
+        ("claude-opus-5", False),
+        ("claude-sonnet-5", False),
+        ("claude-opus-4-8", False),
+        ("claude-haiku-4-5-20251001", False),
+        ("claude-something-new", True),  # unreadable id -> newest rules
+    ],
+)
+def test_claude_rejects_disabled_thinking_rule(model, rejects):
+    from omniapi_mcp.capabilities.text import claude_rejects_disabled_thinking
+
+    assert claude_rejects_disabled_thinking(model) is rejects
+
+
 @pytest.mark.parametrize(
     "model, shape",
     [

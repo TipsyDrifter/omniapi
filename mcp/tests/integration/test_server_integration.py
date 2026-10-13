@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from omniapi_mcp.resources.image_resources import ImageResourceManager
-from omniapi_mcp.resources.model_registry import model_registry
 from omniapi_mcp.resources.prompt_templates import PromptTemplateResourceManager
 
 
@@ -124,77 +123,6 @@ class TestImageResourceManager:
         assert data["total_images"] >= 1
         assert isinstance(data["storage_usage_mb"], (int, float))
         assert data["storage_usage_mb"] >= 0
-
-
-class TestModelRegistry:
-    """Test model registry functionality."""
-
-    @pytest.mark.asyncio
-    async def test_list_models(self):
-        """Test listing available models."""
-        models = await model_registry.list_models()
-
-        assert isinstance(models, list)
-        assert len(models) > 0
-        assert "gpt-image-1" in models
-        assert "gpt-image-1.5" in models
-        assert "gpt-image-2" in models
-
-    @pytest.mark.asyncio
-    async def test_get_model_info(self):
-        """Test getting model information."""
-        model_info = await model_registry.get_model_info("gpt-image-1")
-
-        assert model_info is not None
-        assert model_info.model_id == "gpt-image-1"
-        assert model_info.name
-        assert model_info.version
-        assert model_info.capabilities
-        assert isinstance(model_info.capabilities, list)
-
-    @pytest.mark.asyncio
-    async def test_get_model_info_gpt_image_2(self):
-        """Test getting gpt-image-2 model info including 4K size support."""
-        model_info = await model_registry.get_model_info("gpt-image-2")
-
-        assert model_info is not None
-        assert model_info.model_id == "gpt-image-2"
-        assert any("3840x2160" in size for size in model_info.size_options)
-
-    @pytest.mark.asyncio
-    async def test_get_model_info_nonexistent(self):
-        """Test getting info for non-existent model."""
-        model_info = await model_registry.get_model_info("nonexistent-model")
-        assert model_info is None
-
-    @pytest.mark.asyncio
-    async def test_get_model_documentation(self):
-        """Test getting model documentation."""
-        doc = await model_registry.get_model_documentation("gpt-image-1")
-
-        assert isinstance(doc, str)
-        assert len(doc) > 0
-        assert "gpt-image-1" in doc.lower()
-
-        # Should contain markdown formatting
-        assert "#" in doc  # Headers
-        assert "##" in doc or "###" in doc  # Subheaders
-
-    @pytest.mark.asyncio
-    async def test_get_model_documentation_with_examples(self):
-        """Test that model documentation includes usage examples."""
-        doc = await model_registry.get_model_documentation("gpt-image-1")
-
-        # Should contain example usage
-        assert "example" in doc.lower() or "usage" in doc.lower()
-
-        # Should contain pricing information
-        assert (
-            "price" in doc.lower() or "cost" in doc.lower() or "pricing" in doc.lower()
-        )
-
-        # Should contain rate limit information
-        assert "rate" in doc.lower() or "limit" in doc.lower()
 
 
 class TestPromptTemplateResourceManager:
@@ -431,10 +359,8 @@ class TestServerIntegration:
         """Test server resource integration."""
         from omniapi_mcp.server import (
             get_generated_image,
-            get_model_info,
             get_recent_images,
             get_storage_stats,
-            list_models,
         )
 
         # Mock MCP context
@@ -467,18 +393,6 @@ class TestServerIntegration:
         result = await get_storage_stats()
         assert result == '{"total_images": 0}'
         mock_resource_manager.get_storage_stats.assert_called_once()
-
-        # Test model info (no mock needed as it uses global registry)
-        result = await get_model_info(model_id="gpt-image-1")
-        assert isinstance(result, str)
-        assert len(result) > 0
-
-        # Test list models
-        result = await list_models()
-        assert isinstance(result, str)
-        data = json.loads(result)
-        assert "models" in data
-        assert "total" in data
 
     @pytest.mark.asyncio
     async def test_end_to_end_workflow(self, mock_settings, sample_image_bytes):

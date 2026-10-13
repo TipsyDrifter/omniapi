@@ -745,6 +745,28 @@ def claude_rejects_forced_tool_choice(model: str) -> bool:
     return first is not None and version >= first
 
 
+# --- thinking that cannot be turned off -------------------------------------
+# Same source as the shape table: Fable 5/5.1, Mythos, Opus 5.5 and Sonnet 5.5
+# answer ``thinking: {type: "disabled"}`` with a 400 (thinking is always on).
+# Opus 5, Sonnet 5 and 4.x still accept it. Haiku is GUESSED to follow the line.
+_THINKING_ALWAYS_ON_FROM = {
+    "fable": (5, 0),
+    "mythos": (5, 0),
+    "opus": (5, 5),
+    "sonnet": (5, 5),
+    "haiku": (5, 0),  # guess: no Haiku after 4.5 exists yet
+}
+
+
+def claude_rejects_disabled_thinking(model: str) -> bool:
+    fv = claude_family_version(model)
+    if fv is None:
+        return True
+    family, version = fv
+    first = _THINKING_ALWAYS_ON_FROM.get(family)
+    return first is not None and version >= first
+
+
 def claude_thinking_shape(model: str) -> str:
     """The one place that decides how thinking is asked for on a Claude model
     (see the table above)."""
@@ -797,6 +819,11 @@ class AnthropicTextProvider(TextProvider):
     ADAPTIVE_DEFAULT_MAX_TOKENS = 16000
     # reasoning_effort → extended-thinking budget (tokens); pre-4.6 models only
     THINKING_BUDGETS = {"low": 1024, "medium": 4096, "high": 16000, "xhigh": 32000, "max": 32000}
+    # thinking on without a reasoning_effort: pre-4.6 models get the DEFAULT_EFFORT
+    # budget; adaptive models get MODEL_DEFAULT_EFFORT, an internal marker for
+    # "adaptive, no output_config.effort" (the model's own default depth)
+    DEFAULT_EFFORT = "medium"
+    MODEL_DEFAULT_EFFORT = "model-default"
 
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
@@ -1000,9 +1027,23 @@ class AnthropicTextProvider(TextProvider):
         output_config: dict[str, Any] = {}
         thinking = params.get("thinking")
         effort = params.get("reasoning_effort")
+        if effort == "none":
+            effort = None
+        if thinking == {"type": "enabled"}:
+            # complete_text(thinking=true) — DeepSeek's switch. Claude needs
+            # budget_tokens with "enabled" (and 4.7+ refuse it outright), so it
+            # means "think": at the caller's reasoning_effort, else the model's
+            # default depth (a medium budget on pre-4.6 models).
+            thinking = None
+            effort = effort or (self.DEFAULT_EFFORT if shape == CLAUDE_SHAPE_BUDGET else self.MODEL_DEFAULT_EFFORT)
+        elif thinking == {"type": "disabled"} and claude_rejects_disabled_thinking(model):
+            note = f"{model} always thinks and rejects thinking=disabled (HTTP 400); sent without it."
+            logger.warning(note)
+            warnings.append(note)
+            thinking = None
         if isinstance(thinking, dict) and thinking.get("type"):
             req["thinking"] = thinking  # caller's own thinking config: sent as given
-        elif effort and effort != "none":
+        elif effort:
             if shape == CLAUDE_SHAPE_BUDGET:
                 budget = self.THINKING_BUDGETS.get(effort, self.THINKING_BUDGETS["medium"])
                 req["thinking"] = {"type": "enabled", "budget_tokens": budget}
@@ -1018,7 +1059,7 @@ class AnthropicTextProvider(TextProvider):
                 level = claude_effort(effort, shape)
                 if level:
                     output_config["effort"] = level
-                else:
+                elif effort != self.MODEL_DEFAULT_EFFORT:
                     logger.warning("reasoning_effort=%r has no Claude effort level; %s runs at its default effort",
                                    effort, model)
                 if not params.get("max_completion_tokens"):
